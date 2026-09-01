@@ -155,10 +155,33 @@ export interface JscpdScanFailureResult {
   readonly message: string;
 }
 
+export type JscpdLastCheck =
+  | { readonly state: "never" }
+  | { readonly state: "clean" }
+  | { readonly state: "findings"; readonly clones: number }
+  | { readonly state: "cancelled" }
+  | {
+      readonly state: "failed";
+      readonly reason: JscpdScanFailureReason | JscpdUnavailableReason;
+    };
+
+export interface JscpdStatusResult {
+  readonly status: "status";
+  readonly message: string;
+  readonly terminalMessage: string;
+  readonly mode: "enabled" | "disabled";
+  readonly configSource: "defaults" | "project" | "local";
+  readonly configSources: readonly ("defaults" | "project" | "local")[];
+  readonly configDiagnostics: number;
+  readonly capability: JscpdCapabilityResult;
+  readonly lastCheck: JscpdLastCheck;
+}
+
 export type JscpdExecutionResult =
   | JscpdCompletedResult
   | JscpdUnavailableResult
-  | JscpdScanFailureResult;
+  | JscpdScanFailureResult
+  | JscpdStatusResult;
 
 export interface JscpdCommandExecutor {
   execute(

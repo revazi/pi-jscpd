@@ -14,6 +14,12 @@ export const jscpdCommandRegistry = [
     argumentHint: "[target ...]",
     maxArguments: 32,
   },
+  {
+    name: "status",
+    description: "Show binary, configuration, and last-check status",
+    argumentHint: "",
+    maxArguments: 0,
+  },
 ] as const satisfies readonly JscpdCommandSpec[];
 
 type RegisteredJscpdCommandSpec = (typeof jscpdCommandRegistry)[number];
@@ -25,15 +31,17 @@ const commandSpecsByName = new Map<JscpdCommand, RegisteredJscpdCommandSpec>(
   jscpdCommandRegistry.map((spec) => [spec.name, spec]),
 );
 
-export const jscpdArgumentHint = `[${jscpdCommandRegistry
-  .map(({ name, argumentHint }) => `${name} ${argumentHint}`)
-  .join("|")}]`;
+export const jscpdArgumentHint = `[${jscpdCommandRegistry.map(commandUsage).join("|")}]`;
 
-const jscpdCommandCompletions = jscpdCommandRegistry.map(({ name, description, argumentHint }) => ({
-  value: name,
-  label: `${name} ${argumentHint}`,
-  description,
+const jscpdCommandCompletions = jscpdCommandRegistry.map((spec) => ({
+  value: spec.name,
+  label: commandUsage(spec),
+  description: spec.description,
 }));
+
+function commandUsage(spec: RegisteredJscpdCommandSpec): string {
+  return spec.argumentHint ? `${spec.name} ${spec.argumentHint}` : spec.name;
+}
 
 export function getJscpdCommandSpec(command: string): RegisteredJscpdCommandSpec | undefined {
   return commandSpecsByName.get(command as JscpdCommand);
