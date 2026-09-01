@@ -24,14 +24,27 @@ describe("jscpd command registry", () => {
         argumentHint: "[target ...]",
         maxArguments: 32,
       },
+      {
+        name: "status",
+        description: "Show binary, configuration, and last-check status",
+        argumentHint: "",
+        maxArguments: 0,
+      },
     ]);
-    expect(jscpdCommandNames).toEqual(["scan"]);
-    expect(jscpdArgumentHint).toBe("[scan [target ...]]");
+    expect(jscpdCommandNames).toEqual(["scan", "status"]);
+    expect(jscpdArgumentHint).toBe("[scan [target ...]|status]");
     expect(getJscpdArgumentCompletions("sc")).toEqual([
       {
         value: "scan",
         label: "scan [target ...]",
         description: "Request an explicit duplication scan",
+      },
+    ]);
+    expect(getJscpdArgumentCompletions("st")).toEqual([
+      {
+        value: "status",
+        label: "status",
+        description: "Show binary, configuration, and last-check status",
       },
     ]);
     expect(getJscpdArgumentCompletions("scan ")).toBeNull();
@@ -87,20 +100,30 @@ describe("jscpd command parsing", () => {
     });
   });
 
-  it("distinguishes the reserved bare command from explicit scan", () => {
+  it("distinguishes bare, scan, and argument-free status commands", () => {
     expect(parseJscpdSlashArgs("   ")).toEqual({ ok: true, kind: "bare" });
     expect(parseJscpdSlashArgs("scan")).toEqual({
       ok: true,
       kind: "command",
       invocation: { command: "scan", args: [] },
     });
+    expect(parseJscpdSlashArgs("status")).toEqual({
+      ok: true,
+      kind: "command",
+      invocation: { command: "status", args: [] },
+    });
   });
 
   it.each([
     {
       name: "an unsupported command",
-      result: parseJscpdSlashArgs("status"),
+      result: parseJscpdSlashArgs("changed"),
       code: "unsupported-command",
+    },
+    {
+      name: "arguments supplied to status",
+      result: parseJscpdSlashArgs("status extra"),
+      code: "too-many-arguments",
     },
     {
       name: "an unclosed quote",
@@ -174,10 +197,19 @@ describe("jscpd command dispatch", () => {
     expect(result).toEqual(unavailableResult);
   });
 
-  it("does not execute unsupported input", async () => {
+  it("passes argument-free status through the same execution boundary", async () => {
     const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => unavailableResult);
 
     const result = await dispatchJscpdCommand("status", [], { cwd: "/project" }, { execute });
+
+    expect(execute).toHaveBeenCalledWith({ command: "status", args: [] }, { cwd: "/project" });
+    expect(result).toEqual(unavailableResult);
+  });
+
+  it("does not execute unsupported input", async () => {
+    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => unavailableResult);
+
+    const result = await dispatchJscpdCommand("changed", [], { cwd: "/project" }, { execute });
 
     expect(execute).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "invalid", reason: "unsupported-command" });

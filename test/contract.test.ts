@@ -18,7 +18,7 @@ describe("jscpd_run contract", () => {
     expect(Object.keys(jscpdRunParams.properties)).toEqual(["command", "args"]);
   });
 
-  it("accepts scan with optional path-scope tokens", () => {
+  it("accepts scan scopes and argument-free status", () => {
     expect(Value.Check(jscpdRunParams, { command: "scan" })).toBe(true);
     expect(
       Value.Check(jscpdRunParams, {
@@ -26,10 +26,11 @@ describe("jscpd_run contract", () => {
         args: ["src/with spaces", "lib/example.ts"],
       }),
     ).toBe(true);
+    expect(Value.Check(jscpdRunParams, { command: "status" })).toBe(true);
   });
 
   it.each([
-    { name: "unsupported command", value: { command: "status" } },
+    { name: "unsupported command", value: { command: "changed" } },
     { name: "missing command", value: { args: [] } },
     { name: "string args", value: { command: "scan", args: "src" } },
     { name: "empty token", value: { command: "scan", args: [""] } },

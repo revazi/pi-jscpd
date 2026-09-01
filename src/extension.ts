@@ -11,6 +11,11 @@ import { createJscpdService, type JscpdService } from "./jscpd.js";
 import { parseJscpdSlashArgs } from "./parser.js";
 import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
 import { createJscpdScanExecutor } from "./scan.js";
+import {
+  createJscpdStatusAwareExecutor,
+  createJscpdStatusService,
+  type JscpdStatusService,
+} from "./status.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
 
 const BARE_COMMAND_MESSAGE =
@@ -35,13 +40,16 @@ export function registerJscpdExtension(
 ): void {
   let capabilityService = options.capabilityService;
   let executor = options.executor;
+  let statusService: JscpdStatusService | undefined;
   const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService();
   if (!executor) {
     capabilityService ??= createJscpdCapabilityService();
-    executor = createJscpdScanExecutor(capabilityService, adapterService, {
+    const scanExecutor = createJscpdScanExecutor(capabilityService, adapterService, {
       config: () => configService.current().config,
     });
+    statusService = createJscpdStatusService(capabilityService, configService);
+    executor = createJscpdStatusAwareExecutor(scanExecutor, statusService);
   }
 
   pi.registerTool(createJscpdToolDefinition(executor));
@@ -50,6 +58,7 @@ export function registerJscpdExtension(
   pi.on("session_start", async (_event, ctx) => {
     capabilityService?.invalidate();
     adapterService.invalidate();
+    statusService?.reset();
     const loaded = await configService.load({
       cwd: ctx.cwd,
       trusted: ctx.isProjectTrusted(),
@@ -92,7 +101,7 @@ export function createJscpdSlashCommandDefinition(
   executor: JscpdCommandExecutor,
 ): JscpdSlashCommandDefinition {
   return {
-    description: "Request an explicit jscpd scan. Bare /jscpd is reserved for a future overlay.",
+    description: "Run or inspect jscpd. Bare /jscpd is reserved for a future overlay.",
     argumentHint: jscpdArgumentHint,
     getArgumentCompletions: getJscpdArgumentCompletions,
     async handler(rawArgs, ctx) {
@@ -112,9 +121,12 @@ export function createJscpdSlashCommandDefinition(
         { cwd: ctx.cwd, signal: ctx.signal },
         executor,
       );
-      const message = result.status === "completed" ? result.terminalMessage : result.message;
+      const message =
+        result.status === "completed" || result.status === "status"
+          ? result.terminalMessage
+          : result.message;
       const level =
-        result.status === "completed"
+        result.status === "completed" || result.status === "status"
           ? "info"
           : result.status === "invalid" || result.status === "error"
             ? "error"

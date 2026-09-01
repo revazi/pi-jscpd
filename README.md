@@ -13,10 +13,11 @@ rescan flow.
 
 ## Project status
 
-**The first usable read-only slice is implemented: explicit project and path-scoped scans.**
+**Explicit scans and bounded status reporting are implemented.**
 
-The extension registers `/jscpd scan` and the `jscpd_run` agent tool from one
-typed command registry. On the first explicit scan request in a project/session,
+The extension registers `/jscpd scan`, `/jscpd status`, and the `jscpd_run` agent
+tool from one typed command registry. On the first explicit scan or status
+request in a project/session,
 it checks `jscpd --version` and then `cpd --version` only when `jscpd` is missing.
 The shell-free probe is time- and output-bounded, requires jscpd major version 5,
 and returns normalized missing, incompatible, cancelled, timeout, or failure
@@ -47,6 +48,9 @@ Trusted project and local extension settings are now loaded strictly at session
 start. They can disable scanning, set the bounded per-run timeout, and cap
 presented findings. Invalid sources are ignored atomically with a concise
 warning; untrusted projects are never inspected for extension configuration.
+`/jscpd status` reports the effective source and mode, the bounded binary name
+and version state, and the session's latest clean, findings, cancelled, failed,
+or never-run check without exposing child output or environment content.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
@@ -148,8 +152,7 @@ pi
 
 The extension will use an existing `jscpd` or `cpd` v5 binary on `PATH`. It will
 not download or install a binary. If neither command is available, Pi continues
-normally and an explicit scan request explains the missing prerequisite. A
-dedicated `/jscpd status` subcommand is planned but is not registered yet.
+normally; explicit scan and status requests explain the missing prerequisite.
 
 The implemented public surface is deliberately small:
 
@@ -157,7 +160,8 @@ The implemented public surface is deliberately small:
 /jscpd                       report that the future overlay is reserved; do not scan
 /jscpd scan                  scan the project
 /jscpd scan src "path here"  scan existing in-project files or directories
-jscpd_run                    use command `scan` and optional path-scope `args`
+/jscpd status                show binary, config, mode, and last-check state
+jscpd_run                    use `scan` with optional paths, or `status`
 ```
 
 The tool schema accepts only the `scan` command, an optional bounded string array,
@@ -166,7 +170,7 @@ that look like options cannot override the extension-owned reporter or output
 path; they are accepted only when they identify a real in-project file or
 directory and are passed after `--`. Neither surface constructs a shell command.
 
-Future `changed`, `status`, `off`, and `help` subcommands are not registered yet.
+Future `changed`, `off`, and `help` subcommands are not registered yet.
 The bare `/jscpd` command remains reserved for an interactive overlay; its exact
 views and controls will be agreed in
 [the overlay interaction issue](https://github.com/revazi/pi-jscpd/issues/25)
@@ -210,6 +214,7 @@ users do not receive duplicate findings.
 │   ├── jscpd.ts           serialized temporary-report adapter
 │   ├── jscpd-report.ts    strict v5 JSON validation and normalization
 │   ├── scan.ts            scope validation and end-to-end scan orchestration
+│   ├── status.ts          capability, config, and last-check status state
 │   └── presentation.ts    bounded model and terminal summaries
 ├── test/                  package and command-contract tests
 ├── biome.json             formatting and lint policy
@@ -248,9 +253,9 @@ The command contract, lazy jscpd v5 capability probe, bounded process/report
 lifecycle, strict JSON validation, scope-safe scan orchestration, and concise
 presentation and trusted extension configuration are in place. Tests use a
 deterministic fake executable and do not download anything; a real installed v5
-binary can be used for a local scan smoke. Status/help commands, session
-controls, changed-file tracking, baseline deltas, and automatic checkpoints
-remain future milestones. The bare `/jscpd` overlay is tracked separately in
+binary can be used for a local scan smoke. Help and session controls,
+changed-file tracking, baseline deltas, and automatic checkpoints remain future
+milestones. The bare `/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks

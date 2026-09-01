@@ -13,7 +13,7 @@ import {
 } from "../src/extension.js";
 import type { JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
-import type { JscpdCommandExecutor } from "../src/types.js";
+import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
 
 const unavailableResult = {
   status: "unavailable",
@@ -21,8 +21,20 @@ const unavailableResult = {
   message: "Unavailable in test.",
 } as const;
 
-function createExecutor() {
-  const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => unavailableResult);
+const statusResult = {
+  status: "status",
+  message: "Model status in test.",
+  terminalMessage: "Terminal status in test.",
+  mode: "enabled",
+  configSource: "defaults",
+  configSources: ["defaults"],
+  configDiagnostics: 0,
+  capability: { status: "missing", checked: ["jscpd", "cpd"] },
+  lastCheck: { state: "never" },
+} as const;
+
+function createExecutor(result: JscpdExecutionResult = unavailableResult) {
+  const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => result);
   return { executor: { execute }, execute };
 }
 
@@ -231,6 +243,20 @@ describe("/jscpd", () => {
     expect(notify).toHaveBeenCalledWith("Unavailable in test.", "warning");
   });
 
+  it("renders bounded status through the slash command at info level", async () => {
+    const { executor, execute } = createExecutor(statusResult);
+    const definition = createJscpdSlashCommandDefinition(executor);
+    const { context, notify } = commandContext();
+
+    await definition.handler("status", context);
+
+    expect(execute).toHaveBeenCalledWith(
+      { command: "status", args: [] },
+      { cwd: "/project", signal: undefined },
+    );
+    expect(notify).toHaveBeenCalledWith("Terminal status in test.", "info");
+  });
+
   it("reports invalid input without reaching execution", async () => {
     const { executor, execute } = createExecutor();
     const definition = createJscpdSlashCommandDefinition(executor);
@@ -240,7 +266,7 @@ describe("/jscpd", () => {
 
     expect(execute).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith(
-      "Unsupported jscpd command. Supported commands: scan.",
+      "Unsupported jscpd command. Supported commands: scan, status.",
       "error",
     );
   });
@@ -266,6 +292,24 @@ describe("jscpd_run", () => {
     expect(result).toEqual({
       content: [{ type: "text", text: "Unavailable in test." }],
       details: unavailableResult,
+    });
+  });
+
+  it("returns bounded status content through the agent tool", async () => {
+    const { executor } = createExecutor(statusResult);
+    const definition = createJscpdToolDefinition(executor);
+
+    const result = await definition.execute(
+      "tool-call",
+      { command: "status" },
+      undefined,
+      undefined,
+      toolContext(),
+    );
+
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Model status in test." }],
+      details: statusResult,
     });
   });
 
