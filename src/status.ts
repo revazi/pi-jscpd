@@ -13,13 +13,15 @@ import type {
 export interface JscpdStatusService {
   inspect(context: JscpdExecutionContext): Promise<JscpdStatusResult>;
   record(result: JscpdExecutionResult): void;
-  reset(): void;
+  restore(lastCheck?: JscpdLastCheck): void;
+  lastCheck(): JscpdLastCheck;
 }
 
 export interface JscpdSessionModeService {
   isEnabled(): boolean;
   source(): "configuration" | "session";
-  reset(configuredEnabled: boolean): void;
+  override(): "enabled" | "disabled" | null;
+  restore(configuredEnabled: boolean, override?: "enabled" | "disabled" | null): void;
   enable(): void;
   disable(): void;
 }
@@ -27,20 +29,25 @@ export interface JscpdSessionModeService {
 export function createJscpdSessionModeService(): JscpdSessionModeService {
   let enabled = true;
   let source: "configuration" | "session" = "configuration";
+  let modeOverride: "enabled" | "disabled" | null = null;
   return {
     isEnabled: () => enabled,
     source: () => source,
-    reset(configuredEnabled) {
-      enabled = configuredEnabled;
-      source = "configuration";
+    override: () => modeOverride,
+    restore(configuredEnabled, restoredOverride = null) {
+      modeOverride = restoredOverride;
+      enabled = restoredOverride === null ? configuredEnabled : restoredOverride === "enabled";
+      source = restoredOverride === null ? "configuration" : "session";
     },
     enable() {
       enabled = true;
       source = "session";
+      modeOverride = "enabled";
     },
     disable() {
       enabled = false;
       source = "session";
+      modeOverride = "disabled";
     },
   };
 }
@@ -50,6 +57,7 @@ export function createJscpdStatusAwareExecutor(
   scanExecutor: JscpdCommandExecutor,
   statusService: JscpdStatusService,
   sessionMode: JscpdSessionModeService,
+  stateChanged: () => void = () => {},
 ): JscpdCommandExecutor {
   return {
     async execute(invocation, context) {
@@ -58,12 +66,14 @@ export function createJscpdStatusAwareExecutor(
           return statusService.inspect(context);
         case "off":
           sessionMode.disable();
+          stateChanged();
           return controlResult(
             "disabled",
             "jscpd behavior is disabled for this session. Run /jscpd on to re-enable it.",
           );
         case "on":
           sessionMode.enable();
+          stateChanged();
           return controlResult(
             "enabled",
             "jscpd behavior is enabled for this session. Project configuration was not changed.",
@@ -73,6 +83,7 @@ export function createJscpdStatusAwareExecutor(
         case "scan": {
           const result = await scanExecutor.execute(invocation, context);
           statusService.record(result);
+          stateChanged();
           return result;
         }
       }
@@ -98,9 +109,10 @@ export function createJscpdStatusService(
       const recorded = lastCheckFromResult(result);
       if (recorded) lastCheck = recorded;
     },
-    reset() {
-      lastCheck = Object.freeze({ state: "never" });
+    restore(restored) {
+      lastCheck = restored ?? Object.freeze({ state: "never" });
     },
+    lastCheck: () => lastCheck,
   };
 }
 

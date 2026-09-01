@@ -53,6 +53,10 @@ and version state, and the session's latest clean, findings, cancelled, failed,
 or never-run check without exposing child output or environment content.
 `/jscpd off` disables scanning for the current session; status and help remain
 available, and `/jscpd on` restores scanning without changing project files.
+The session override and bounded last-check summary are saved as versioned Pi
+custom entries outside model context. Reload, resume, fork, and `/tree` restore
+the latest valid snapshot on the active branch; a new branch without one resets
+to trusted configuration and a never-run check.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
@@ -177,8 +181,14 @@ directory and are passed after `--`. Neither surface constructs a shell command.
 
 The `off` and `on` controls are session-only overrides. While off, explicit scan
 requests return a consistent disabled diagnostic instead of starting a process;
-`status`, `help`, and `on` remain available. A new session restores the trusted
-configuration value. Future `changed` behavior is not registered yet.
+`status`, `help`, and `on` remain available. Pi custom entries preserve the
+latest override and bounded last-check state on each conversation branch, so
+reload, resume, fork, and tree navigation reconstruct state from the active
+branch only. A genuinely new branch with no snapshot uses the current trusted
+configuration and a never-run check. Capability caches, child processes,
+temporary reports, and loaded configuration are never restored: they are
+invalidated or cleaned up, and configuration is loaded again under the current
+trust decision. Future `changed` behavior is not registered yet.
 The bare `/jscpd` command remains reserved for an interactive overlay; its exact
 views and controls will be agreed in
 [the overlay interaction issue](https://github.com/revazi/pi-jscpd/issues/25)
@@ -223,6 +233,7 @@ users do not receive duplicate findings.
 │   ├── jscpd-report.ts    strict v5 JSON validation and normalization
 │   ├── scan.ts            scope validation and end-to-end scan orchestration
 │   ├── status.ts          capability, config, and last-check status state
+│   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
 ├── test/                  package and command-contract tests
 ├── biome.json             formatting and lint policy
@@ -259,11 +270,11 @@ pi -e ./src/index.ts
 
 The command contract, lazy jscpd v5 capability probe, bounded process/report
 lifecycle, strict JSON validation, scope-safe scan orchestration, and concise
-presentation and trusted extension configuration are in place. Tests use a
-deterministic fake executable and do not download anything; a real installed v5
-binary can be used for a local scan smoke. Changed-file tracking, baseline
-deltas, automatic checkpoints, and persistent session restoration remain future
-milestones. The bare `/jscpd` overlay is tracked separately in
+presentation, trusted extension configuration, and branch-local session state
+restoration are in place. Tests use a deterministic fake executable and do not
+download anything; a real installed v5 binary can be used for a local scan
+smoke. Changed-file tracking, baseline deltas, and automatic checkpoints remain
+future milestones. The bare `/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks

@@ -13,6 +13,7 @@ import {
 } from "../src/extension.js";
 import type { JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
+import { JSCPD_SESSION_STATE_TYPE } from "../src/session-state.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
 
 const unavailableResult = {
@@ -133,6 +134,7 @@ describe("Pi extension registration", () => {
     expect(capability.probe).not.toHaveBeenCalled();
     expect(on.mock.calls.map(([event]) => event)).toEqual([
       "session_start",
+      "session_tree",
       "session_before_switch",
       "session_shutdown",
     ]);
@@ -172,6 +174,7 @@ describe("Pi extension registration", () => {
         cwd: "/project",
         hasUI: false,
         isProjectTrusted: () => true,
+        sessionManager: { getBranch: () => [] },
         ui: { notify: vi.fn() },
       },
     );
@@ -212,10 +215,12 @@ describe("Pi extension registration", () => {
         cwd: "/project",
         hasUI: true,
         isProjectTrusted: () => true,
+        sessionManager: { getBranch: () => [] },
         ui: { notify },
       },
     );
     await handlers.get("session_before_switch")?.();
+    await handlers.get("session_shutdown")?.();
     await handlers.get("session_shutdown")?.();
 
     expect(config.load).toHaveBeenCalledWith({ cwd: "/project", trusted: true });
@@ -224,6 +229,117 @@ describe("Pi extension registration", () => {
     expect(capability.dispose).toHaveBeenCalledOnce();
     expect(adapter.invalidate).toHaveBeenCalledTimes(2);
     expect(adapter.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("persists controls and restores active-branch state on resume, reload, and tree navigation", async () => {
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const registerTool = vi.fn();
+    const registerCommand = vi.fn();
+    const appendEntry = vi.fn();
+    const capability = createCapabilityService();
+    const adapter = createAdapterService();
+    const config = createConfigService();
+    const pi = {
+      registerTool,
+      registerCommand,
+      appendEntry,
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
+    } as unknown as ExtensionAPI;
+    registerJscpdExtension(pi, {
+      capabilityService: capability.service,
+      adapterService: adapter.service,
+      configService: config.service,
+    });
+    const command = registerCommand.mock.calls[0]?.[1] as ReturnType<
+      typeof createJscpdSlashCommandDefinition
+    >;
+    const tool = registerTool.mock.calls[0]?.[0] as ReturnType<typeof createJscpdToolDefinition>;
+    const startBranch = [
+      {
+        type: "custom",
+        customType: JSCPD_SESSION_STATE_TYPE,
+        data: {
+          version: 1,
+          modeOverride: "disabled",
+          lastCheck: { state: "findings", clones: 2 },
+        },
+      },
+    ];
+
+    await handlers.get("session_start")?.(
+      { reason: "resume" },
+      {
+        cwd: "/project",
+        hasUI: false,
+        isProjectTrusted: () => true,
+        sessionManager: { getBranch: () => startBranch },
+        ui: { notify: vi.fn() },
+      },
+    );
+    const resumed = await tool.execute(
+      "tool-call",
+      { command: "status" },
+      undefined,
+      undefined,
+      toolContext(),
+    );
+    expect(resumed.details).toMatchObject({
+      status: "status",
+      mode: "disabled",
+      modeSource: "session",
+      lastCheck: { state: "findings", clones: 2 },
+    });
+
+    await handlers.get("session_start")?.(
+      { reason: "reload" },
+      {
+        cwd: "/project",
+        hasUI: false,
+        isProjectTrusted: () => true,
+        sessionManager: { getBranch: () => startBranch },
+        ui: { notify: vi.fn() },
+      },
+    );
+    const reloaded = await tool.execute(
+      "tool-call",
+      { command: "status" },
+      undefined,
+      undefined,
+      toolContext(),
+    );
+    expect(reloaded.details).toMatchObject({
+      status: "status",
+      mode: "disabled",
+      modeSource: "session",
+      lastCheck: { state: "findings", clones: 2 },
+    });
+
+    await command.handler("on", commandContext().context);
+    expect(appendEntry).toHaveBeenLastCalledWith(JSCPD_SESSION_STATE_TYPE, {
+      version: 1,
+      modeOverride: "enabled",
+      lastCheck: { state: "findings", clones: 2 },
+    });
+
+    await handlers.get("session_tree")?.(
+      { newLeafId: "before-state" },
+      { sessionManager: { getBranch: () => [] } },
+    );
+    const branched = await tool.execute(
+      "tool-call",
+      { command: "status" },
+      undefined,
+      undefined,
+      toolContext(),
+    );
+    expect(branched.details).toMatchObject({
+      status: "status",
+      mode: "enabled",
+      modeSource: "configuration",
+      lastCheck: { state: "never" },
+    });
   });
 });
 

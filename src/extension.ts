@@ -12,6 +12,11 @@ import { parseJscpdSlashArgs } from "./parser.js";
 import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
 import { createJscpdScanExecutor } from "./scan.js";
 import {
+  JSCPD_SESSION_STATE_TYPE,
+  restoreJscpdSessionState,
+  snapshotJscpdSessionState,
+} from "./session-state.js";
+import {
   createJscpdSessionModeService,
   createJscpdStatusAwareExecutor,
   createJscpdStatusService,
@@ -44,6 +49,7 @@ export function registerJscpdExtension(
   let executor = options.executor;
   let statusService: JscpdStatusService | undefined;
   let sessionMode: JscpdSessionModeService | undefined;
+  let shutdownPromise: Promise<void> | undefined;
   const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService();
   if (!executor) {
@@ -56,7 +62,23 @@ export function registerJscpdExtension(
       }),
     });
     statusService = createJscpdStatusService(capabilityService, configService, sessionMode);
-    executor = createJscpdStatusAwareExecutor(scanExecutor, statusService, sessionMode);
+    const persistSessionState = () => {
+      if (!sessionMode || !statusService) return;
+      try {
+        pi.appendEntry(
+          JSCPD_SESSION_STATE_TYPE,
+          snapshotJscpdSessionState(sessionMode, statusService),
+        );
+      } catch {
+        // Pi session persistence is advisory and must not break scans or controls.
+      }
+    };
+    executor = createJscpdStatusAwareExecutor(
+      scanExecutor,
+      statusService,
+      sessionMode,
+      persistSessionState,
+    );
   }
 
   pi.registerTool(createJscpdToolDefinition(executor));
@@ -65,26 +87,54 @@ export function registerJscpdExtension(
   pi.on("session_start", async (_event, ctx) => {
     capabilityService?.invalidate();
     adapterService.invalidate();
-    statusService?.reset();
     const loaded = await configService.load({
       cwd: ctx.cwd,
       trusted: ctx.isProjectTrusted(),
     });
-    sessionMode?.reset(loaded.config.enabled);
+    restoreSessionState(
+      ctx.sessionManager.getBranch(),
+      loaded.config.enabled,
+      sessionMode,
+      statusService,
+    );
     if (ctx.hasUI) {
       for (const diagnostic of loaded.diagnostics) {
         ctx.ui.notify(diagnostic.message, "warning");
       }
     }
   });
+  pi.on("session_tree", (_event, ctx) => {
+    adapterService.invalidate();
+    restoreSessionState(
+      ctx.sessionManager.getBranch(),
+      configService.current().config.enabled,
+      sessionMode,
+      statusService,
+    );
+  });
   pi.on("session_before_switch", () => {
     capabilityService?.invalidate();
     adapterService.invalidate();
   });
-  pi.on("session_shutdown", async () => {
-    capabilityService?.dispose();
-    await adapterService.dispose();
+  pi.on("session_shutdown", () => {
+    shutdownPromise ??= Promise.resolve().then(async () => {
+      capabilityService?.dispose();
+      await adapterService.dispose();
+    });
+    return shutdownPromise;
   });
+}
+
+function restoreSessionState(
+  activeBranch: readonly unknown[],
+  configuredEnabled: boolean,
+  sessionMode?: JscpdSessionModeService,
+  statusService?: JscpdStatusService,
+): void {
+  if (!sessionMode || !statusService) return;
+  const restored = restoreJscpdSessionState(activeBranch);
+  sessionMode.restore(configuredEnabled, restored?.modeOverride);
+  statusService.restore(restored?.lastCheck);
 }
 
 export function createJscpdToolDefinition(executor: JscpdCommandExecutor): JscpdToolDefinition {
