@@ -323,7 +323,7 @@ describe("end-to-end explicit scans", () => {
     ).resolves.toEqual({
       status: "unavailable",
       reason: "disabled",
-      message: "jscpd scanning is disabled by trusted extension configuration.",
+      message: "jscpd scanning is disabled for this session. Run /jscpd on to re-enable it.",
     });
     expect(probe).not.toHaveBeenCalled();
     await expectTemporaryReportsRemoved();

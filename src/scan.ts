@@ -45,7 +45,7 @@ export function createJscpdScanExecutor(
         return {
           status: "unavailable",
           reason: "disabled",
-          message: "jscpd scanning is disabled by trusted extension configuration.",
+          message: "jscpd scanning is disabled for this session. Run /jscpd on to re-enable it.",
         };
       }
 

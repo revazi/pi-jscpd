@@ -1,6 +1,7 @@
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService, JscpdConfigSource } from "./config.js";
+import { renderJscpdCommandHelp } from "./registry.js";
 import type {
   JscpdCommandExecutor,
   JscpdExecutionContext,
@@ -15,19 +16,66 @@ export interface JscpdStatusService {
   reset(): void;
 }
 
-/** Route scan and status through one public executor while retaining bounded session status. */
+export interface JscpdSessionModeService {
+  isEnabled(): boolean;
+  source(): "configuration" | "session";
+  reset(configuredEnabled: boolean): void;
+  enable(): void;
+  disable(): void;
+}
+
+export function createJscpdSessionModeService(): JscpdSessionModeService {
+  let enabled = true;
+  let source: "configuration" | "session" = "configuration";
+  return {
+    isEnabled: () => enabled,
+    source: () => source,
+    reset(configuredEnabled) {
+      enabled = configuredEnabled;
+      source = "configuration";
+    },
+    enable() {
+      enabled = true;
+      source = "session";
+    },
+    disable() {
+      enabled = false;
+      source = "session";
+    },
+  };
+}
+
+/** Route all registered commands while retaining bounded session status. */
 export function createJscpdStatusAwareExecutor(
   scanExecutor: JscpdCommandExecutor,
   statusService: JscpdStatusService,
+  sessionMode: JscpdSessionModeService,
 ): JscpdCommandExecutor {
   return {
     async execute(invocation, context) {
-      if (invocation.command === "status") {
-        return statusService.inspect(context);
+      switch (invocation.command) {
+        case "status":
+          return statusService.inspect(context);
+        case "off":
+          sessionMode.disable();
+          return controlResult(
+            "disabled",
+            "jscpd behavior is disabled for this session. Run /jscpd on to re-enable it.",
+          );
+        case "on":
+          sessionMode.enable();
+          return controlResult(
+            "enabled",
+            "jscpd behavior is enabled for this session. Project configuration was not changed.",
+          );
+        case "help":
+          return helpResult();
+        case "scan": {
+          const result = await scanExecutor.execute(invocation, context);
+          statusService.record(result);
+          return result;
+        }
       }
-      const result = await scanExecutor.execute(invocation, context);
-      statusService.record(result);
-      return result;
     },
   };
 }
@@ -35,6 +83,7 @@ export function createJscpdStatusAwareExecutor(
 export function createJscpdStatusService(
   capabilityService: JscpdCapabilityService,
   configService: JscpdConfigService,
+  sessionMode: JscpdSessionModeService,
 ): JscpdStatusService {
   let lastCheck: JscpdLastCheck = Object.freeze({ state: "never" });
   return {
@@ -43,7 +92,7 @@ export function createJscpdStatusService(
         cwd: context.cwd,
         signal: context.signal,
       });
-      return presentStatus(capability, configService.current(), lastCheck);
+      return presentStatus(capability, configService.current(), sessionMode, lastCheck);
     },
     record(result) {
       const recorded = lastCheckFromResult(result);
@@ -58,16 +107,18 @@ export function createJscpdStatusService(
 function presentStatus(
   capability: JscpdCapabilityResult,
   loadedConfig: JscpdConfigLoadResult,
+  sessionMode: JscpdSessionModeService,
   lastCheck: JscpdLastCheck,
 ): JscpdStatusResult {
-  const mode = loadedConfig.config.enabled ? "enabled" : "disabled";
+  const mode = sessionMode.isEnabled() ? "enabled" : "disabled";
+  const modeSource = sessionMode.source();
   const configSource = effectiveConfigSource(loadedConfig.sources);
   const lines = [
     "jscpd status",
-    `Mode: ${mode}`,
+    `Mode: ${mode}${modeSource === "session" ? " (session override)" : ""}`,
     `Configuration: ${configSourceLabel(configSource)}`,
     capabilityLine(capability),
-    stateLine(capability, mode),
+    stateLine(capability, mode, modeSource),
     `Last check: ${lastCheckLabel(lastCheck)}`,
   ];
   if (loadedConfig.diagnostics.length > 0) {
@@ -81,6 +132,7 @@ function presentStatus(
     message,
     terminalMessage: message,
     mode,
+    modeSource,
     configSource,
     configSources: Object.freeze([...loadedConfig.sources]),
     configDiagnostics: loadedConfig.diagnostics.length,
@@ -121,9 +173,15 @@ function capabilityLine(capability: JscpdCapabilityResult): string {
   }
 }
 
-function stateLine(capability: JscpdCapabilityResult, mode: JscpdStatusResult["mode"]): string {
+function stateLine(
+  capability: JscpdCapabilityResult,
+  mode: JscpdStatusResult["mode"],
+  modeSource: JscpdStatusResult["modeSource"],
+): string {
   if (mode === "disabled") {
-    return "State: disabled by trusted extension configuration.";
+    return modeSource === "session"
+      ? "State: disabled for this session; run /jscpd on to re-enable it."
+      : "State: disabled by trusted extension configuration.";
   }
   if (capability.status === "missing") {
     return "State: dormant — install jscpd v5 and ensure jscpd or cpd is on PATH.";
@@ -137,20 +195,40 @@ function stateLine(capability: JscpdCapabilityResult, mode: JscpdStatusResult["m
 function lastCheckFromResult(result: JscpdExecutionResult): JscpdLastCheck | undefined {
   switch (result.status) {
     case "completed":
-      return result.outcome === "clean"
-        ? Object.freeze({ state: "clean" })
-        : Object.freeze({ state: "findings", clones: result.summary.clones });
+      return completedLastCheck(result);
     case "failed":
-      return result.reason === "scan-cancelled"
-        ? Object.freeze({ state: "cancelled" })
-        : Object.freeze({ state: "failed", reason: result.reason });
+      return failedLastCheck(result);
     case "unavailable":
-      return result.reason === "probe-cancelled"
-        ? Object.freeze({ state: "cancelled" })
-        : Object.freeze({ state: "failed", reason: result.reason });
+      return unavailableLastCheck(result);
     case "status":
+    case "control":
+    case "help":
       return undefined;
   }
+}
+
+function completedLastCheck(
+  result: Extract<JscpdExecutionResult, { status: "completed" }>,
+): JscpdLastCheck {
+  return result.outcome === "clean"
+    ? Object.freeze({ state: "clean" })
+    : Object.freeze({ state: "findings", clones: result.summary.clones });
+}
+
+function failedLastCheck(
+  result: Extract<JscpdExecutionResult, { status: "failed" }>,
+): JscpdLastCheck {
+  return result.reason === "scan-cancelled"
+    ? Object.freeze({ state: "cancelled" })
+    : Object.freeze({ state: "failed", reason: result.reason });
+}
+
+function unavailableLastCheck(
+  result: Extract<JscpdExecutionResult, { status: "unavailable" }>,
+): JscpdLastCheck {
+  return result.reason === "probe-cancelled"
+    ? Object.freeze({ state: "cancelled" })
+    : Object.freeze({ state: "failed", reason: result.reason });
 }
 
 function lastCheckLabel(lastCheck: JscpdLastCheck): string {
@@ -166,6 +244,15 @@ function lastCheckLabel(lastCheck: JscpdLastCheck): string {
     case "failed":
       return `failed (${failureLabel(lastCheck.reason)})`;
   }
+}
+
+function controlResult(action: "enabled" | "disabled", message: string): JscpdExecutionResult {
+  return Object.freeze({ status: "control", action, message, terminalMessage: message });
+}
+
+function helpResult(): JscpdExecutionResult {
+  const message = renderJscpdCommandHelp();
+  return Object.freeze({ status: "help", message, terminalMessage: message });
 }
 
 function failureLabel(reason: Extract<JscpdLastCheck, { state: "failed" }>["reason"]): string {

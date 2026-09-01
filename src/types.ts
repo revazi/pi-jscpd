@@ -170,6 +170,7 @@ export interface JscpdStatusResult {
   readonly message: string;
   readonly terminalMessage: string;
   readonly mode: "enabled" | "disabled";
+  readonly modeSource: "configuration" | "session";
   readonly configSource: "defaults" | "project" | "local";
   readonly configSources: readonly ("defaults" | "project" | "local")[];
   readonly configDiagnostics: number;
@@ -177,11 +178,26 @@ export interface JscpdStatusResult {
   readonly lastCheck: JscpdLastCheck;
 }
 
+export interface JscpdControlResult {
+  readonly status: "control";
+  readonly action: "enabled" | "disabled";
+  readonly message: string;
+  readonly terminalMessage: string;
+}
+
+export interface JscpdHelpResult {
+  readonly status: "help";
+  readonly message: string;
+  readonly terminalMessage: string;
+}
+
 export type JscpdExecutionResult =
   | JscpdCompletedResult
   | JscpdUnavailableResult
   | JscpdScanFailureResult
-  | JscpdStatusResult;
+  | JscpdStatusResult
+  | JscpdControlResult
+  | JscpdHelpResult;
 
 export interface JscpdCommandExecutor {
   execute(

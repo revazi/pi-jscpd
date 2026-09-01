@@ -20,6 +20,24 @@ export const jscpdCommandRegistry = [
     argumentHint: "",
     maxArguments: 0,
   },
+  {
+    name: "off",
+    description: "Disable jscpd behavior for the current session",
+    argumentHint: "",
+    maxArguments: 0,
+  },
+  {
+    name: "on",
+    description: "Re-enable jscpd behavior for the current session",
+    argumentHint: "",
+    maxArguments: 0,
+  },
+  {
+    name: "help",
+    description: "Show jscpd commands and session controls",
+    argumentHint: "",
+    maxArguments: 0,
+  },
 ] as const satisfies readonly JscpdCommandSpec[];
 
 type RegisteredJscpdCommandSpec = (typeof jscpdCommandRegistry)[number];
@@ -41,6 +59,17 @@ const jscpdCommandCompletions = jscpdCommandRegistry.map((spec) => ({
 
 function commandUsage(spec: RegisteredJscpdCommandSpec): string {
   return spec.argumentHint ? `${spec.name} ${spec.argumentHint}` : spec.name;
+}
+
+export function renderJscpdCommandHelp(): string {
+  const commands = jscpdCommandRegistry.map(
+    (spec) => `  /jscpd ${commandUsage(spec)} — ${spec.description}`,
+  );
+  return [
+    "jscpd commands",
+    ...commands,
+    "  /jscpd — reserved for the future interactive overlay (no scan)",
+  ].join("\n");
 }
 
 export function getJscpdCommandSpec(command: string): RegisteredJscpdCommandSpec | undefined {

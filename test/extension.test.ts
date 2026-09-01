@@ -26,6 +26,7 @@ const statusResult = {
   message: "Model status in test.",
   terminalMessage: "Terminal status in test.",
   mode: "enabled",
+  modeSource: "configuration",
   configSource: "defaults",
   configSources: ["defaults"],
   configDiagnostics: 0,
@@ -146,11 +147,14 @@ describe("Pi extension registration", () => {
       timeoutMs: 45_000,
       maxFindings: 3,
     });
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
     registerJscpdExtension(
       {
         registerTool,
         registerCommand: vi.fn(),
-        on: vi.fn(),
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+          handlers.set(event, handler),
+        ),
       } as unknown as ExtensionAPI,
       {
         capabilityService: capability.service,
@@ -162,6 +166,15 @@ describe("Pi extension registration", () => {
       typeof createJscpdToolDefinition
     >;
 
+    await handlers.get("session_start")?.(
+      {},
+      {
+        cwd: "/project",
+        hasUI: false,
+        isProjectTrusted: () => true,
+        ui: { notify: vi.fn() },
+      },
+    );
     const result = await definition.execute(
       "tool-call",
       { command: "scan" },
@@ -266,7 +279,7 @@ describe("/jscpd", () => {
 
     expect(execute).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith(
-      "Unsupported jscpd command. Supported commands: scan, status.",
+      "Unsupported jscpd command. Supported commands: scan, status, off, on, help.",
       "error",
     );
   });
