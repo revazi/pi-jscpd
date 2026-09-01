@@ -3,8 +3,9 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { createJscpdCapabilityService, type JscpdCapabilityService } from "./capability.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
-import { dispatchJscpdCommand, unavailableJscpdExecutor } from "./dispatch.js";
+import { createCapabilityAwareJscpdExecutor, dispatchJscpdCommand } from "./dispatch.js";
 import { parseJscpdSlashArgs } from "./parser.js";
 import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
@@ -18,12 +19,30 @@ type JscpdSlashCommandDefinition = Omit<RegisteredCommand, "name" | "sourceInfo"
   argumentHint: string;
 };
 
+export interface JscpdExtensionOptions {
+  executor?: JscpdCommandExecutor;
+  capabilityService?: JscpdCapabilityService;
+}
+
 export function registerJscpdExtension(
   pi: ExtensionAPI,
-  executor: JscpdCommandExecutor = unavailableJscpdExecutor,
+  options: JscpdExtensionOptions = {},
 ): void {
+  let capabilityService = options.capabilityService;
+  let executor = options.executor;
+  if (!executor) {
+    capabilityService ??= createJscpdCapabilityService();
+    executor = createCapabilityAwareJscpdExecutor(capabilityService);
+  }
+
   pi.registerTool(createJscpdToolDefinition(executor));
   pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor));
+
+  if (capabilityService) {
+    pi.on("session_start", () => capabilityService.invalidate());
+    pi.on("session_before_switch", () => capabilityService.invalidate());
+    pi.on("session_shutdown", () => capabilityService.dispose());
+  }
 }
 
 export function createJscpdToolDefinition(executor: JscpdCommandExecutor): JscpdToolDefinition {

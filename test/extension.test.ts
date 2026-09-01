@@ -4,6 +4,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import type { JscpdCapabilityService } from "../src/capability.js";
 import {
   createJscpdSlashCommandDefinition,
   createJscpdToolDefinition,
@@ -38,13 +39,32 @@ function toolContext(): ExtensionContext {
   return { cwd: "/project", signal: undefined } as unknown as ExtensionContext;
 }
 
+function createCapabilityService() {
+  const probe = vi.fn<JscpdCapabilityService["probe"]>(async () => ({
+    status: "available",
+    executable: "jscpd",
+    version: "5.1.0",
+    major: 5,
+  }));
+  const invalidate = vi.fn();
+  const dispose = vi.fn();
+  return {
+    service: { probe, invalidate, dispose } satisfies JscpdCapabilityService,
+    probe,
+    invalidate,
+    dispose,
+  };
+}
+
 describe("Pi extension registration", () => {
   it("registers one jscpd_run tool and one /jscpd command", () => {
     const registerTool = vi.fn();
     const registerCommand = vi.fn();
-    const pi = { registerTool, registerCommand } as unknown as ExtensionAPI;
+    const on = vi.fn();
+    const pi = { registerTool, registerCommand, on } as unknown as ExtensionAPI;
+    const capability = createCapabilityService();
 
-    registerJscpdExtension(pi);
+    registerJscpdExtension(pi, { capabilityService: capability.service });
 
     expect(registerTool).toHaveBeenCalledOnce();
     expect(registerTool.mock.calls[0]?.[0]).toMatchObject({
@@ -58,6 +78,30 @@ describe("Pi extension registration", () => {
       getArgumentCompletions: expect.any(Function),
       handler: expect.any(Function),
     });
+    expect(capability.probe).not.toHaveBeenCalled();
+    expect(on.mock.calls.map(([event]) => event)).toEqual([
+      "session_start",
+      "session_before_switch",
+      "session_shutdown",
+    ]);
+  });
+
+  it("invalidates or disposes capability state at session boundaries", () => {
+    const handlers = new Map<string, () => void>();
+    const capability = createCapabilityService();
+    const pi = {
+      registerTool: vi.fn(),
+      registerCommand: vi.fn(),
+      on: vi.fn((event: string, handler: () => void) => handlers.set(event, handler)),
+    } as unknown as ExtensionAPI;
+
+    registerJscpdExtension(pi, { capabilityService: capability.service });
+    handlers.get("session_start")?.();
+    handlers.get("session_before_switch")?.();
+    handlers.get("session_shutdown")?.();
+
+    expect(capability.invalidate).toHaveBeenCalledTimes(2);
+    expect(capability.dispose).toHaveBeenCalledOnce();
   });
 });
 
@@ -128,10 +172,14 @@ describe("jscpd_run", () => {
     });
   });
 
-  it("returns the honest default not-implemented outcome", async () => {
+  it("lazily reports a detected executable while keeping scan execution honest", async () => {
     const registerTool = vi.fn();
     const registerCommand = vi.fn();
-    registerJscpdExtension({ registerTool, registerCommand } as unknown as ExtensionAPI);
+    const on = vi.fn();
+    const capability = createCapabilityService();
+    registerJscpdExtension({ registerTool, registerCommand, on } as unknown as ExtensionAPI, {
+      capabilityService: capability.service,
+    });
     const definition = registerTool.mock.calls[0]?.[0] as ReturnType<
       typeof createJscpdToolDefinition
     >;
@@ -148,14 +196,21 @@ describe("jscpd_run", () => {
       content: [
         {
           type: "text",
-          text: "jscpd scan is unavailable: executable integration is not implemented yet.",
+          text: "jscpd scan execution is not implemented yet (detected jscpd v5.1.0).",
         },
       ],
       details: {
         status: "unavailable",
         reason: "not-implemented",
-        message: "jscpd scan is unavailable: executable integration is not implemented yet.",
+        message: "jscpd scan execution is not implemented yet (detected jscpd v5.1.0).",
+        capability: {
+          status: "available",
+          executable: "jscpd",
+          version: "5.1.0",
+          major: 5,
+        },
       },
     });
+    expect(capability.probe).toHaveBeenCalledWith({ cwd: "/project", signal: undefined });
   });
 });

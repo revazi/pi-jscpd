@@ -1,3 +1,4 @@
+import type { JscpdCapabilityResult } from "./capability.js";
 import type { JscpdCommand } from "./registry.js";
 
 export type { JscpdCommand } from "./registry.js";
@@ -12,10 +13,19 @@ export interface JscpdExecutionContext {
   signal?: AbortSignal;
 }
 
+export type JscpdUnavailableReason =
+  | "not-implemented"
+  | "missing-binary"
+  | "incompatible-version"
+  | "probe-cancelled"
+  | "probe-timed-out"
+  | "probe-failed";
+
 export interface JscpdUnavailableResult {
   status: "unavailable";
-  reason: "not-implemented";
+  reason: JscpdUnavailableReason;
   message: string;
+  capability?: JscpdCapabilityResult;
 }
 
 export interface JscpdCommandExecutor {
