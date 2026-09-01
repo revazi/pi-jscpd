@@ -178,9 +178,14 @@ describe("jscpd v5 JSON report normalization", () => {
   });
 
   it("returns an explicit no-findings decision only for a valid clean report", async () => {
-    await expect(
-      consumeJscpdV5JsonReport(await fixtureBytes("clean.json"), projectDirectory),
-    ).resolves.toEqual({ status: "no-findings" });
+    const clean = await consumeJscpdV5JsonReport(
+      await fixtureBytes("clean.json"),
+      projectDirectory,
+    );
+    expect(clean).toMatchObject({ status: "no-findings" });
+    if (clean.status === "no-findings") {
+      expect(clean.value?.statistics.total.clones).toBe(0);
+    }
 
     const inconsistent = await fixtureObject("clean.json");
     totalStatistics(inconsistent).clones = 1;

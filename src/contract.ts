@@ -16,11 +16,11 @@ export const jscpdRunParams = Type.Object(
         Type.String({
           minLength: 1,
           maxLength: JSCPD_MAX_ARGUMENT_LENGTH,
-          description: "One shell-free argument token. Keep flags and values in separate items.",
+          description: "One existing in-project file or directory scope. Options are not accepted.",
         }),
         {
           maxItems: maxArguments,
-          description: "Optional shell-free argument tokens passed to the selected operation.",
+          description: "Optional in-project scan scopes. Omit to scan the whole project.",
         },
       ),
     ),
@@ -32,7 +32,7 @@ export const jscpdToolContract = {
   name: "jscpd_run",
   label: "jscpd",
   description:
-    "Request an explicit local jscpd duplication operation with shell-free argument tokens. Executable compatibility is checked, but scan execution is not implemented yet.",
-  promptSnippet: "Check jscpd availability for a scan; scan execution is not implemented yet",
+    "Run a local read-only jscpd v5 duplication scan for the project or selected in-project file and directory scopes.",
+  promptSnippet: "Scan the project or selected in-project paths for duplicate blocks with jscpd",
   parameters: jscpdRunParams,
 } as const;

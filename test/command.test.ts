@@ -11,7 +11,7 @@ import type { JscpdCommandExecutor } from "../src/types.js";
 
 const unavailableResult = {
   status: "unavailable",
-  reason: "not-implemented",
+  reason: "missing-binary",
   message: "Unavailable in test.",
 } as const;
 

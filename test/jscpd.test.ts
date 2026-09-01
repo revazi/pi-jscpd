@@ -28,6 +28,10 @@ switch (mode) {
   case "report":
     writeFileSync(reportPath, rest[0] ?? "artifact");
     break;
+  case "report-positive":
+    writeFileSync(reportPath, rest[0] ?? "artifact");
+    process.exitCode = 1;
+    break;
   case "none":
     break;
   case "nonzero":
@@ -116,12 +120,14 @@ function request<T = string>(
     executable?: string;
     cwd?: string;
     onReportPath?: (reportPath: string) => void;
+    reportExitCodes?: readonly number[];
   } = {},
 ): JscpdRunRequest<T> {
   return {
     executable: options.executable ?? process.execPath,
     cwd: options.cwd ?? projectDirectory,
     signal: options.signal,
+    reportExitCodes: options.reportExitCodes,
     createArguments({ reportPath }) {
       options.onReportPath?.(reportPath);
       return [fakeExecutable, mode, reportPath, ...(options.extraArgs ?? [])];
@@ -166,6 +172,26 @@ describe("jscpd temporary report adapter", () => {
     expect(relative(projectDirectory, reportPath).startsWith("..")).toBe(true);
     expect(relative(await realpath(temporaryRoot), reportPath).startsWith("..")).toBe(false);
     expect(directoryMode).toBe(0o700);
+    await expectTemporaryRootClean();
+  });
+
+  it("accepts configured clone-positive exits only with an accepted findings report", async () => {
+    const service = createService();
+    const findings = request("report-positive", { reportExitCodes: [1] });
+    const clean = request("report-positive", {
+      consumeReport: () => ({ status: "no-findings" }),
+      reportExitCodes: [1],
+    });
+
+    await expect(service.run(findings)).resolves.toEqual({
+      status: "report",
+      value: "artifact",
+    });
+    await expect(service.run(clean)).resolves.toEqual({
+      status: "failed",
+      reason: "nonzero-exit",
+      exitCode: 1,
+    });
     await expectTemporaryRootClean();
   });
 

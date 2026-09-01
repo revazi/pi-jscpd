@@ -43,6 +43,8 @@ export interface JscpdRunRequest<T> {
   signal?: AbortSignal;
   /** Build shell-free CLI tokens around the adapter-owned report directory and fixed file path. */
   createArguments(target: JscpdReportTarget): readonly string[];
+  /** Nonzero clone-positive exits accepted only when they also yield an accepted findings report. */
+  reportExitCodes?: readonly number[];
   /** Validate and consume bounded report bytes before their temporary directory is removed. */
   consumeReport(report: Uint8Array): JscpdReportDecision<T> | Promise<JscpdReportDecision<T>>;
 }
@@ -66,7 +68,7 @@ export type JscpdRunFailureReason =
 
 export type JscpdRunResult<T> =
   | { status: "report"; value: T }
-  | { status: "no-findings" }
+  | { status: "no-findings"; value?: T }
   | { status: "no-report" }
   | { status: "cancelled" }
   | { status: "invalidated" }
@@ -290,19 +292,23 @@ class DefaultJscpdService implements JscpdService {
       return afterProcessLifecycle;
     }
 
-    const processFailure = processFailureResult(processResult, this.#options.timeoutMs);
+    const processFailure = processFailureResult(
+      processResult,
+      this.#options.timeoutMs,
+      job.request.reportExitCodes,
+    );
     if (processFailure) {
       return processFailure;
     }
+    const reportExitCode = deferredReportExitCode(processResult);
 
     const report = await readBoundedReport(workspace.reportPath, this.#options.maxReportBytes);
     if (report.status !== "bytes") {
-      return report.status === "no-report"
-        ? { status: "no-report" }
-        : { status: "failed", reason: report.reason };
+      return reportReadResult(report, reportExitCode);
     }
 
-    return this.#consumeReport(job, report.bytes);
+    const consumed = await this.#consumeReport(job, report.bytes);
+    return validateReportExit(consumed, reportExitCode);
   }
 
   async #consumeReport(job: PendingJob, report: Buffer): Promise<JscpdRunResult<unknown>> {
@@ -422,6 +428,7 @@ function isValidRunRequest<T>(request: JscpdRunRequest<T>): boolean {
     isSafeBoundedText(request.executable, MAX_PATH_BYTES, false) &&
     isSafeAbsolutePath(request.cwd) &&
     (request.path === undefined || isSafeBoundedText(request.path, MAX_PATH_BYTES, true)) &&
+    hasValidReportExitCodes(request.reportExitCodes) &&
     typeof request.createArguments === "function" &&
     typeof request.consumeReport === "function"
   );
@@ -605,7 +612,9 @@ function completedConsumptionResult<T>(decision: JscpdReportDecision<T>): JscpdR
     case "accepted":
       return { status: "report", value: decision.value };
     case "no-findings":
-      return { status: "no-findings" };
+      return decision.value === undefined
+        ? { status: "no-findings" }
+        : { status: "no-findings", value: decision.value };
     case "rejected":
       return {
         status: "failed",
@@ -615,19 +624,35 @@ function completedConsumptionResult<T>(decision: JscpdReportDecision<T>): JscpdR
   }
 }
 
+function reportReadResult(
+  report: Exclude<ReportBytesResult, { status: "bytes" }>,
+  reportExitCode: number | undefined,
+): JscpdRunResult<never> {
+  if (report.status === "failed") {
+    return { status: "failed", reason: report.reason };
+  }
+  return reportExitCode === undefined
+    ? { status: "no-report" }
+    : { status: "failed", reason: "nonzero-exit", exitCode: reportExitCode };
+}
+
+function validateReportExit<T>(
+  result: JscpdRunResult<T>,
+  reportExitCode: number | undefined,
+): JscpdRunResult<T> {
+  return result.status === "no-findings" && reportExitCode !== undefined
+    ? { status: "failed", reason: "nonzero-exit", exitCode: reportExitCode }
+    : result;
+}
+
 function processFailureResult(
   result: Awaited<ReturnType<typeof runBoundedProcess>>,
   timeoutMs: number,
+  reportExitCodes: readonly number[] | undefined,
 ): JscpdRunResult<never> | undefined {
   switch (result.status) {
     case "completed":
-      return result.exitCode === 0
-        ? undefined
-        : {
-            status: "failed",
-            reason: "nonzero-exit",
-            exitCode: normalizeExitCode(result.exitCode),
-          };
+      return completedProcessFailure(result.exitCode, reportExitCodes);
     case "cancelled":
       return { status: "cancelled" };
     case "timed-out":
@@ -640,6 +665,24 @@ function processFailureResult(
     case "spawn-failed":
       return { status: "failed", reason: "spawn-failed" };
   }
+}
+
+function completedProcessFailure(
+  exitCode: number,
+  reportExitCodes: readonly number[] | undefined,
+): JscpdRunResult<never> | undefined {
+  if (exitCode === 0 || reportExitCodes?.includes(exitCode)) {
+    return undefined;
+  }
+  return { status: "failed", reason: "nonzero-exit", exitCode: normalizeExitCode(exitCode) };
+}
+
+function deferredReportExitCode(
+  result: Awaited<ReturnType<typeof runBoundedProcess>>,
+): number | undefined {
+  return result.status === "completed" && result.exitCode !== 0
+    ? normalizeExitCode(result.exitCode)
+    : undefined;
 }
 
 function lifecycleResultFor(job: PendingJob): JscpdRunResult<never> | undefined {
@@ -673,6 +716,15 @@ function isReportDecision<T>(value: JscpdReportDecision<T>): value is JscpdRepor
     (value.status === "no-findings" ||
       (value.status === "accepted" && Object.hasOwn(value, "value")) ||
       (value.status === "rejected" && isJscpdReportErrorCode(value.reason)))
+  );
+}
+
+function hasValidReportExitCodes(value: readonly number[] | undefined): boolean {
+  return (
+    value === undefined ||
+    (Array.isArray(value) &&
+      value.length <= 8 &&
+      value.every((code) => Number.isSafeInteger(code) && code > 0 && code <= 255))
   );
 }
 

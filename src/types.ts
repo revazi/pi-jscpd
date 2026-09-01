@@ -82,11 +82,10 @@ export type JscpdReportErrorCode =
 
 export type JscpdReportDecision<T> =
   | { status: "accepted"; value: T }
-  | { status: "no-findings" }
+  | { status: "no-findings"; value?: T }
   | { status: "rejected"; reason: JscpdReportErrorCode };
 
 export type JscpdUnavailableReason =
-  | "not-implemented"
   | "missing-binary"
   | "incompatible-version"
   | "probe-cancelled"
@@ -100,11 +99,71 @@ export interface JscpdUnavailableResult {
   capability?: JscpdCapabilityResult;
 }
 
+export interface JscpdScanSummary {
+  readonly clones: number;
+  readonly duplicatedLines: number;
+  readonly duplicatedTokens: number;
+  readonly lines: number;
+  readonly tokens: number;
+  readonly sources: number;
+  readonly percentage: number;
+  readonly percentageTokens: number;
+}
+
+export interface JscpdPresentedOccurrence {
+  /** A bounded project-relative display path followed by exact line coordinates. */
+  readonly path: string;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
+export interface JscpdPresentedFinding {
+  readonly format: string;
+  readonly lines: number;
+  readonly tokens: number;
+  readonly occurrences: readonly [JscpdPresentedOccurrence, JscpdPresentedOccurrence];
+}
+
+export interface JscpdCompletedResult {
+  readonly status: "completed";
+  readonly outcome: "findings" | "clean";
+  /** Concise content returned to the model-facing tool. */
+  readonly message: string;
+  /** Concise content shown by the terminal slash command. */
+  readonly terminalMessage: string;
+  readonly summary: JscpdScanSummary;
+  readonly findings: readonly JscpdPresentedFinding[];
+  readonly omittedFindings: number;
+}
+
+export type JscpdScanFailureReason =
+  | "unsafe-path"
+  | "unsupported-path"
+  | "scan-cancelled"
+  | "scan-timed-out"
+  | "process-failed"
+  | "missing-report"
+  | "malformed-report"
+  | "incompatible-report"
+  | "invalid-report"
+  | "cleanup-failed";
+
+export interface JscpdScanFailureResult {
+  readonly status: "failed";
+  readonly reason: JscpdScanFailureReason;
+  readonly message: string;
+}
+
+export type JscpdExecutionResult =
+  | JscpdCompletedResult
+  | JscpdUnavailableResult
+  | JscpdScanFailureResult;
+
 export interface JscpdCommandExecutor {
   execute(
     invocation: JscpdCommandInvocation,
     context: JscpdExecutionContext,
-  ): Promise<JscpdUnavailableResult>;
+  ): Promise<JscpdExecutionResult>;
 }
 
 export type JscpdInputErrorCode =
@@ -131,7 +190,7 @@ export type JscpdSlashParseResult =
   | { ok: false; error: JscpdInputError };
 
 export type JscpdDispatchResult =
-  | JscpdUnavailableResult
+  | JscpdExecutionResult
   | {
       status: "invalid";
       reason: JscpdInputErrorCode;
