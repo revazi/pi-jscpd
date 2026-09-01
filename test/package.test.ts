@@ -4,6 +4,12 @@ import { describe, expect, it } from "vitest";
 
 interface PackageManifest {
   private?: boolean;
+  license?: string;
+  author?: string;
+  repository?: { type?: string; url?: string };
+  homepage?: string;
+  bugs?: { url?: string };
+  files?: string[];
   keywords?: string[];
   pi?: { extensions?: string[] };
 }
@@ -24,5 +30,19 @@ describe("Pi package manifest", () => {
   it("cannot be published accidentally while the project is a scaffold", async () => {
     const manifest = await readManifest();
     expect(manifest.private).toBe(true);
+  });
+
+  it("declares its license, maintainer, and public project links", async () => {
+    const manifest = await readManifest();
+
+    expect(manifest.license).toBe("MIT");
+    expect(manifest.author).toBe("Revaz Zakalashvili");
+    expect(manifest.repository).toEqual({
+      type: "git",
+      url: "git+https://github.com/revazi/pi-jscpd.git",
+    });
+    expect(manifest.homepage).toBe("https://github.com/revazi/pi-jscpd#readme");
+    expect(manifest.bugs?.url).toBe("https://github.com/revazi/pi-jscpd/issues");
+    expect(manifest.files).toContain("LICENSE");
   });
 });

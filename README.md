@@ -1,5 +1,9 @@
 # pi-jscpd
 
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
+[![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
+[![status: design scaffold](https://img.shields.io/badge/status-design%20scaffold-orange.svg)](#project-status)
+
 > A Pi-native, polyglot duplication guardrail powered by jscpd.
 
 `pi-jscpd` is planned as a quiet advisory layer for the Pi coding agent. It will
@@ -15,8 +19,9 @@ The repository currently provides the Pi package manifest, a loadable no-op
 entrypoint, package-contract tests, and this product outline. It does not scan
 code or register public commands yet.
 
-The package name is provisional. Publication is disabled intentionally until
-ownership, naming, licensing, and compatibility are decided.
+The package name is provisional. npm publication is disabled intentionally
+until naming and compatibility are decided. The source repository is public
+under the MIT License.
 
 ## Why this should be a Pi extension
 
@@ -89,6 +94,7 @@ users do not receive duplicate findings.
 │   └── index.ts           public Pi extension entrypoint
 ├── test/
 │   └── package.test.ts    package contract tests
+├── LICENSE                MIT License
 ├── package.json           Pi package manifest
 ├── tsconfig.json
 └── README.md
@@ -130,7 +136,15 @@ this README.
 Keep the initial package small. Do not reimplement clone detection, automatically
 install jscpd, or add source mutation to the extension.
 
+## Maintainer and project links
+
+Maintained by [Revaz Zakalashvili](https://github.com/revazi).
+
+- [Source repository](https://github.com/revazi/pi-jscpd)
+- [Issue tracker and roadmap](https://github.com/revazi/pi-jscpd/issues)
+- [jscpd](https://github.com/kucherenko/jscpd)
+- [Pi coding agent](https://github.com/earendil-works/pi)
+
 ## License
 
-No license has been selected for this scaffold. Choose and add one before
-publishing the package.
+[MIT](./LICENSE) © 2026 Revaz Zakalashvili

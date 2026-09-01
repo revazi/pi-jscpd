@@ -4,7 +4,16 @@
   "private": true,
   "description": "A Pi-native, polyglot duplication guardrail powered by jscpd.",
   "type": "module",
-  "license": "UNLICENSED",
+  "license": "MIT",
+  "author": "Revaz Zakalashvili",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/revazi/pi-jscpd.git"
+  },
+  "homepage": "https://github.com/revazi/pi-jscpd#readme",
+  "bugs": {
+    "url": "https://github.com/revazi/pi-jscpd/issues"
+  },
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -12,7 +21,7 @@
     "code-duplication",
     "agentic-coding"
   ],
-  "files": ["src", "README.md"],
+  "files": ["src", "README.md", "LICENSE"],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
