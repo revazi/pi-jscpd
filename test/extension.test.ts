@@ -5,6 +5,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
 import type { JscpdCapabilityService } from "../src/capability.js";
+import type { JscpdConfigService } from "../src/config.js";
 import {
   createJscpdSlashCommandDefinition,
   createJscpdToolDefinition,
@@ -50,6 +51,27 @@ function createAdapterService() {
   };
 }
 
+function createConfigService(
+  diagnostics: readonly { message: string }[] = [],
+  config = { enabled: true, timeoutMs: 30_000, maxFindings: 10 },
+) {
+  const result = {
+    config,
+    sources: ["defaults"] as const,
+    diagnostics: diagnostics.map(({ message }) => ({
+      source: "project" as const,
+      code: "invalid-value" as const,
+      message,
+    })),
+    trusted: true,
+  };
+  const load = vi.fn<JscpdConfigService["load"]>(async () => result);
+  return {
+    service: { load, current: () => result } satisfies JscpdConfigService,
+    load,
+  };
+}
+
 function createCapabilityService() {
   const probe = vi.fn<JscpdCapabilityService["probe"]>(async () => ({
     status: "available",
@@ -75,10 +97,12 @@ describe("Pi extension registration", () => {
     const pi = { registerTool, registerCommand, on } as unknown as ExtensionAPI;
     const capability = createCapabilityService();
     const adapter = createAdapterService();
+    const config = createConfigService();
 
     registerJscpdExtension(pi, {
       capabilityService: capability.service,
       adapterService: adapter.service,
+      configService: config.service,
     });
 
     expect(registerTool).toHaveBeenCalledOnce();
@@ -101,14 +125,53 @@ describe("Pi extension registration", () => {
     ]);
   });
 
-  it("invalidates or disposes process-owning services at session boundaries", async () => {
-    const handlers = new Map<string, () => void | Promise<void>>();
+  it("applies current trusted configuration to the registered scan executor", async () => {
+    const registerTool = vi.fn();
     const capability = createCapabilityService();
     const adapter = createAdapterService();
+    const config = createConfigService([], {
+      enabled: false,
+      timeoutMs: 45_000,
+      maxFindings: 3,
+    });
+    registerJscpdExtension(
+      {
+        registerTool,
+        registerCommand: vi.fn(),
+        on: vi.fn(),
+      } as unknown as ExtensionAPI,
+      {
+        capabilityService: capability.service,
+        adapterService: adapter.service,
+        configService: config.service,
+      },
+    );
+    const definition = registerTool.mock.calls[0]?.[0] as ReturnType<
+      typeof createJscpdToolDefinition
+    >;
+
+    const result = await definition.execute(
+      "tool-call",
+      { command: "scan" },
+      undefined,
+      undefined,
+      toolContext(),
+    );
+
+    expect(result.details).toMatchObject({ status: "unavailable", reason: "disabled" });
+    expect(capability.probe).not.toHaveBeenCalled();
+  });
+
+  it("loads trusted configuration and owns services at session boundaries", async () => {
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const capability = createCapabilityService();
+    const adapter = createAdapterService();
+    const config = createConfigService([{ message: "Invalid project configuration." }]);
+    const notify = vi.fn();
     const pi = {
       registerTool: vi.fn(),
       registerCommand: vi.fn(),
-      on: vi.fn((event: string, handler: () => void | Promise<void>) =>
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
         handlers.set(event, handler),
       ),
     } as unknown as ExtensionAPI;
@@ -116,11 +179,22 @@ describe("Pi extension registration", () => {
     registerJscpdExtension(pi, {
       capabilityService: capability.service,
       adapterService: adapter.service,
+      configService: config.service,
     });
-    await handlers.get("session_start")?.();
+    await handlers.get("session_start")?.(
+      {},
+      {
+        cwd: "/project",
+        hasUI: true,
+        isProjectTrusted: () => true,
+        ui: { notify },
+      },
+    );
     await handlers.get("session_before_switch")?.();
     await handlers.get("session_shutdown")?.();
 
+    expect(config.load).toHaveBeenCalledWith({ cwd: "/project", trusted: true });
+    expect(notify).toHaveBeenCalledWith("Invalid project configuration.", "warning");
     expect(capability.invalidate).toHaveBeenCalledTimes(2);
     expect(capability.dispose).toHaveBeenCalledOnce();
     expect(adapter.invalidate).toHaveBeenCalledTimes(2);
@@ -201,9 +275,11 @@ describe("jscpd_run", () => {
     const on = vi.fn();
     const capability = createCapabilityService();
     const adapter = createAdapterService();
+    const config = createConfigService();
     registerJscpdExtension({ registerTool, registerCommand, on } as unknown as ExtensionAPI, {
       capabilityService: capability.service,
       adapterService: adapter.service,
+      configService: config.service,
     });
     const definition = registerTool.mock.calls[0]?.[0] as ReturnType<
       typeof createJscpdToolDefinition

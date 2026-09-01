@@ -70,5 +70,9 @@ describe("bounded scan presentation", () => {
     expect(presented.message).toContain("2 additional duplicate blocks omitted");
     expect(presented.message.length).toBeLessThan(8_000);
     expect(presented.terminalMessage).toBe(presented.message);
+
+    const configured = presentJscpdScan(report, 3);
+    expect(configured.findings).toHaveLength(3);
+    expect(configured.omittedFindings).toBe(9);
   });
 });

@@ -5,13 +5,18 @@ import type {
   JscpdScanSummary,
 } from "./types.js";
 
-const MAX_PRESENTED_FINDINGS = 10;
+const DEFAULT_MAX_PRESENTED_FINDINGS = 10;
+const MAX_CONFIGURED_PRESENTED_FINDINGS = 100;
 const MAX_DISPLAY_PATH_CHARACTERS = 240;
 
 /** Build bounded model and terminal views from one normalized jscpd report. */
-export function presentJscpdScan(report: JscpdScanReport): JscpdCompletedResult {
+export function presentJscpdScan(
+  report: JscpdScanReport,
+  configuredMaxFindings = DEFAULT_MAX_PRESENTED_FINDINGS,
+): JscpdCompletedResult {
   const summary = scanSummary(report);
-  const findings = report.clonePairs.slice(0, MAX_PRESENTED_FINDINGS).map(presentFinding);
+  const maxFindings = boundedFindingLimit(configuredMaxFindings);
+  const findings = report.clonePairs.slice(0, maxFindings).map(presentFinding);
   const omittedFindings = Math.max(0, report.clonePairs.length - findings.length);
   const outcome = findings.length === 0 ? "clean" : "findings";
 
@@ -47,6 +52,12 @@ export function presentJscpdScan(report: JscpdScanReport): JscpdCompletedResult 
     findings,
     omittedFindings,
   };
+}
+
+function boundedFindingLimit(value: number): number {
+  return Number.isSafeInteger(value) && value >= 1 && value <= MAX_CONFIGURED_PRESENTED_FINDINGS
+    ? value
+    : DEFAULT_MAX_PRESENTED_FINDINGS;
 }
 
 function scanSummary(report: JscpdScanReport): JscpdScanSummary {

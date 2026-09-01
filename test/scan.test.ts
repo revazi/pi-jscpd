@@ -303,6 +303,32 @@ describe("end-to-end explicit scans", () => {
     await expectTemporaryReportsRemoved();
   });
 
+  it("stays dormant when trusted extension configuration disables scanning", async () => {
+    const probe = vi.fn(async () => ({
+      status: "available" as const,
+      executable: "jscpd" as const,
+      version: "5.1.1",
+      major: 5 as const,
+    }));
+    const disabledExecutor = createJscpdScanExecutor(
+      { probe, invalidate() {}, dispose() {} },
+      service,
+      {
+        config: () => ({ enabled: false, timeoutMs: 30_000, maxFindings: 10 }),
+      },
+    );
+
+    await expect(
+      dispatchJscpdCommand("scan", [], { cwd: projectDirectory }, disabledExecutor),
+    ).resolves.toEqual({
+      status: "unavailable",
+      reason: "disabled",
+      message: "jscpd scanning is disabled by trusted extension configuration.",
+    });
+    expect(probe).not.toHaveBeenCalled();
+    await expectTemporaryReportsRemoved();
+  });
+
   it("surfaces cleanup uncertainty separately from scan process failures", async () => {
     const cleanupExecutor = createJscpdScanExecutor(
       {

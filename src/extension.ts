@@ -4,6 +4,7 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { createJscpdCapabilityService, type JscpdCapabilityService } from "./capability.js";
+import { createJscpdConfigService, type JscpdConfigService } from "./config.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
 import { dispatchJscpdCommand } from "./dispatch.js";
 import { createJscpdService, type JscpdService } from "./jscpd.js";
@@ -25,6 +26,7 @@ export interface JscpdExtensionOptions {
   executor?: JscpdCommandExecutor;
   capabilityService?: JscpdCapabilityService;
   adapterService?: JscpdService;
+  configService?: JscpdConfigService;
 }
 
 export function registerJscpdExtension(
@@ -34,17 +36,29 @@ export function registerJscpdExtension(
   let capabilityService = options.capabilityService;
   let executor = options.executor;
   const adapterService = options.adapterService ?? createJscpdService();
+  const configService = options.configService ?? createJscpdConfigService();
   if (!executor) {
     capabilityService ??= createJscpdCapabilityService();
-    executor = createJscpdScanExecutor(capabilityService, adapterService);
+    executor = createJscpdScanExecutor(capabilityService, adapterService, {
+      config: () => configService.current().config,
+    });
   }
 
   pi.registerTool(createJscpdToolDefinition(executor));
   pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor));
 
-  pi.on("session_start", () => {
+  pi.on("session_start", async (_event, ctx) => {
     capabilityService?.invalidate();
     adapterService.invalidate();
+    const loaded = await configService.load({
+      cwd: ctx.cwd,
+      trusted: ctx.isProjectTrusted(),
+    });
+    if (ctx.hasUI) {
+      for (const diagnostic of loaded.diagnostics) {
+        ctx.ui.notify(diagnostic.message, "warning");
+      }
+    }
   });
   pi.on("session_before_switch", () => {
     capabilityService?.invalidate();

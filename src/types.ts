@@ -86,6 +86,7 @@ export type JscpdReportDecision<T> =
   | { status: "rejected"; reason: JscpdReportErrorCode };
 
 export type JscpdUnavailableReason =
+  | "disabled"
   | "missing-binary"
   | "incompatible-version"
   | "probe-cancelled"
