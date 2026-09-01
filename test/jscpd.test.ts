@@ -18,6 +18,7 @@ import {
   type JscpdRunRequest,
   type JscpdService,
 } from "../src/jscpd.js";
+import { consumeJscpdV5JsonReport } from "../src/jscpd-report.js";
 
 const FAKE_EXECUTABLE_SOURCE = String.raw`
 import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
@@ -305,6 +306,65 @@ describe("jscpd temporary report adapter", () => {
     await expectTemporaryRootClean();
   });
 
+  it("integrates v5 report acceptance and rejection before cleaning adapter workspaces", async () => {
+    const service = createService();
+    await Promise.all([
+      writeFile(join(projectDirectory, "a.ts"), "synthetic fixture\n"),
+      writeFile(join(projectDirectory, "b.ts"), "synthetic fixture\n"),
+    ]);
+    const finding = JSON.stringify({
+      duplicates: [
+        {
+          format: "typescript",
+          lines: 1,
+          tokens: 4,
+          fragment: "synthetic fixture",
+          firstFile: {
+            name: "a.ts",
+            start: 1,
+            end: 1,
+            startLoc: { line: 1, column: 0, position: 0 },
+            endLoc: { line: 1, column: 17, position: 17 },
+          },
+          secondFile: {
+            name: "b.ts",
+            start: 1,
+            end: 1,
+            startLoc: { line: 1, column: 0, position: 0 },
+            endLoc: { line: 1, column: 17, position: 17 },
+          },
+        },
+      ],
+      statistics: {
+        detectionDate: "2026-09-01T00:00:00Z",
+        formats: {
+          typescript: statisticsRow({ clones: 1 }),
+        },
+        total: statisticsRow({ clones: 1 }),
+      },
+    });
+    const consumeReport = (bytes: Uint8Array) => consumeJscpdV5JsonReport(bytes, projectDirectory);
+
+    await expect(
+      service.run(request("report", { extraArgs: [finding], consumeReport })),
+    ).resolves.toMatchObject({ status: "report" });
+    await expectTemporaryRootClean();
+
+    await expect(
+      service.run(
+        request("report", {
+          extraArgs: ["{ private malformed body"],
+          consumeReport,
+        }),
+      ),
+    ).resolves.toEqual({
+      status: "failed",
+      reason: "invalid-report",
+      reportError: "malformed-json",
+    });
+    await expectTemporaryRootClean();
+  });
+
   it("normalizes malformed-report consumer failures and bounds report consumption", async () => {
     const service = createService({ reportConsumptionTimeoutMs: 20 });
     const malformed = service.run(
@@ -420,6 +480,21 @@ describe("jscpd temporary report adapter", () => {
     expect(await readdir(nestedTemporaryRoot)).toEqual([]);
   });
 });
+
+function statisticsRow(overrides: { clones?: number } = {}): Record<string, number> {
+  return {
+    lines: 2,
+    tokens: 8,
+    sources: 2,
+    clones: overrides.clones ?? 0,
+    duplicatedLines: overrides.clones ?? 0,
+    duplicatedTokens: overrides.clones ? 4 : 0,
+    percentage: overrides.clones ? 50 : 0,
+    percentageTokens: overrides.clones ? 50 : 0,
+    newDuplicatedLines: 0,
+    newClones: 0,
+  };
+}
 
 function statSyncMode(path: string): number {
   return statSync(path).mode & 0o777;

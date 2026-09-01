@@ -2,7 +2,7 @@
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
-[![status: bounded adapter](https://img.shields.io/badge/status-bounded%20adapter-orange.svg)](#project-status)
+[![status: report validation](https://img.shields.io/badge/status-report%20validation-orange.svg)](#project-status)
 
 > A Pi-native, polyglot duplication guardrail powered by jscpd.
 
@@ -13,7 +13,7 @@ rescan flow.
 
 ## Project status
 
-**Bounded process and temporary-report adapter — user-facing scan execution is not implemented yet.**
+**Bounded adapter and structured-report validation — user-facing scan execution is not implemented yet.**
 
 The extension registers `/jscpd` and the `jscpd_run` agent tool from one typed
 `scan` command registry. On the first explicit scan request in a project/session,
@@ -25,16 +25,59 @@ cached for the current cwd and `PATH` and invalidated at session boundaries.
 
 An internal adapter can now serialize bounded child-process requests, consume a
 size-limited report from a restrictive extension-owned temporary directory, and
-clean up on completion, cancellation, timeout, invalidation, or shutdown. It is
-lazy: module loading and extension registration create no process or temporary
-directory. Structured report validation and the real jscpd scan arguments are
-not implemented, so the registered command and tool still stop after capability
-detection. Bare `/jscpd` only explains that the interactive overlay is reserved;
-it never starts a scan.
+clean up on completion, cancellation, timeout, invalidation, or shutdown. Its
+jscpd v5 JSON consumer strictly validates statistics, clone pairs, locations,
+and project-contained paths, then returns deterministic normalized data without
+source fragments. It is lazy: module loading and extension registration create
+no process or temporary directory. Real jscpd scan arguments and public scan
+execution remain [issue #12](https://github.com/revazi/pi-jscpd/issues/12), so the
+registered command and tool still stop after capability detection. Bare
+`/jscpd` only explains that the interactive overlay is reserved; it never starts
+a scan.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
 under the MIT License.
+
+## Structured report contract
+
+The initial structured reporter is jscpd v5 **JSON**. Authoritative
+[jscpd v5.1.1 reporter source](https://github.com/kucherenko/jscpd/blob/v5.1.1/rust/crates/cpd-reporter/src/json_reporter.rs)
+writes `<output>/jscpd-report.json` with required top-level `statistics` and
+`duplicates` fields. The corresponding
+[model source](https://github.com/kucherenko/jscpd/blob/v5.1.1/rust/crates/cpd-core/src/models.rs)
+defines camel-case aggregate and per-format statistics. The
+[v5.0.4 reporter source](https://github.com/kucherenko/jscpd/blob/v5.0.4/rust/crates/cpd-reporter/src/json_reporter.rs)
+uses the same required shape; newer fields such as `isNew` and optional `summary`
+are additive. JSON was selected over SARIF because JSON carries jscpd's authoritative
+scan statistics as well as both clone occurrences. SARIF remains unsupported by
+this consumer and is not silently treated as JSON.
+
+The normalized internal report preserves jscpd's counts, percentages, format,
+line/token size, and both line/column/offset spans. Reporter object order is
+normalized, paths are canonical project-relative `/` paths, and source
+`fragment`, blame, detection time, summaries, and other additive fields are not
+retained. JSON does not expose SARIF's `jscpdCloneHash/v1`; stable baseline
+identity remains a later milestone that can use the retained pair spans to hash
+both occurrences rather than presenting a first-fragment digest as jscpd
+evidence. Unknown additive fields are accepted where they cannot change the
+required contract. Malformed variants, inconsistent clone counts, unsafe or
+unverifiable paths, invalid ranges/numbers, duplicate JSON keys, ambiguous
+clone records, and excessive collections are rejected with bounded typed
+reasons.
+
+jscpd v5 normally emits paths relative to its scan root and emits canonical
+absolute paths with `--absolute`. For multi-format files, the authoritative
+[finder source](https://github.com/kucherenko/jscpd/blob/v5.1.1/rust/crates/cpd-finder/src/orchestrate.rs)
+qualifies synthetic source IDs as `<path>:<format>`, and its
+[path helper](https://github.com/kucherenko/jscpd/blob/v5.1.1/rust/crates/cpd-core/src/paths.rs)
+removes that suffix to read the source file. Because `:` is also legal in POSIX
+filenames, the consumer checks both the literal path and format-qualified base:
+it accepts one canonical in-project file (or two aliases of that same file) and
+rejects two distinct file identities as ambiguous. Relative report paths are
+resolved against the explicit project working directory, and every real file
+must remain inside it. Issue #12 owns the real CLI arguments and must use that
+path contract when adding path-scoped scans.
 
 ## Why this should be a Pi extension
 
@@ -119,7 +162,8 @@ users do not receive duplicate findings.
 │   ├── dispatch.ts        command and capability dispatch boundary
 │   ├── capability.ts      executable/version probe and session cache
 │   ├── process.ts         shared bounded child-process ownership
-│   └── jscpd.ts           serialized temporary-report adapter
+│   ├── jscpd.ts           serialized temporary-report adapter
+│   └── jscpd-report.ts    strict v5 JSON validation and normalization
 ├── test/                  package and command-contract tests
 ├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
@@ -153,9 +197,10 @@ Load the current extension directly in Pi:
 pi -e ./src/index.ts
 ```
 
-The command contract, lazy jscpd v5 capability probe, and internal bounded
-process/report lifecycle are now in place. The next milestones validate
-structured reports and connect real read-only scan arguments and presentation.
+The command contract, lazy jscpd v5 capability probe, internal bounded
+process/report lifecycle, and structured JSON validation are now in place. The
+next milestone connects real read-only scan arguments and presentation without
+changing the report parser.
 The bare `/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the

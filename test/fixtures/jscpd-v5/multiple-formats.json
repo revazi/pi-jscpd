@@ -1,0 +1,91 @@
+{
+  "duplicates": [
+    {
+      "format": "python",
+      "lines": 5,
+      "fragment": "def total(values):\n    result = 0\n    for value in values:\n        result += value\n    return result",
+      "tokens": 18,
+      "firstFile": {
+        "name": "python/z.py",
+        "start": 3,
+        "end": 7,
+        "startLoc": { "line": 3, "column": 0, "position": 20 },
+        "endLoc": { "line": 7, "column": 17, "position": 130 }
+      },
+      "secondFile": {
+        "name": "python/a.py",
+        "start": 10,
+        "end": 14,
+        "startLoc": { "line": 10, "column": 0, "position": 180 },
+        "endLoc": { "line": 14, "column": 17, "position": 290 }
+      },
+      "isNew": false
+    },
+    {
+      "format": "typescript",
+      "lines": 4,
+      "fragment": "export const sum = (values: number[]) => {\n  let result = 0;\n  for (const value of values) result += value;\n  return result;",
+      "tokens": 22,
+      "firstFile": {
+        "name": "web/z.ts",
+        "start": 1,
+        "end": 4,
+        "startLoc": { "line": 1, "column": 0, "position": 0 },
+        "endLoc": { "line": 4, "column": 16, "position": 128 }
+      },
+      "secondFile": {
+        "name": "web/a.ts",
+        "start": 20,
+        "end": 23,
+        "startLoc": { "line": 20, "column": 0, "position": 310 },
+        "endLoc": { "line": 23, "column": 16, "position": 438 }
+      },
+      "isNew": false
+    }
+  ],
+  "statistics": {
+    "detectionDate": "2026-09-01T17:45:00.000Z",
+    "formats": {
+      "typescript": {
+        "lines": 80,
+        "tokens": 400,
+        "sources": 2,
+        "clones": 1,
+        "duplicatedLines": 3,
+        "duplicatedTokens": 22,
+        "percentage": 3.75,
+        "percentageTokens": 5.5,
+        "newDuplicatedLines": 0,
+        "newClones": 0
+      },
+      "python": {
+        "lines": 60,
+        "tokens": 300,
+        "sources": 2,
+        "clones": 1,
+        "duplicatedLines": 4,
+        "duplicatedTokens": 18,
+        "percentage": 6.666666666666667,
+        "percentageTokens": 6.0,
+        "newDuplicatedLines": 0,
+        "newClones": 0
+      }
+    },
+    "total": {
+      "lines": 140,
+      "tokens": 700,
+      "sources": 4,
+      "clones": 2,
+      "duplicatedLines": 7,
+      "duplicatedTokens": 40,
+      "percentage": 5.0,
+      "percentageTokens": 5.714285714285714,
+      "newDuplicatedLines": 0,
+      "newClones": 0
+    }
+  },
+  "summary": {
+    "files": [],
+    "folders": []
+  }
+}

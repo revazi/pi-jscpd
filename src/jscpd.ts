@@ -3,14 +3,17 @@ import type { FileHandle } from "node:fs/promises";
 import { chmod, lstat, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isJscpdReportErrorCode, JSCPD_STRUCTURED_REPORT_FILE_NAME } from "./jscpd-report.js";
 import { createProcessEnvironmentWithPath, runBoundedProcess } from "./process.js";
+import type { JscpdReportDecision, JscpdReportErrorCode } from "./types.js";
+
+export type { JscpdReportDecision } from "./types.js";
 
 const JSCPD_EXECUTION_TIMEOUT_MS = 30_000;
 const JSCPD_MAX_OUTPUT_BYTES = 64 * 1_024;
 const JSCPD_MAX_REPORT_BYTES = 16 * 1_024 * 1_024;
 const JSCPD_REPORT_CONSUMPTION_TIMEOUT_MS = 2_000;
 
-const REPORT_FILE_NAME = "jscpd-report.json";
 const TEMPORARY_PREFIX = "pi-jscpd-";
 const MAX_ARGUMENT_COUNT = 256;
 const MAX_ARGUMENT_BYTES = 16 * 1_024;
@@ -24,8 +27,6 @@ const MAX_CONFIGURED_CONSUMPTION_TIMEOUT_MS = 30_000;
 
 type JobTermination = "cancelled" | "invalidated" | "disposed";
 type JobPhase = "queued" | "active" | "done";
-
-export type JscpdReportDecision<T> = { status: "accepted"; value: T } | { status: "no-findings" };
 
 export interface JscpdReportTarget {
   readonly directory: string;
@@ -70,7 +71,12 @@ export type JscpdRunResult<T> =
   | { status: "cancelled" }
   | { status: "invalidated" }
   | { status: "timed-out"; timeoutMs: number }
-  | { status: "failed"; reason: JscpdRunFailureReason; exitCode?: number };
+  | {
+      status: "failed";
+      reason: JscpdRunFailureReason;
+      exitCode?: number;
+      reportError?: JscpdReportErrorCode;
+    };
 
 export interface JscpdService {
   run<T>(request: JscpdRunRequest<T>): Promise<JscpdRunResult<T>>;
@@ -313,9 +319,7 @@ class DefaultJscpdService implements JscpdService {
 
     switch (consumption.status) {
       case "completed":
-        return consumption.decision.status === "no-findings"
-          ? { status: "no-findings" }
-          : { status: "report", value: consumption.decision.value };
+        return completedConsumptionResult(consumption.decision);
       case "cancelled":
         return { status: "cancelled" };
       case "failed":
@@ -466,7 +470,7 @@ async function createReportWorkspace(cwd: string, temporaryRoot: string): Promis
       return { ok: false, reason: cleaned ? "unsafe-temporary-path" : "cleanup-failed" };
     }
 
-    const reportPath = resolve(ownedDirectory, REPORT_FILE_NAME);
+    const reportPath = resolve(ownedDirectory, JSCPD_STRUCTURED_REPORT_FILE_NAME);
     if (dirname(reportPath) !== ownedDirectory) {
       const cleaned = await removeReportWorkspace(directory);
       return { ok: false, reason: cleaned ? "unsafe-temporary-path" : "cleanup-failed" };
@@ -596,6 +600,21 @@ async function consumeReportBounded<T>(
   }
 }
 
+function completedConsumptionResult<T>(decision: JscpdReportDecision<T>): JscpdRunResult<T> {
+  switch (decision.status) {
+    case "accepted":
+      return { status: "report", value: decision.value };
+    case "no-findings":
+      return { status: "no-findings" };
+    case "rejected":
+      return {
+        status: "failed",
+        reason: "invalid-report",
+        reportError: decision.reason,
+      };
+  }
+}
+
 function processFailureResult(
   result: Awaited<ReturnType<typeof runBoundedProcess>>,
   timeoutMs: number,
@@ -652,7 +671,8 @@ function isReportDecision<T>(value: JscpdReportDecision<T>): value is JscpdRepor
     value !== null &&
     typeof value === "object" &&
     (value.status === "no-findings" ||
-      (value.status === "accepted" && Object.hasOwn(value, "value")))
+      (value.status === "accepted" && Object.hasOwn(value, "value")) ||
+      (value.status === "rejected" && isJscpdReportErrorCode(value.reason)))
   );
 }
 

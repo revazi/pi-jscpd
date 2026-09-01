@@ -1,0 +1,19 @@
+{
+  "duplicates": [],
+  "statistics": {
+    "detectionDate": "2026-09-01T17:40:00.000Z",
+    "formats": {},
+    "total": {
+      "clones": 0,
+      "duplicatedLines": 0,
+      "duplicatedTokens": 0,
+      "lines": 0,
+      "newClones": 0,
+      "newDuplicatedLines": 0,
+      "percentage": 0.0,
+      "percentageTokens": 0.0,
+      "sources": 0,
+      "tokens": 0
+    }
+  }
+}
