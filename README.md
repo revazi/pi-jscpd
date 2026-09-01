@@ -1,0 +1,136 @@
+# pi-jscpd
+
+> A Pi-native, polyglot duplication guardrail powered by jscpd.
+
+`pi-jscpd` is planned as a quiet advisory layer for the Pi coding agent. It will
+detect duplicate code introduced during an agent session, point Pi to the
+existing implementation, and support the normal inspect → refactor → test →
+rescan flow.
+
+## Project status
+
+**Design scaffold — not functional yet.**
+
+The repository currently provides the Pi package manifest, a loadable no-op
+entrypoint, package-contract tests, and this product outline. It does not scan
+code or register public commands yet.
+
+The package name is provisional. Publication is disabled intentionally until
+ownership, naming, licensing, and compatibility are decided.
+
+## Why this should be a Pi extension
+
+jscpd already provides the duplication engine. The extension's job is to add the
+workflow that a generic command or MCP connection does not provide:
+
+- notice which files Pi changed;
+- compare the repository before and after the session;
+- report new clone groups instead of historic debt;
+- keep clean checks out of the model context;
+- make findings easy for Pi to inspect and verify;
+- preserve existing `.jscpd.json` policy across local, agent, and CI usage.
+
+The intended result is a guardrail users can install and then largely forget.
+
+## Intended user experience
+
+Once implemented, the minimal path should look like this:
+
+```text
+pi install npm:pi-jscpd
+pi
+```
+
+The extension will use an existing `jscpd` or `cpd` v5 binary on `PATH`. It will
+not download or install a binary. If neither command is available, Pi continues
+normally and `/jscpd status` explains the missing prerequisite.
+
+The proposed public surface is deliberately small:
+
+```text
+/jscpd             scan on demand using the default behavior
+/jscpd scan        scan on demand
+/jscpd changed     show duplication introduced by this session
+/jscpd status      show capability and configuration status
+/jscpd off         disable automatic checks for this session
+/jscpd help        show commands and usage
+```
+
+Following Pi Fallow's interaction pattern, Pi will also receive one `jscpd_run`
+tool with a compact command-and-args contract rather than several always-visible
+tools.
+
+## Defaults
+
+- Advisory, never an automatic source edit.
+- Quiet when no new duplication is found.
+- Existing duplication is suppressed unless requested.
+- Existing jscpd configuration is respected.
+- Analysis is local and has no telemetry or network use.
+- Errors fail open and do not break the Pi session.
+- Fallow overlap is surfaced instead of silently double-reporting.
+
+## Relationship to Fallow
+
+Fallow overlaps with jscpd on duplication detection and combines it with broader
+JavaScript/TypeScript analysis such as dead code, dependencies, complexity, and
+architecture checks.
+
+This project is narrower: a Pi-native duplication workflow using jscpd's
+polyglot and embedded-format coverage. In repositories already using Fallow for
+duplication, the extension should offer an explicit scope or remain on demand so
+users do not receive duplicate findings.
+
+## Repository layout
+
+```text
+.
+├── src/
+│   └── index.ts           public Pi extension entrypoint
+├── test/
+│   └── package.test.ts    package contract tests
+├── package.json           Pi package manifest
+├── tsconfig.json
+└── README.md
+```
+
+## Start developing
+
+Prerequisites:
+
+- Node.js 22 or newer
+- Pi
+- jscpd v5 for future integration smoke tests
+
+Install development dependencies and verify the scaffold:
+
+```text
+npm install
+npm run check
+```
+
+Load the current no-op entrypoint directly in Pi:
+
+```text
+pi -e ./src/index.ts
+```
+
+The first implementation milestone is a read-only `/jscpd` command family,
+starting with the default scan and `/jscpd scan`, plus the matching `scan`
+command in the `jscpd_run` tool. Development is tracked in the
+[GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks
+come only after the on-demand path is reliable.
+
+## Contributing
+
+Start from an open issue and keep each change focused. Add or update tests for
+behavioral changes, run `npm run check`, and describe user-visible behavior in
+this README.
+
+Keep the initial package small. Do not reimplement clone detection, automatically
+install jscpd, or add source mutation to the extension.
+
+## License
+
+No license has been selected for this scaffold. Choose and add one before
+publishing the package.

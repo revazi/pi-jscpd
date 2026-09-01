@@ -1,0 +1,37 @@
+{
+  "name": "pi-jscpd",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A Pi-native, polyglot duplication guardrail powered by jscpd.",
+  "type": "module",
+  "license": "UNLICENSED",
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "jscpd",
+    "code-duplication",
+    "agentic-coding"
+  ],
+  "files": ["src", "README.md"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "npm run typecheck && npm test",
+    "pack:dry-run": "npm pack --dry-run"
+  },
+  "pi": {
+    "extensions": ["./src/index.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@types/node": "*",
+    "typescript": "*",
+    "vitest": "*"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

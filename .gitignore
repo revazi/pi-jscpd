@@ -1,0 +1,16 @@
+node_modules/
+coverage/
+dist/
+work/
+outputs/
+*.tgz
+*.log
+.DS_Store
+
+# Private coding-agent context stays local to the checkout.
+/.agents/
+/AGENTS.md
+
+# Local overrides and runtime state belong to the checkout, not the package.
+.pi/jscpd-guardrail.local.json
+.jscpd-session/
