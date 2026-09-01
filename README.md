@@ -53,7 +53,7 @@ normally and `/jscpd status` explains the missing prerequisite.
 The proposed public surface is deliberately small:
 
 ```text
-/jscpd             scan on demand using the default behavior
+/jscpd             open the interactive jscpd overlay
 /jscpd scan        scan on demand
 /jscpd changed     show duplication introduced by this session
 /jscpd status      show capability and configuration status
@@ -63,7 +63,10 @@ The proposed public surface is deliberately small:
 
 Following Pi Fallow's interaction pattern, Pi will also receive one `jscpd_run`
 tool with a compact command-and-args contract rather than several always-visible
-tools.
+tools. The bare `/jscpd` command is reserved for an interactive overlay, as in
+other Pi extensions; its exact views and controls will be agreed in
+[the overlay interaction issue](https://github.com/revazi/pi-jscpd/issues/25)
+before that UI milestone is implemented.
 
 ## Defaults
 
@@ -126,9 +129,11 @@ Load the current no-op entrypoint directly in Pi:
 pi -e ./src/index.ts
 ```
 
-The first implementation milestone is a read-only `/jscpd` command family,
-starting with the default scan and `/jscpd scan`, plus the matching `scan`
-command in the `jscpd_run` tool. Development is tracked in the
+The first implementation milestone is the read-only `/jscpd scan` command plus
+the matching `scan` command in the `jscpd_run` tool. The bare `/jscpd` overlay
+is tracked separately in [issue #25](https://github.com/revazi/pi-jscpd/issues/25)
+so its interaction design can be agreed before implementation. Development is
+tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks
 come only after the on-demand path is reliable.
 
