@@ -18,12 +18,12 @@ describe("jscpd_run contract", () => {
     expect(Object.keys(jscpdRunParams.properties)).toEqual(["command", "args"]);
   });
 
-  it("accepts scan with optional shell-free argument tokens", () => {
+  it("accepts scan with optional path-scope tokens", () => {
     expect(Value.Check(jscpdRunParams, { command: "scan" })).toBe(true);
     expect(
       Value.Check(jscpdRunParams, {
         command: "scan",
-        args: ["src/with spaces", "--format", "typescript"],
+        args: ["src/with spaces", "lib/example.ts"],
       }),
     ).toBe(true);
   });

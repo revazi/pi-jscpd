@@ -105,7 +105,7 @@ export async function consumeJscpdV5JsonReport(
     const parsed = parseReportBytes(bytes);
     const report = await normalizeReportPaths(parsed, cwd);
     return report.clonePairs.length === 0
-      ? { status: "no-findings" }
+      ? { status: "no-findings", value: report }
       : { status: "accepted", value: report };
   } catch (error) {
     if (error instanceof ReportValidationError) {

@@ -29,7 +29,7 @@ describe("Pi package manifest", () => {
     expect(manifest.keywords).toContain("pi-package");
   });
 
-  it("cannot be published accidentally while the project is a scaffold", async () => {
+  it("cannot be published accidentally before the release milestone", async () => {
     const manifest = await readManifest();
     expect(manifest.private).toBe(true);
   });

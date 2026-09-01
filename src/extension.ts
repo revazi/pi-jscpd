@@ -5,10 +5,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createJscpdCapabilityService, type JscpdCapabilityService } from "./capability.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
-import { createCapabilityAwareJscpdExecutor, dispatchJscpdCommand } from "./dispatch.js";
+import { dispatchJscpdCommand } from "./dispatch.js";
 import { createJscpdService, type JscpdService } from "./jscpd.js";
 import { parseJscpdSlashArgs } from "./parser.js";
 import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
+import { createJscpdScanExecutor } from "./scan.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
 
 const BARE_COMMAND_MESSAGE =
@@ -32,11 +33,11 @@ export function registerJscpdExtension(
 ): void {
   let capabilityService = options.capabilityService;
   let executor = options.executor;
+  const adapterService = options.adapterService ?? createJscpdService();
   if (!executor) {
     capabilityService ??= createJscpdCapabilityService();
-    executor = createCapabilityAwareJscpdExecutor(capabilityService);
+    executor = createJscpdScanExecutor(capabilityService, adapterService);
   }
-  const adapterService = options.adapterService ?? createJscpdService();
 
   pi.registerTool(createJscpdToolDefinition(executor));
   pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor));
@@ -97,7 +98,14 @@ export function createJscpdSlashCommandDefinition(
         { cwd: ctx.cwd, signal: ctx.signal },
         executor,
       );
-      ctx.ui.notify(result.message, result.status === "unavailable" ? "warning" : "error");
+      const message = result.status === "completed" ? result.terminalMessage : result.message;
+      const level =
+        result.status === "completed"
+          ? "info"
+          : result.status === "invalid" || result.status === "error"
+            ? "error"
+            : "warning";
+      ctx.ui.notify(message, level);
     },
   };
 }

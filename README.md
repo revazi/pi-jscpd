@@ -2,7 +2,7 @@
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
-[![status: report validation](https://img.shields.io/badge/status-report%20validation-orange.svg)](#project-status)
+[![status: on-demand scans](https://img.shields.io/badge/status-on--demand%20scans-green.svg)](#project-status)
 
 > A Pi-native, polyglot duplication guardrail powered by jscpd.
 
@@ -13,27 +13,36 @@ rescan flow.
 
 ## Project status
 
-**Bounded adapter and structured-report validation — user-facing scan execution is not implemented yet.**
+**The first usable read-only slice is implemented: explicit project and path-scoped scans.**
 
-The extension registers `/jscpd` and the `jscpd_run` agent tool from one typed
-`scan` command registry. On the first explicit scan request in a project/session,
+The extension registers `/jscpd scan` and the `jscpd_run` agent tool from one
+typed command registry. On the first explicit scan request in a project/session,
 it checks `jscpd --version` and then `cpd --version` only when `jscpd` is missing.
 The shell-free probe is time- and output-bounded, requires jscpd major version 5,
 and returns normalized missing, incompatible, cancelled, timeout, or failure
 outcomes without exposing command output or environment details. Results are
-cached for the current cwd and `PATH` and invalidated at session boundaries.
+cached for the canonical project cwd and `PATH` and invalidated at session
+boundaries.
 
-An internal adapter can now serialize bounded child-process requests, consume a
-size-limited report from a restrictive extension-owned temporary directory, and
-clean up on completion, cancellation, timeout, invalidation, or shutdown. Its
-jscpd v5 JSON consumer strictly validates statistics, clone pairs, locations,
-and project-contained paths, then returns deterministic normalized data without
-source fragments. It is lazy: module loading and extension registration create
-no process or temporary directory. Real jscpd scan arguments and public scan
-execution remain [issue #12](https://github.com/revazi/pi-jscpd/issues/12), so the
-registered command and tool still stop after capability detection. Bare
-`/jscpd` only explains that the interactive overlay is reserved; it never starts
-a scan.
+A scan with no scopes analyzes the project. Optional arguments are existing file
+or directory paths, not jscpd options. Every scope is resolved from the explicit
+project cwd, must remain inside the project after symlink resolution, and is
+passed after an argument separator. The extension keeps repository jscpd policy
+in jscpd's own configuration and adds only its owned JSON reporter, absolute
+report-path normalization, and temporary output directory. It never installs a
+binary, invokes a shell, edits source, or
+writes a report into the project.
+
+The bounded adapter serializes scans, validates jscpd v5 JSON statistics and both
+clone locations, and removes its restrictive temporary workspace after success,
+failure, timeout, cancellation, invalidation, or shutdown. Clone-positive exit
+status is accepted only with a valid findings report. Tool and terminal output
+come from the same normalized report, cap displayed findings, omit source
+fragments, and include aggregate statistics plus both locations. Missing or
+incompatible binaries, unsafe or unsupported paths, process failures, missing or
+invalid reports, timeout, cancellation, and cleanup uncertainty fail open with
+bounded diagnostics. Bare `/jscpd` remains reserved for the future overlay and
+never starts a scan.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
@@ -76,8 +85,9 @@ filenames, the consumer checks both the literal path and format-qualified base:
 it accepts one canonical in-project file (or two aliases of that same file) and
 rejects two distinct file identities as ambiguous. Relative report paths are
 resolved against the explicit project working directory, and every real file
-must remain inside it. Issue #12 owns the real CLI arguments and must use that
-path contract when adding path-scoped scans.
+must remain inside it. The scan adapter requests absolute reporter paths and uses
+that same explicit canonical project cwd for CLI execution, scope validation,
+and report consumption.
 
 ## Why this should be a Pi extension
 
@@ -107,20 +117,20 @@ not download or install a binary. If neither command is available, Pi continues
 normally and an explicit scan request explains the missing prerequisite. A
 dedicated `/jscpd status` subcommand is planned but is not registered yet.
 
-The implemented public scaffold is deliberately small:
+The implemented public surface is deliberately small:
 
 ```text
-/jscpd             report that the future overlay is reserved; do not scan
-/jscpd scan [args] validate and dispatch an explicit scan request
-jscpd_run          agent tool with command `scan` and optional tokenized `args`
+/jscpd                       report that the future overlay is reserved; do not scan
+/jscpd scan                  scan the project
+/jscpd scan src "path here"  scan existing in-project files or directories
+jscpd_run                    use command `scan` and optional path-scope `args`
 ```
 
-Both explicit surfaces currently run only the lazy capability check and then
-return that scan execution is unavailable. They do not install anything or
-search outside normal `PATH` command resolution. The tool schema accepts only
-the `scan` command, an optional bounded string array, and no unknown fields.
-Slash-command quotes group paths with spaces; neither surface constructs or
-invokes a shell command.
+The tool schema accepts only the `scan` command, an optional bounded string array,
+and no unknown fields. Slash-command quotes group paths with spaces. Scope tokens
+that look like options cannot override the extension-owned reporter or output
+path; they are accepted only when they identify a real in-project file or
+directory and are passed after `--`. Neither surface constructs a shell command.
 
 Future `changed`, `status`, `off`, and `help` subcommands are not registered yet.
 The bare `/jscpd` command remains reserved for an interactive overlay; its exact
@@ -159,11 +169,13 @@ users do not receive duplicate findings.
 │   ├── registry.ts        typed command metadata
 │   ├── contract.ts        strict jscpd_run schema
 │   ├── parser.ts          bounded shell-free token parsing
-│   ├── dispatch.ts        command and capability dispatch boundary
+│   ├── dispatch.ts        shared command dispatch boundary
 │   ├── capability.ts      executable/version probe and session cache
 │   ├── process.ts         shared bounded child-process ownership
 │   ├── jscpd.ts           serialized temporary-report adapter
-│   └── jscpd-report.ts    strict v5 JSON validation and normalization
+│   ├── jscpd-report.ts    strict v5 JSON validation and normalization
+│   ├── scan.ts            scope validation and end-to-end scan orchestration
+│   └── presentation.ts    bounded model and terminal summaries
 ├── test/                  package and command-contract tests
 ├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
@@ -178,9 +190,9 @@ Prerequisites:
 
 - Node.js 22 or newer
 - Pi
-- jscpd v5 for future integration smoke tests
+- an already installed jscpd v5 (`jscpd` or `cpd`) for real scans
 
-Install development dependencies and verify the capability slice:
+Install development dependencies and verify the scan slice:
 
 ```text
 npm install
@@ -197,11 +209,13 @@ Load the current extension directly in Pi:
 pi -e ./src/index.ts
 ```
 
-The command contract, lazy jscpd v5 capability probe, internal bounded
-process/report lifecycle, and structured JSON validation are now in place. The
-next milestone connects real read-only scan arguments and presentation without
-changing the report parser.
-The bare `/jscpd` overlay is tracked separately in
+The command contract, lazy jscpd v5 capability probe, bounded process/report
+lifecycle, strict JSON validation, scope-safe scan orchestration, and concise
+presentation are in place. Tests use a deterministic fake executable and do not
+download anything; a real installed v5 binary can be used for a local scan smoke.
+Session changed-file tracking, baseline deltas, automatic checkpoints, and
+configuration for extension behavior remain future milestones. The bare
+`/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks

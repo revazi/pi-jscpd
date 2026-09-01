@@ -16,7 +16,7 @@ import type { JscpdCommandExecutor } from "../src/types.js";
 
 const unavailableResult = {
   status: "unavailable",
-  reason: "not-implemented",
+  reason: "missing-binary",
   message: "Unavailable in test.",
 } as const;
 
@@ -195,13 +195,15 @@ describe("jscpd_run", () => {
     });
   });
 
-  it("lazily reports a detected executable while keeping scan execution honest", async () => {
+  it("validates the explicit project cwd before lazily probing or running a scan", async () => {
     const registerTool = vi.fn();
     const registerCommand = vi.fn();
     const on = vi.fn();
     const capability = createCapabilityService();
+    const adapter = createAdapterService();
     registerJscpdExtension({ registerTool, registerCommand, on } as unknown as ExtensionAPI, {
       capabilityService: capability.service,
+      adapterService: adapter.service,
     });
     const definition = registerTool.mock.calls[0]?.[0] as ReturnType<
       typeof createJscpdToolDefinition
@@ -219,21 +221,15 @@ describe("jscpd_run", () => {
       content: [
         {
           type: "text",
-          text: "jscpd scan execution is not implemented yet (detected jscpd v5.1.0).",
+          text: "jscpd scan requires an available project working directory; no scan ran.",
         },
       ],
       details: {
-        status: "unavailable",
-        reason: "not-implemented",
-        message: "jscpd scan execution is not implemented yet (detected jscpd v5.1.0).",
-        capability: {
-          status: "available",
-          executable: "jscpd",
-          version: "5.1.0",
-          major: 5,
-        },
+        status: "failed",
+        reason: "unsupported-path",
+        message: "jscpd scan requires an available project working directory; no scan ran.",
       },
     });
-    expect(capability.probe).toHaveBeenCalledWith({ cwd: "/project", signal: undefined });
+    expect(capability.probe).not.toHaveBeenCalled();
   });
 });
