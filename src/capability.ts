@@ -1,12 +1,9 @@
-import type { ChildProcessByStdio } from "node:child_process";
-import { spawn } from "node:child_process";
-import type { Readable } from "node:stream";
+import { createProcessEnvironmentWithPath, runBoundedProcess } from "./process.js";
 
 export const JSCPD_SUPPORTED_MAJOR = 5;
 export const JSCPD_VERSION_TIMEOUT_MS = 2_000;
 export const JSCPD_VERSION_MAX_OUTPUT_BYTES = 4_096;
 
-const FORCE_KILL_AFTER_MS = 250;
 const VERSION_ARGUMENTS = ["--version"] as const;
 const EXECUTABLES = ["jscpd", "cpd"] as const;
 const MAX_VERSION_LINE_LENGTH = 128;
@@ -401,116 +398,35 @@ function normalizeExitCode(exitCode: number): number {
   return Number.isSafeInteger(exitCode) ? exitCode : 1;
 }
 
-function createProbeEnvironment(path: string): NodeJS.ProcessEnv {
-  const environment = { ...process.env };
-  for (const key of Object.keys(environment)) {
-    if (key.toLowerCase() === "path") {
-      delete environment[key];
-    }
-  }
-  environment.PATH = path;
-  return environment;
-}
-
 async function executeNodeProbe(
   request: JscpdProbeExecutionRequest,
 ): Promise<JscpdProbeExecutionResult> {
-  if (request.signal.aborted) {
-    return { status: "cancelled" };
-  }
-
-  return new Promise((resolve) => {
-    let child: ChildProcessByStdio<null, Readable, Readable>;
-    try {
-      child = spawn(request.executable, [...request.args], {
-        cwd: request.cwd,
-        env: createProbeEnvironment(request.path),
-        shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
-        windowsHide: true,
-      });
-    } catch {
-      resolve({ status: "failed" });
-      return;
-    }
-
-    let settled = false;
-    let started = false;
-    let terminalStatus: "cancelled" | "timed-out" | "output-limit" | undefined;
-    let outputBytes = 0;
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    let forceKillTimer: NodeJS.Timeout | undefined;
-
-    const cleanup = () => {
-      clearTimeout(timeoutTimer);
-      if (forceKillTimer) {
-        clearTimeout(forceKillTimer);
-      }
-      request.signal.removeEventListener("abort", cancel);
-    };
-    const settle = (result: JscpdProbeExecutionResult) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      cleanup();
-      resolve(result);
-    };
-    const terminate = (status: "cancelled" | "timed-out" | "output-limit") => {
-      if (terminalStatus) {
-        return;
-      }
-      terminalStatus = status;
-      child.kill("SIGTERM");
-      forceKillTimer = setTimeout(() => child.kill("SIGKILL"), FORCE_KILL_AFTER_MS);
-    };
-    const cancel = () => terminate("cancelled");
-    const capture = (destination: Buffer[], chunk: Buffer | string) => {
-      if (terminalStatus) {
-        return;
-      }
-      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-      const remaining = request.maxOutputBytes - outputBytes;
-      if (buffer.length > remaining) {
-        if (remaining > 0) {
-          destination.push(buffer.subarray(0, remaining));
-        }
-        outputBytes = request.maxOutputBytes;
-        terminate("output-limit");
-        return;
-      }
-      destination.push(buffer);
-      outputBytes += buffer.length;
-    };
-
-    const timeoutTimer = setTimeout(() => terminate("timed-out"), request.timeoutMs);
-    request.signal.addEventListener("abort", cancel, { once: true });
-    child.once("spawn", () => {
-      started = true;
-    });
-    child.stdout.on("data", (chunk: Buffer | string) => capture(stdout, chunk));
-    child.stderr.on("data", (chunk: Buffer | string) => capture(stderr, chunk));
-    child.once("error", (error: NodeJS.ErrnoException) => {
-      if (terminalStatus) {
-        settle({ status: terminalStatus });
-      } else if (!started && error.code === "ENOENT") {
-        settle({ status: "missing" });
-      } else {
-        settle({ status: "failed" });
-      }
-    });
-    child.once("close", (code) => {
-      if (terminalStatus) {
-        settle({ status: terminalStatus });
-        return;
-      }
-      settle({
-        status: "completed",
-        exitCode: code ?? 1,
-        stdout: Buffer.concat(stdout).toString("utf8"),
-        stderr: Buffer.concat(stderr).toString("utf8"),
-      });
-    });
+  const result = await runBoundedProcess({
+    executable: request.executable,
+    args: request.args,
+    cwd: request.cwd,
+    env: createProcessEnvironmentWithPath(request.path),
+    signal: request.signal,
+    timeoutMs: request.timeoutMs,
+    maxOutputBytes: request.maxOutputBytes,
   });
+
+  switch (result.status) {
+    case "completed":
+      return {
+        status: "completed",
+        exitCode: result.exitCode,
+        stdout: result.stdout.toString("utf8"),
+        stderr: result.stderr.toString("utf8"),
+      };
+    case "not-found":
+      return { status: "missing" };
+    case "cancelled":
+    case "timed-out":
+    case "output-limit":
+      return { status: result.status };
+    case "invalid-request":
+    case "spawn-failed":
+      return { status: "failed" };
+  }
 }

@@ -2,7 +2,7 @@
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
-[![status: capability probe](https://img.shields.io/badge/status-capability%20probe-orange.svg)](#project-status)
+[![status: bounded adapter](https://img.shields.io/badge/status-bounded%20adapter-orange.svg)](#project-status)
 
 > A Pi-native, polyglot duplication guardrail powered by jscpd.
 
@@ -13,7 +13,7 @@ rescan flow.
 
 ## Project status
 
-**Capability probe — scan execution is not implemented yet.**
+**Bounded process and temporary-report adapter — user-facing scan execution is not implemented yet.**
 
 The extension registers `/jscpd` and the `jscpd_run` agent tool from one typed
 `scan` command registry. On the first explicit scan request in a project/session,
@@ -22,10 +22,14 @@ The shell-free probe is time- and output-bounded, requires jscpd major version 5
 and returns normalized missing, incompatible, cancelled, timeout, or failure
 outcomes without exposing command output or environment details. Results are
 cached for the current cwd and `PATH` and invalidated at session boundaries.
-Nothing runs during module loading or extension registration.
 
-Real duplication analysis remains unavailable even when a compatible executable
-is found. Bare `/jscpd` only explains that the interactive overlay is reserved;
+An internal adapter can now serialize bounded child-process requests, consume a
+size-limited report from a restrictive extension-owned temporary directory, and
+clean up on completion, cancellation, timeout, invalidation, or shutdown. It is
+lazy: module loading and extension registration create no process or temporary
+directory. Structured report validation and the real jscpd scan arguments are
+not implemented, so the registered command and tool still stop after capability
+detection. Bare `/jscpd` only explains that the interactive overlay is reserved;
 it never starts a scan.
 
 The package name is provisional. npm publication is disabled intentionally
@@ -113,7 +117,9 @@ users do not receive duplicate findings.
 │   ├── contract.ts        strict jscpd_run schema
 │   ├── parser.ts          bounded shell-free token parsing
 │   ├── dispatch.ts        command and capability dispatch boundary
-│   └── capability.ts      bounded executable/version probe and session cache
+│   ├── capability.ts      executable/version probe and session cache
+│   ├── process.ts         shared bounded child-process ownership
+│   └── jscpd.ts           serialized temporary-report adapter
 ├── test/                  package and command-contract tests
 ├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
@@ -147,9 +153,10 @@ Load the current extension directly in Pi:
 pi -e ./src/index.ts
 ```
 
-The command contract and lazy jscpd v5 capability probe are now in place; the
-next milestones add the bounded read-only scanner and structured reports. The
-bare `/jscpd` overlay is tracked separately in
+The command contract, lazy jscpd v5 capability probe, and internal bounded
+process/report lifecycle are now in place. The next milestones validate
+structured reports and connect real read-only scan arguments and presentation.
+The bare `/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks

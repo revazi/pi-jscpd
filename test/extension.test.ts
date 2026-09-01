@@ -10,6 +10,7 @@ import {
   createJscpdToolDefinition,
   registerJscpdExtension,
 } from "../src/extension.js";
+import type { JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
 import type { JscpdCommandExecutor } from "../src/types.js";
 
@@ -39,6 +40,16 @@ function toolContext(): ExtensionContext {
   return { cwd: "/project", signal: undefined } as unknown as ExtensionContext;
 }
 
+function createAdapterService() {
+  const invalidate = vi.fn();
+  const dispose = vi.fn(async () => undefined);
+  return {
+    service: { invalidate, dispose } as unknown as JscpdService,
+    invalidate,
+    dispose,
+  };
+}
+
 function createCapabilityService() {
   const probe = vi.fn<JscpdCapabilityService["probe"]>(async () => ({
     status: "available",
@@ -63,8 +74,12 @@ describe("Pi extension registration", () => {
     const on = vi.fn();
     const pi = { registerTool, registerCommand, on } as unknown as ExtensionAPI;
     const capability = createCapabilityService();
+    const adapter = createAdapterService();
 
-    registerJscpdExtension(pi, { capabilityService: capability.service });
+    registerJscpdExtension(pi, {
+      capabilityService: capability.service,
+      adapterService: adapter.service,
+    });
 
     expect(registerTool).toHaveBeenCalledOnce();
     expect(registerTool.mock.calls[0]?.[0]).toMatchObject({
@@ -86,22 +101,30 @@ describe("Pi extension registration", () => {
     ]);
   });
 
-  it("invalidates or disposes capability state at session boundaries", () => {
-    const handlers = new Map<string, () => void>();
+  it("invalidates or disposes process-owning services at session boundaries", async () => {
+    const handlers = new Map<string, () => void | Promise<void>>();
     const capability = createCapabilityService();
+    const adapter = createAdapterService();
     const pi = {
       registerTool: vi.fn(),
       registerCommand: vi.fn(),
-      on: vi.fn((event: string, handler: () => void) => handlers.set(event, handler)),
+      on: vi.fn((event: string, handler: () => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
     } as unknown as ExtensionAPI;
 
-    registerJscpdExtension(pi, { capabilityService: capability.service });
-    handlers.get("session_start")?.();
-    handlers.get("session_before_switch")?.();
-    handlers.get("session_shutdown")?.();
+    registerJscpdExtension(pi, {
+      capabilityService: capability.service,
+      adapterService: adapter.service,
+    });
+    await handlers.get("session_start")?.();
+    await handlers.get("session_before_switch")?.();
+    await handlers.get("session_shutdown")?.();
 
     expect(capability.invalidate).toHaveBeenCalledTimes(2);
     expect(capability.dispose).toHaveBeenCalledOnce();
+    expect(adapter.invalidate).toHaveBeenCalledTimes(2);
+    expect(adapter.dispose).toHaveBeenCalledOnce();
   });
 });
 

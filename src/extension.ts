@@ -6,6 +6,7 @@ import type {
 import { createJscpdCapabilityService, type JscpdCapabilityService } from "./capability.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
 import { createCapabilityAwareJscpdExecutor, dispatchJscpdCommand } from "./dispatch.js";
+import { createJscpdService, type JscpdService } from "./jscpd.js";
 import { parseJscpdSlashArgs } from "./parser.js";
 import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
@@ -22,6 +23,7 @@ type JscpdSlashCommandDefinition = Omit<RegisteredCommand, "name" | "sourceInfo"
 export interface JscpdExtensionOptions {
   executor?: JscpdCommandExecutor;
   capabilityService?: JscpdCapabilityService;
+  adapterService?: JscpdService;
 }
 
 export function registerJscpdExtension(
@@ -34,15 +36,23 @@ export function registerJscpdExtension(
     capabilityService ??= createJscpdCapabilityService();
     executor = createCapabilityAwareJscpdExecutor(capabilityService);
   }
+  const adapterService = options.adapterService ?? createJscpdService();
 
   pi.registerTool(createJscpdToolDefinition(executor));
   pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor));
 
-  if (capabilityService) {
-    pi.on("session_start", () => capabilityService.invalidate());
-    pi.on("session_before_switch", () => capabilityService.invalidate());
-    pi.on("session_shutdown", () => capabilityService.dispose());
-  }
+  pi.on("session_start", () => {
+    capabilityService?.invalidate();
+    adapterService.invalidate();
+  });
+  pi.on("session_before_switch", () => {
+    capabilityService?.invalidate();
+    adapterService.invalidate();
+  });
+  pi.on("session_shutdown", async () => {
+    capabilityService?.dispose();
+    await adapterService.dispose();
+  });
 }
 
 export function createJscpdToolDefinition(executor: JscpdCommandExecutor): JscpdToolDefinition {
