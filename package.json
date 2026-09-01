@@ -21,20 +21,29 @@
     "code-duplication",
     "agentic-coding"
   ],
-  "files": ["src", "README.md", "LICENSE"],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "check": "npm run typecheck && npm test",
+    "format": "biome check --write .",
+    "lint": "biome check .",
+    "check": "npm run typecheck && npm run lint && npm test",
     "pack:dry-run": "npm pack --dry-run"
   },
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.3",
     "@earendil-works/pi-coding-agent": "*",
     "@types/node": "*",
     "typescript": "*",

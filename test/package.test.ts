@@ -11,6 +11,8 @@ interface PackageManifest {
   bugs?: { url?: string };
   files?: string[];
   keywords?: string[];
+  scripts?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   pi?: { extensions?: string[] };
 }
 
@@ -30,6 +32,15 @@ describe("Pi package manifest", () => {
   it("cannot be published accidentally while the project is a scaffold", async () => {
     const manifest = await readManifest();
     expect(manifest.private).toBe(true);
+  });
+
+  it("runs Biome as part of the standard project check", async () => {
+    const manifest = await readManifest();
+
+    expect(manifest.devDependencies?.["@biomejs/biome"]).toBe("2.5.3");
+    expect(manifest.scripts?.format).toBe("biome check --write .");
+    expect(manifest.scripts?.lint).toBe("biome check .");
+    expect(manifest.scripts?.check).toContain("npm run lint");
   });
 
   it("declares its license, maintainer, and public project links", async () => {

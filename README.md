@@ -94,6 +94,7 @@ users do not receive duplicate findings.
 │   └── index.ts           public Pi extension entrypoint
 ├── test/
 │   └── package.test.ts    package contract tests
+├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
 ├── package.json           Pi package manifest
 ├── tsconfig.json
@@ -112,8 +113,12 @@ Install development dependencies and verify the scaffold:
 
 ```text
 npm install
-npm run check
+npm run format       # apply Biome formatting and safe fixes
+npm run lint         # check formatting, lint rules, and import organization
+npm run check        # typecheck, Biome, and tests
 ```
+
+Biome is pinned in `devDependencies` so local and CI checks use the same version.
 
 Load the current no-op entrypoint directly in Pi:
 
