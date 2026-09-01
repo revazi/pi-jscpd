@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService } from "../src/config.js";
-import { createJscpdStatusAwareExecutor, createJscpdStatusService } from "../src/status.js";
+import {
+  createJscpdSessionModeService,
+  createJscpdStatusAwareExecutor,
+  createJscpdStatusService,
+} from "../src/status.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
 
 function capabilityService(result: JscpdCapabilityResult) {
@@ -51,6 +55,12 @@ function completed(outcome: "clean" | "findings", clones = 0): JscpdExecutionRes
   };
 }
 
+function sessionMode(enabled = true) {
+  const mode = createJscpdSessionModeService();
+  mode.reset(enabled);
+  return mode;
+}
+
 const available: JscpdCapabilityResult = {
   status: "available",
   executable: "jscpd",
@@ -72,13 +82,14 @@ describe("bounded jscpd status", () => {
         },
       ],
     });
-    const service = createJscpdStatusService(capability.service, config);
+    const service = createJscpdStatusService(capability.service, config, sessionMode(false));
 
     const result = await service.inspect({ cwd: "/project" });
 
     expect(result).toMatchObject({
       status: "status",
       mode: "disabled",
+      modeSource: "configuration",
       configSource: "local",
       configSources: ["defaults", "project", "local"],
       configDiagnostics: 1,
@@ -97,7 +108,7 @@ describe("bounded jscpd status", () => {
 
   it("explains dormant setup without leaking PATH or environment content", async () => {
     const capability = capabilityService({ status: "missing", checked: ["jscpd", "cpd"] });
-    const service = createJscpdStatusService(capability.service, configService());
+    const service = createJscpdStatusService(capability.service, configService(), sessionMode());
 
     const result = await service.inspect({ cwd: "/private/project" });
 
@@ -125,7 +136,11 @@ describe("bounded jscpd status", () => {
       "Last check: failed (invalid report)",
     ],
   ] as const)("records a bounded last-check state for %j", async (scan, expected, text) => {
-    const service = createJscpdStatusService(capabilityService(available).service, configService());
+    const service = createJscpdStatusService(
+      capabilityService(available).service,
+      configService(),
+      sessionMode(),
+    );
 
     service.record(scan);
     const result = await service.inspect({ cwd: "/project" });
@@ -138,10 +153,60 @@ describe("bounded jscpd status", () => {
     });
   });
 
+  it("disables and re-enables the current session while generating help from the registry", async () => {
+    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => completed("clean"));
+    const mode = sessionMode();
+    const status = createJscpdStatusService(
+      capabilityService(available).service,
+      configService(),
+      mode,
+    );
+    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode);
+
+    const disabled = await executor.execute({ command: "off", args: [] }, { cwd: "/project" });
+    const disabledStatus = await executor.execute(
+      { command: "status", args: [] },
+      { cwd: "/project" },
+    );
+    const help = await executor.execute({ command: "help", args: [] }, { cwd: "/project" });
+    const enabled = await executor.execute({ command: "on", args: [] }, { cwd: "/project" });
+    const enabledStatus = await executor.execute(
+      { command: "status", args: [] },
+      { cwd: "/project" },
+    );
+
+    expect(disabled).toMatchObject({ status: "control", action: "disabled" });
+    expect(disabledStatus).toMatchObject({
+      status: "status",
+      mode: "disabled",
+      modeSource: "session",
+      lastCheck: { state: "never" },
+    });
+    expect(disabledStatus.message).toContain("run /jscpd on");
+    expect(help).toMatchObject({ status: "help" });
+    expect(help.message).toContain("/jscpd scan [target ...]");
+    expect(help.message).toContain("/jscpd off");
+    expect(help.message).toContain("/jscpd on");
+    expect(help.message).toContain("/jscpd help");
+    expect(enabled).toMatchObject({ status: "control", action: "enabled" });
+    expect(enabledStatus).toMatchObject({
+      status: "status",
+      mode: "enabled",
+      modeSource: "session",
+      lastCheck: { state: "never" },
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("routes status without scanning and records scan results for the next status", async () => {
     const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => completed("findings", 1));
-    const status = createJscpdStatusService(capabilityService(available).service, configService());
-    const executor = createJscpdStatusAwareExecutor({ execute }, status);
+    const mode = sessionMode();
+    const status = createJscpdStatusService(
+      capabilityService(available).service,
+      configService(),
+      mode,
+    );
+    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode);
 
     const firstStatus = await executor.execute(
       { command: "status", args: [] },

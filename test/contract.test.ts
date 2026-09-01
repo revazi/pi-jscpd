@@ -27,6 +27,9 @@ describe("jscpd_run contract", () => {
       }),
     ).toBe(true);
     expect(Value.Check(jscpdRunParams, { command: "status" })).toBe(true);
+    expect(Value.Check(jscpdRunParams, { command: "off" })).toBe(true);
+    expect(Value.Check(jscpdRunParams, { command: "on" })).toBe(true);
+    expect(Value.Check(jscpdRunParams, { command: "help" })).toBe(true);
   });
 
   it.each([

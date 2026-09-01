@@ -12,8 +12,10 @@ import { parseJscpdSlashArgs } from "./parser.js";
 import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
 import { createJscpdScanExecutor } from "./scan.js";
 import {
+  createJscpdSessionModeService,
   createJscpdStatusAwareExecutor,
   createJscpdStatusService,
+  type JscpdSessionModeService,
   type JscpdStatusService,
 } from "./status.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
@@ -41,15 +43,20 @@ export function registerJscpdExtension(
   let capabilityService = options.capabilityService;
   let executor = options.executor;
   let statusService: JscpdStatusService | undefined;
+  let sessionMode: JscpdSessionModeService | undefined;
   const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService();
   if (!executor) {
     capabilityService ??= createJscpdCapabilityService();
+    sessionMode = createJscpdSessionModeService();
     const scanExecutor = createJscpdScanExecutor(capabilityService, adapterService, {
-      config: () => configService.current().config,
+      config: () => ({
+        ...configService.current().config,
+        enabled: sessionMode?.isEnabled() ?? true,
+      }),
     });
-    statusService = createJscpdStatusService(capabilityService, configService);
-    executor = createJscpdStatusAwareExecutor(scanExecutor, statusService);
+    statusService = createJscpdStatusService(capabilityService, configService, sessionMode);
+    executor = createJscpdStatusAwareExecutor(scanExecutor, statusService, sessionMode);
   }
 
   pi.registerTool(createJscpdToolDefinition(executor));
@@ -63,6 +70,7 @@ export function registerJscpdExtension(
       cwd: ctx.cwd,
       trusted: ctx.isProjectTrusted(),
     });
+    sessionMode?.reset(loaded.config.enabled);
     if (ctx.hasUI) {
       for (const diagnostic of loaded.diagnostics) {
         ctx.ui.notify(diagnostic.message, "warning");
@@ -121,17 +129,34 @@ export function createJscpdSlashCommandDefinition(
         { cwd: ctx.cwd, signal: ctx.signal },
         executor,
       );
-      const message =
-        result.status === "completed" || result.status === "status"
-          ? result.terminalMessage
-          : result.message;
-      const level =
-        result.status === "completed" || result.status === "status"
-          ? "info"
-          : result.status === "invalid" || result.status === "error"
-            ? "error"
-            : "warning";
-      ctx.ui.notify(message, level);
+      ctx.ui.notify(terminalResultMessage(result), resultNotificationLevel(result));
     },
   };
+}
+
+function terminalResultMessage(result: JscpdDispatchResult): string {
+  switch (result.status) {
+    case "completed":
+    case "status":
+    case "control":
+    case "help":
+      return result.terminalMessage;
+    default:
+      return result.message;
+  }
+}
+
+function resultNotificationLevel(result: JscpdDispatchResult): "info" | "warning" | "error" {
+  switch (result.status) {
+    case "completed":
+    case "status":
+    case "control":
+    case "help":
+      return "info";
+    case "invalid":
+    case "error":
+      return "error";
+    default:
+      return "warning";
+  }
 }

@@ -51,6 +51,8 @@ warning; untrusted projects are never inspected for extension configuration.
 `/jscpd status` reports the effective source and mode, the bounded binary name
 and version state, and the session's latest clean, findings, cancelled, failed,
 or never-run check without exposing child output or environment content.
+`/jscpd off` disables scanning for the current session; status and help remain
+available, and `/jscpd on` restores scanning without changing project files.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
@@ -161,7 +163,10 @@ The implemented public surface is deliberately small:
 /jscpd scan                  scan the project
 /jscpd scan src "path here"  scan existing in-project files or directories
 /jscpd status                show binary, config, mode, and last-check state
-jscpd_run                    use `scan` with optional paths, or `status`
+/jscpd off                   disable scanning for this session
+/jscpd on                    re-enable scanning for this session
+/jscpd help                  show generated command help
+jscpd_run                    use the same scan, status, control, and help commands
 ```
 
 The tool schema accepts only the `scan` command, an optional bounded string array,
@@ -170,7 +175,10 @@ that look like options cannot override the extension-owned reporter or output
 path; they are accepted only when they identify a real in-project file or
 directory and are passed after `--`. Neither surface constructs a shell command.
 
-Future `changed`, `off`, and `help` subcommands are not registered yet.
+The `off` and `on` controls are session-only overrides. While off, explicit scan
+requests return a consistent disabled diagnostic instead of starting a process;
+`status`, `help`, and `on` remain available. A new session restores the trusted
+configuration value. Future `changed` behavior is not registered yet.
 The bare `/jscpd` command remains reserved for an interactive overlay; its exact
 views and controls will be agreed in
 [the overlay interaction issue](https://github.com/revazi/pi-jscpd/issues/25)
@@ -253,8 +261,8 @@ The command contract, lazy jscpd v5 capability probe, bounded process/report
 lifecycle, strict JSON validation, scope-safe scan orchestration, and concise
 presentation and trusted extension configuration are in place. Tests use a
 deterministic fake executable and do not download anything; a real installed v5
-binary can be used for a local scan smoke. Help and session controls,
-changed-file tracking, baseline deltas, and automatic checkpoints remain future
+binary can be used for a local scan smoke. Changed-file tracking, baseline
+deltas, automatic checkpoints, and persistent session restoration remain future
 milestones. The bare `/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the

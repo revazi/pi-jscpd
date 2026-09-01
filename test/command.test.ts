@@ -30,9 +30,27 @@ describe("jscpd command registry", () => {
         argumentHint: "",
         maxArguments: 0,
       },
+      {
+        name: "off",
+        description: "Disable jscpd behavior for the current session",
+        argumentHint: "",
+        maxArguments: 0,
+      },
+      {
+        name: "on",
+        description: "Re-enable jscpd behavior for the current session",
+        argumentHint: "",
+        maxArguments: 0,
+      },
+      {
+        name: "help",
+        description: "Show jscpd commands and session controls",
+        argumentHint: "",
+        maxArguments: 0,
+      },
     ]);
-    expect(jscpdCommandNames).toEqual(["scan", "status"]);
-    expect(jscpdArgumentHint).toBe("[scan [target ...]|status]");
+    expect(jscpdCommandNames).toEqual(["scan", "status", "off", "on", "help"]);
+    expect(jscpdArgumentHint).toBe("[scan [target ...]|status|off|on|help]");
     expect(getJscpdArgumentCompletions("sc")).toEqual([
       {
         value: "scan",
@@ -46,6 +64,13 @@ describe("jscpd command registry", () => {
         label: "status",
         description: "Show binary, configuration, and last-check status",
       },
+    ]);
+    expect(getJscpdArgumentCompletions("o")).toEqual([
+      expect.objectContaining({ value: "off", label: "off" }),
+      expect.objectContaining({ value: "on", label: "on" }),
+    ]);
+    expect(getJscpdArgumentCompletions("h")).toEqual([
+      expect.objectContaining({ value: "help", label: "help" }),
     ]);
     expect(getJscpdArgumentCompletions("scan ")).toBeNull();
     expect(getJscpdArgumentCompletions("unknown")).toBeNull();
