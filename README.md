@@ -2,7 +2,7 @@
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
-[![status: design scaffold](https://img.shields.io/badge/status-design%20scaffold-orange.svg)](#project-status)
+[![status: command scaffold](https://img.shields.io/badge/status-command%20scaffold-orange.svg)](#project-status)
 
 > A Pi-native, polyglot duplication guardrail powered by jscpd.
 
@@ -13,11 +13,14 @@ rescan flow.
 
 ## Project status
 
-**Design scaffold — not functional yet.**
+**Command scaffold — scan execution is not implemented yet.**
 
-The repository currently provides the Pi package manifest, a loadable no-op
-entrypoint, package-contract tests, and this product outline. It does not scan
-code or register public commands yet.
+The extension now registers `/jscpd` and the `jscpd_run` agent tool from one
+typed `scan` command registry. Explicit scan requests are parsed and validated
+as bounded shell-free argument tokens, then return an honest unavailable result
+through the future scanner boundary. No executable detection or analysis runs in
+this slice. Bare `/jscpd` only explains that the interactive overlay is reserved;
+it never starts a scan.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
@@ -50,21 +53,23 @@ The extension will use an existing `jscpd` or `cpd` v5 binary on `PATH`. It will
 not download or install a binary. If neither command is available, Pi continues
 normally and `/jscpd status` explains the missing prerequisite.
 
-The proposed public surface is deliberately small:
+The implemented public scaffold is deliberately small:
 
 ```text
-/jscpd             open the interactive jscpd overlay
-/jscpd scan        scan on demand
-/jscpd changed     show duplication introduced by this session
-/jscpd status      show capability and configuration status
-/jscpd off         disable automatic checks for this session
-/jscpd help        show commands and usage
+/jscpd             report that the future overlay is reserved; do not scan
+/jscpd scan [args] validate and dispatch an explicit scan request
+jscpd_run          agent tool with command `scan` and optional tokenized `args`
 ```
 
-Following Pi Fallow's interaction pattern, Pi will also receive one `jscpd_run`
-tool with a compact command-and-args contract rather than several always-visible
-tools. The bare `/jscpd` command is reserved for an interactive overlay, as in
-other Pi extensions; its exact views and controls will be agreed in
+Both explicit surfaces currently return that scan execution is unavailable.
+Executable detection and real analysis are later milestones. The tool schema
+accepts only the `scan` command, an optional bounded string array, and no unknown
+fields. Slash-command quotes group paths with spaces; neither surface constructs
+or invokes a shell command.
+
+Future `changed`, `status`, `off`, and `help` subcommands are not registered yet.
+The bare `/jscpd` command remains reserved for an interactive overlay; its exact
+views and controls will be agreed in
 [the overlay interaction issue](https://github.com/revazi/pi-jscpd/issues/25)
 before that UI milestone is implemented.
 
@@ -94,9 +99,13 @@ users do not receive duplicate findings.
 ```text
 .
 ├── src/
-│   └── index.ts           public Pi extension entrypoint
-├── test/
-│   └── package.test.ts    package contract tests
+│   ├── index.ts           thin Pi extension entrypoint
+│   ├── extension.ts       slash-command and tool registration
+│   ├── registry.ts        typed command metadata
+│   ├── contract.ts        strict jscpd_run schema
+│   ├── parser.ts          bounded shell-free token parsing
+│   └── dispatch.ts        injected execution boundary
+├── test/                  package and command-contract tests
 ├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
 ├── package.json           Pi package manifest
@@ -112,7 +121,7 @@ Prerequisites:
 - Pi
 - jscpd v5 for future integration smoke tests
 
-Install development dependencies and verify the scaffold:
+Install development dependencies and verify the command scaffold:
 
 ```text
 npm install
@@ -123,17 +132,17 @@ npm run check        # typecheck, Biome, and tests
 
 Biome is pinned in `devDependencies` so local and CI checks use the same version.
 
-Load the current no-op entrypoint directly in Pi:
+Load the current command scaffold directly in Pi:
 
 ```text
 pi -e ./src/index.ts
 ```
 
-The first implementation milestone is the read-only `/jscpd scan` command plus
-the matching `scan` command in the `jscpd_run` tool. The bare `/jscpd` overlay
-is tracked separately in [issue #25](https://github.com/revazi/pi-jscpd/issues/25)
-so its interaction design can be agreed before implementation. Development is
-tracked in the
+The command contract for `/jscpd scan` and `jscpd_run` is now in place; the next
+milestones add executable detection and the bounded read-only scanner. The bare
+`/jscpd` overlay is tracked separately in
+[issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
+design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks
 come only after the on-demand path is reliable.
 
