@@ -30,8 +30,7 @@ project cwd, must remain inside the project after symlink resolution, and is
 passed after an argument separator. The extension keeps repository jscpd policy
 in jscpd's own configuration and adds only its owned JSON reporter, absolute
 report-path normalization, and temporary output directory. It never installs a
-binary, invokes a shell, edits source, or
-writes a report into the project.
+binary, invokes a shell, edits source, or writes a report into the project.
 
 The bounded adapter serializes scans, validates jscpd v5 JSON statistics and both
 clone locations, and removes its restrictive temporary workspace after success,
@@ -44,9 +43,44 @@ invalid reports, timeout, cancellation, and cleanup uncertainty fail open with
 bounded diagnostics. Bare `/jscpd` remains reserved for the future overlay and
 never starts a scan.
 
+Trusted project and local extension settings are now loaded strictly at session
+start. They can disable scanning, set the bounded per-run timeout, and cap
+presented findings. Invalid sources are ignored atomically with a concise
+warning; untrusted projects are never inspected for extension configuration.
+
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
 under the MIT License.
+
+## Extension configuration
+
+Extension behavior uses these optional files:
+
+1. `.pi/jscpd-guardrail.local.json` — highest-precedence local override
+2. `.pi/jscpd-guardrail.json` — project settings
+3. built-in defaults
+
+Pi's active project-trust decision is authoritative. The extension calls
+`ctx.isProjectTrusted()` and reads neither file when project-local trust is not
+active. It also rejects files that resolve outside the project, non-regular or
+oversized files, malformed JSON, unknown fields, and invalid values. One invalid
+file does not prevent a valid source at another precedence level from loading,
+but an invalid file is never merged partially.
+
+The minimal schema and defaults are:
+
+```json
+{
+  "enabled": true,
+  "timeoutMs": 30000,
+  "maxFindings": 10
+}
+```
+
+`timeoutMs` is an integer from 100 through 300000. `maxFindings` is an integer
+from 1 through 100. These settings govern extension behavior only; clone modes,
+thresholds, ignores, formats, and other detection policy remain in jscpd's own
+supported configuration.
 
 ## Structured report contract
 
@@ -170,6 +204,7 @@ users do not receive duplicate findings.
 │   ├── contract.ts        strict jscpd_run schema
 │   ├── parser.ts          bounded shell-free token parsing
 │   ├── dispatch.ts        shared command dispatch boundary
+│   ├── config.ts          trusted strict extension configuration loading
 │   ├── capability.ts      executable/version probe and session cache
 │   ├── process.ts         shared bounded child-process ownership
 │   ├── jscpd.ts           serialized temporary-report adapter
@@ -211,11 +246,11 @@ pi -e ./src/index.ts
 
 The command contract, lazy jscpd v5 capability probe, bounded process/report
 lifecycle, strict JSON validation, scope-safe scan orchestration, and concise
-presentation are in place. Tests use a deterministic fake executable and do not
-download anything; a real installed v5 binary can be used for a local scan smoke.
-Session changed-file tracking, baseline deltas, automatic checkpoints, and
-configuration for extension behavior remain future milestones. The bare
-`/jscpd` overlay is tracked separately in
+presentation and trusted extension configuration are in place. Tests use a
+deterministic fake executable and do not download anything; a real installed v5
+binary can be used for a local scan smoke. Status/help commands, session
+controls, changed-file tracking, baseline deltas, and automatic checkpoints
+remain future milestones. The bare `/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks

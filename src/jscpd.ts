@@ -41,6 +41,8 @@ export interface JscpdRunRequest<T> {
   /** A stable PATH used to resolve a command name. Defaults to the current process PATH. */
   path?: string;
   signal?: AbortSignal;
+  /** Per-run extension timeout override loaded from trusted configuration. */
+  timeoutMs?: number;
   /** Build shell-free CLI tokens around the adapter-owned report directory and fixed file path. */
   createArguments(target: JscpdReportTarget): readonly string[];
   /** Nonzero clone-positive exits accepted only when they also yield an accepted findings report. */
@@ -278,13 +280,14 @@ class DefaultJscpdService implements JscpdService {
       return { status: "failed", reason: "argument-construction" };
     }
 
+    const timeoutMs = requestTimeoutMs(job.request.timeoutMs, this.#options.timeoutMs);
     const processResult = await runBoundedProcess({
       executable: job.request.executable,
       args,
       cwd: job.request.cwd,
       env: createProcessEnvironmentWithPath(job.request.path ?? process.env.PATH ?? ""),
       signal: requiredController(job).signal,
-      timeoutMs: this.#options.timeoutMs,
+      timeoutMs,
       maxOutputBytes: this.#options.maxOutputBytes,
     });
     const afterProcessLifecycle = lifecycleResultFor(job);
@@ -294,7 +297,7 @@ class DefaultJscpdService implements JscpdService {
 
     const processFailure = processFailureResult(
       processResult,
-      this.#options.timeoutMs,
+      timeoutMs,
       job.request.reportExitCodes,
     );
     if (processFailure) {
@@ -428,7 +431,7 @@ function isValidRunRequest<T>(request: JscpdRunRequest<T>): boolean {
     isSafeBoundedText(request.executable, MAX_PATH_BYTES, false) &&
     isSafeAbsolutePath(request.cwd) &&
     (request.path === undefined || isSafeBoundedText(request.path, MAX_PATH_BYTES, true)) &&
-    hasValidReportExitCodes(request.reportExitCodes) &&
+    hasValidRunControls(request) &&
     typeof request.createArguments === "function" &&
     typeof request.consumeReport === "function"
   );
@@ -717,6 +720,18 @@ function isReportDecision<T>(value: JscpdReportDecision<T>): value is JscpdRepor
       (value.status === "accepted" && Object.hasOwn(value, "value")) ||
       (value.status === "rejected" && isJscpdReportErrorCode(value.reason)))
   );
+}
+
+function requestTimeoutMs(configured: number | undefined, fallback: number): number {
+  return configured ?? fallback;
+}
+
+function hasValidRunControls(request: JscpdRunRequest<unknown>): boolean {
+  return hasValidRunTimeout(request.timeoutMs) && hasValidReportExitCodes(request.reportExitCodes);
+}
+
+function hasValidRunTimeout(value: number | undefined): boolean {
+  return value === undefined || isBoundedPositiveInteger(value, MAX_CONFIGURED_TIMEOUT_MS);
 }
 
 function hasValidReportExitCodes(value: readonly number[] | undefined): boolean {

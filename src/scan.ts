@@ -1,6 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
+import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReport, JSCPD_STRUCTURED_REPORTER } from "./jscpd-report.js";
 import { presentJscpdScan } from "./presentation.js";
@@ -18,6 +19,8 @@ const JSCPD_CLONE_POSITIVE_EXIT_CODES = [1] as const;
 export interface JscpdScanExecutorOptions {
   /** Stable PATH override for deterministic tests; normal Pi execution uses the session PATH. */
   path?: string;
+  /** Current trusted extension configuration; omitted by isolated adapter tests. */
+  config?: () => JscpdConfig;
 }
 
 interface ResolvedScanScopes {
@@ -37,6 +40,15 @@ export function createJscpdScanExecutor(
 ): JscpdCommandExecutor {
   return {
     async execute(invocation, context): Promise<JscpdExecutionResult> {
+      const config = options.config?.() ?? DEFAULT_JSCPD_CONFIG;
+      if (!config.enabled) {
+        return {
+          status: "unavailable",
+          reason: "disabled",
+          message: "jscpd scanning is disabled by trusted extension configuration.",
+        };
+      }
+
       const scopes = await resolveScanScopes(context.cwd, invocation.args);
       if (!scopes.ok) {
         return scopes.result;
@@ -56,12 +68,13 @@ export function createJscpdScanExecutor(
         cwd: scopes.value.cwd,
         path: options.path,
         signal: context.signal,
+        timeoutMs: options.config ? config.timeoutMs : undefined,
         reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
         createArguments: ({ directory }) =>
           createJscpdScanArguments(directory, scopes.value.targets),
         consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, scopes.value.cwd),
       });
-      return executionResult(scan);
+      return executionResult(scan, config.maxFindings);
     },
   };
 }
@@ -174,13 +187,16 @@ async function resolveScanScope(
   return { ok: true, target: projectRelative === "" ? "." : toPortablePath(projectRelative) };
 }
 
-function executionResult(result: JscpdRunResult<JscpdScanReport>): JscpdExecutionResult {
+function executionResult(
+  result: JscpdRunResult<JscpdScanReport>,
+  maxFindings: number,
+): JscpdExecutionResult {
   switch (result.status) {
     case "report":
-      return presentJscpdScan(result.value);
+      return presentJscpdScan(result.value, maxFindings);
     case "no-findings":
       return result.value
-        ? presentJscpdScan(result.value)
+        ? presentJscpdScan(result.value, maxFindings)
         : scanFailure(
             "invalid-report",
             "jscpd produced an invalid structured report; no result was used.",

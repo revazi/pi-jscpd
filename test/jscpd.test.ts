@@ -121,6 +121,7 @@ function request<T = string>(
     cwd?: string;
     onReportPath?: (reportPath: string) => void;
     reportExitCodes?: readonly number[];
+    timeoutMs?: number;
   } = {},
 ): JscpdRunRequest<T> {
   return {
@@ -128,6 +129,7 @@ function request<T = string>(
     cwd: options.cwd ?? projectDirectory,
     signal: options.signal,
     reportExitCodes: options.reportExitCodes,
+    timeoutMs: options.timeoutMs,
     createArguments({ reportPath }) {
       options.onReportPath?.(reportPath);
       return [fakeExecutable, mode, reportPath, ...(options.extraArgs ?? [])];
@@ -228,10 +230,10 @@ describe("jscpd temporary report adapter", () => {
     await expectTemporaryRootClean();
   });
 
-  it("bounds execution time and escalates termination for a resistant process", async () => {
-    const service = createService({ timeoutMs: 30 });
+  it("bounds execution time and honors a validated per-run timeout", async () => {
+    const service = createService({ timeoutMs: 1_000 });
 
-    await expect(service.run(request("ignore-term"))).resolves.toEqual({
+    await expect(service.run(request("ignore-term", { timeoutMs: 30 }))).resolves.toEqual({
       status: "timed-out",
       timeoutMs: 30,
     });
@@ -454,6 +456,7 @@ describe("jscpd temporary report adapter", () => {
     const invalidExecutable = request("report", { executable: "bad\0executable" });
     const invalidArgument = request("report");
     invalidArgument.createArguments = () => ["bad\0argument"];
+    const invalidTimeout = request("report", { timeoutMs: 0 });
     const controller = new AbortController();
     const removeEventListener = vi.spyOn(controller.signal, "removeEventListener");
 
@@ -464,6 +467,10 @@ describe("jscpd temporary report adapter", () => {
     await expect(service.run(invalidArgument)).resolves.toEqual({
       status: "failed",
       reason: "argument-construction",
+    });
+    await expect(service.run(invalidTimeout)).resolves.toEqual({
+      status: "failed",
+      reason: "invalid-request",
     });
     await expect(
       service.run(request("report", { signal: controller.signal })),
