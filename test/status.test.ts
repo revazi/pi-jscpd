@@ -57,7 +57,7 @@ function completed(outcome: "clean" | "findings", clones = 0): JscpdExecutionRes
 
 function sessionMode(enabled = true) {
   const mode = createJscpdSessionModeService();
-  mode.reset(enabled);
+  mode.restore(enabled);
   return mode;
 }
 
@@ -147,7 +147,7 @@ describe("bounded jscpd status", () => {
 
     expect(result.lastCheck).toEqual(expected);
     expect(result.message).toContain(text);
-    service.reset();
+    service.restore();
     await expect(service.inspect({ cwd: "/project" })).resolves.toMatchObject({
       lastCheck: { state: "never" },
     });
@@ -161,7 +161,8 @@ describe("bounded jscpd status", () => {
       configService(),
       mode,
     );
-    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode);
+    const stateChanged = vi.fn();
+    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode, stateChanged);
 
     const disabled = await executor.execute({ command: "off", args: [] }, { cwd: "/project" });
     const disabledStatus = await executor.execute(
@@ -196,6 +197,7 @@ describe("bounded jscpd status", () => {
       lastCheck: { state: "never" },
     });
     expect(execute).not.toHaveBeenCalled();
+    expect(stateChanged).toHaveBeenCalledTimes(2);
   });
 
   it("routes status without scanning and records scan results for the next status", async () => {
@@ -206,7 +208,8 @@ describe("bounded jscpd status", () => {
       configService(),
       mode,
     );
-    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode);
+    const stateChanged = vi.fn();
+    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode, stateChanged);
 
     const firstStatus = await executor.execute(
       { command: "status", args: [] },
@@ -226,5 +229,6 @@ describe("bounded jscpd status", () => {
     });
     expect(execute).toHaveBeenCalledOnce();
     expect(execute).toHaveBeenCalledWith({ command: "scan", args: [] }, { cwd: "/project" });
+    expect(stateChanged).toHaveBeenCalledOnce();
   });
 });
