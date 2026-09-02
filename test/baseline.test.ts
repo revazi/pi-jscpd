@@ -126,8 +126,8 @@ describe("initial jscpd baseline", () => {
   });
 
   it("passes strict report consumption to the adapter", async () => {
-    await writeFile(join(project, "src", "a.ts"), "fixture\n");
-    await writeFile(join(project, "lib", "b.ts"), "fixture\n");
+    await writeFile(join(project, "src", "a.ts"), "x".repeat(300));
+    await writeFile(join(project, "lib", "b.ts"), "x".repeat(300));
     const bytes = await readFile(join(process.cwd(), "test/fixtures/jscpd-v5/findings.json"));
     const cap = capability();
     const run = vi.fn(async (request: JscpdRunRequest<JscpdScanReport>) => {
@@ -146,6 +146,7 @@ describe("initial jscpd baseline", () => {
       status: "accepted",
       outcome: "findings",
       report: { clonePairs: [{ occurrences: [{ path: "lib/b.ts" }, { path: "src/a.ts" }] }] },
+      snapshot: { status: "accepted", groups: [{ fingerprint: expect.any(String) }] },
     });
   });
 
