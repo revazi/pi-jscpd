@@ -13,11 +13,11 @@ rescan flow.
 
 ## Project status
 
-**Explicit scans, session tracking, baseline capture, and stable clone comparison are implemented.**
+**Explicit scans and session-delta checks with acknowledgement tracking are implemented.**
 
-The extension registers `/jscpd scan`, `/jscpd status`, and the `jscpd_run` agent
-tool from one typed command registry. On the first explicit scan or status
-request in a project/session,
+The extension registers `/jscpd scan`, `/jscpd changed`, `/jscpd status`, and the
+`jscpd_run` agent tool from one typed command registry. On the first explicit
+scan, changed check, or status request in a project/session,
 it checks `jscpd --version` and then `cpd --version` only when `jscpd` is missing.
 The shell-free probe is time- and output-bounded, requires jscpd major version 5,
 and returns normalized missing, incompatible, cancelled, timeout, or failure
@@ -53,12 +53,12 @@ and version state, and the session's latest clean, findings, cancelled, failed,
 or never-run check without exposing child output or environment content.
 `/jscpd off` disables scanning for the current session; status and help remain
 available, and `/jscpd on` restores scanning without changing project files.
-The session override, bounded last-check summary, and changed-file set are saved
-as versioned Pi custom entries outside model context. Reload, resume, fork, and
-`/tree` restore the latest valid snapshot on the active branch; a new branch
-without one resets to trusted configuration, a never-run check, and no changed
-files. Pre-tracking version 1 snapshots retain their mode and last-check state
-while migrating to an empty changed-file set.
+The session override, bounded last-check summary, changed-file set, and bounded
+acknowledgements are saved as versioned Pi custom entries outside model context.
+Reload, resume, fork, and `/tree` restore the latest valid snapshot on the active
+branch; a new branch without one resets to trusted configuration, a never-run
+check, no changed files, and no acknowledgements. Versions 1 and 2 migrate
+compatibly with an empty acknowledgement set.
 
 The changed-file tracker listens only to successful structured `tool_result`
 events from Pi's active built-in `write` and `edit` tools. It uses the event's
@@ -104,9 +104,33 @@ ordinary line movement do not change identity while changed block content does.
 Comparison classifies uniquely identified groups as existing, new, or removed.
 Unavailable source bytes, malformed/partial inputs, and repeated indistinguishable
 groups remain explicitly ambiguous rather than being matched by report order.
-The SHA-256 representation is opaque and internal: it is not persisted or
-presented as a versioned jscpd identifier. `/jscpd changed` and acknowledgement
-tracking remain the next milestone.
+`/jscpd changed` and `jscpd_run { command: "changed" }` run a current bounded
+full-project scan and compare it with the accepted ephemeral pre-session
+baseline. They return only net-new clone groups that involve a path attributed
+to a successful built-in `write` or `edit`. Each location is labelled either
+“new in this session” for a tracked changed file or “existing match” for the
+other current location. Already-existing repository duplication and net-new
+groups unrelated to tracked files are omitted. Incomplete identity evidence is
+reported conservatively instead of being guessed.
+
+A finding is acknowledged when it is actually displayed; findings omitted by
+the configured display cap remain unacknowledged. Repeating the changed check
+without another relevant mutation does not repeat it. A materially changed
+block receives a different content-aware identity. A successful scan that no
+longer contains an acknowledged group drops that acknowledgement, and a verified
+built-in mutation of either occurrence invalidates it conservatively, so removed
+then reintroduced findings can surface again.
+
+Acknowledgements are bounded and stored only in Pi's active-branch custom
+session state. Session-state version 3 adds an explicit internal clone-identity
+version marker plus opaque fingerprints and their two project-relative paths;
+versions 1 and 2 migrate with an empty acknowledgement set. This is an internal
+migration boundary, not a public jscpd identifier or portable baseline format.
+The accepted report and source-byte evidence remain ephemeral. Reload, resume,
+fork, and tree navigation therefore preserve suppression only on the branch
+that surfaced the finding. Missing, partial, cancelled, timed-out, or failed
+baselines and scans fail open with bounded diagnostics and do not acknowledge
+anything.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
@@ -160,11 +184,10 @@ The normalized internal report preserves jscpd's counts, percentages, format,
 line/token size, and both line/column/offset spans. Reporter object order is
 normalized, paths are canonical project-relative `/` paths, and source
 `fragment`, blame, detection time, summaries, and other additive fields are not
-retained. JSON does not expose SARIF's `jscpdCloneHash/v1`; stable baseline
-identity remains a later milestone that can use the retained pair spans to hash
-both occurrences rather than presenting a first-fragment digest as jscpd
-evidence. Unknown additive fields are accepted where they cannot change the
-required contract. Malformed variants, inconsistent clone counts, unsafe or
+retained. JSON does not expose SARIF's `jscpdCloneHash/v1`; the internal stable
+identity therefore hashes the source bytes at both retained occurrence spans
+without presenting that digest as jscpd evidence. Unknown additive fields are
+accepted where they cannot change the required contract. Malformed variants, inconsistent clone counts, unsafe or
 unverifiable paths, invalid ranges/numbers, duplicate JSON keys, ambiguous
 clone records, and excessive collections are rejected with bounded typed
 reasons.
@@ -216,15 +239,17 @@ The implemented public surface is deliberately small:
 /jscpd                       report that the future overlay is reserved; do not scan
 /jscpd scan                  scan the project
 /jscpd scan src "path here"  scan existing in-project files or directories
+/jscpd changed               show unacknowledged new session duplication
 /jscpd status                show binary, config, mode, and last-check state
 /jscpd off                   disable scanning for this session
 /jscpd on                    re-enable scanning for this session
 /jscpd help                  show generated command help
-jscpd_run                    use the same scan, status, control, and help commands
+jscpd_run                    use the same scan, changed, status, control, and help commands
 ```
 
-The tool schema accepts only the `scan` command, an optional bounded string array,
-and no unknown fields. Slash-command quotes group paths with spaces. Scope tokens
+The tool schema accepts the generated registry command enum, optional bounded
+scan-scope strings, and no unknown fields. `changed`, status, controls, and help
+accept no arguments. Slash-command quotes group paths with spaces. Scope tokens
 that look like options cannot override the extension-owned reporter or output
 path; they are accepted only when they identify a real in-project file or
 directory and are passed after `--`. Neither surface constructs a shell command.
@@ -232,16 +257,16 @@ directory and are passed after `--`. Neither surface constructs a shell command.
 The `off` and `on` controls are session-only overrides. While off, explicit scan
 requests return a consistent disabled diagnostic instead of starting a process;
 `status`, `help`, and `on` remain available. Pi custom entries preserve the
-latest override, bounded last-check state, and canonical changed-file set on
-each conversation branch, so reload, resume, fork, and tree navigation
-reconstruct state from the active branch only. A genuinely new branch with no
-snapshot uses the current trusted configuration, a never-run check, and an
-empty changed-file set. Version 1 snapshots migrate their valid mode and
-last-check state with an empty changed-file set. Capability caches, child
-processes, temporary reports, and loaded configuration are never restored: they
-are invalidated or cleaned
-up, and configuration is loaded again under the current trust decision. The
-changed-file set is internal groundwork; `/jscpd changed` is not registered yet.
+latest override, bounded last-check state, canonical changed-file set, and
+version-marked acknowledgements on each conversation branch, so reload, resume,
+fork, and tree navigation reconstruct state from the active branch only. A new
+branch with no snapshot uses current trusted configuration and empty tracking
+state. Version 1 and 2 snapshots migrate valid prior fields with no
+acknowledgements. Capability caches, child processes, temporary reports,
+ephemeral baselines, and loaded configuration are never restored: they are
+invalidated or cleaned up, and configuration is loaded again under the current
+trust decision.
+
 The bare `/jscpd` command remains reserved for an interactive overlay; its exact
 views and controls will be agreed in
 [the overlay interaction issue](https://github.com/revazi/pi-jscpd/issues/25)
@@ -327,11 +352,11 @@ pi -e ./src/index.ts
 The command contract, lazy jscpd v5 capability probe, bounded process/report
 lifecycle, strict JSON validation, scope-safe scan orchestration, and concise
 presentation, trusted extension configuration, branch-local session state
-restoration, conservative changed-file tracking, and ephemeral initial baseline
-capture and content-aware baseline comparison are in place. Tests use
-deterministic fakes and do not download anything; a real installed v5 binary
-can be used for a local scan smoke. Changed-only reporting, acknowledgement
-tracking, and automatic checkpoints remain future milestones. The bare `/jscpd` overlay is tracked
+restoration, conservative changed-file tracking, ephemeral initial baseline
+capture, content-aware comparison, changed-only reporting, and acknowledgement
+tracking are in place. Tests use deterministic fakes and do not download
+anything; a real installed v5 binary can be used for a local scan smoke.
+Automatic checkpoints remain a future milestone. The bare `/jscpd` overlay is tracked
 separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the

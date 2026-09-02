@@ -26,6 +26,17 @@ const unavailableResult = {
   message: "Unavailable in test.",
 } as const;
 
+const changedResult = {
+  status: "changed",
+  outcome: "clean",
+  scanPerformed: true,
+  message: "Model changed result in test.",
+  terminalMessage: "Terminal changed result in test.",
+  findings: [],
+  omittedFindings: 0,
+  ambiguousFindings: 0,
+} as const;
+
 const statusResult = {
   status: "status",
   message: "Model status in test.",
@@ -296,6 +307,15 @@ describe("Pi extension registration", () => {
           modeOverride: "disabled",
           lastCheck: { state: "findings", clones: 2 },
           changedFiles: ["src/resumed.ts"],
+          acknowledgements: {
+            identityVersion: 1,
+            findings: [
+              {
+                fingerprint: "a".repeat(64),
+                paths: ["src/resumed.ts", "src/shared.ts"],
+              },
+            ],
+          },
         },
       },
     ];
@@ -354,6 +374,15 @@ describe("Pi extension registration", () => {
       modeOverride: "enabled",
       lastCheck: { state: "findings", clones: 2 },
       changedFiles: ["src/resumed.ts"],
+      acknowledgements: {
+        identityVersion: 1,
+        findings: [
+          {
+            fingerprint: "a".repeat(64),
+            paths: ["src/resumed.ts", "src/shared.ts"],
+          },
+        ],
+      },
     });
 
     await handlers.get("session_tree")?.(
@@ -379,6 +408,7 @@ describe("Pi extension registration", () => {
       modeOverride: "disabled",
       lastCheck: { state: "never" },
       changedFiles: [],
+      acknowledgements: { identityVersion: 1, findings: [] },
     });
   });
 
@@ -534,6 +564,7 @@ describe("Pi extension registration", () => {
         modeOverride: null,
         lastCheck: { state: "never" },
         changedFiles: ["src/written.ts"],
+        acknowledgements: { identityVersion: 1, findings: [] },
       });
 
       await handlers.get("tool_result")?.(
@@ -562,6 +593,7 @@ describe("Pi extension registration", () => {
         modeOverride: null,
         lastCheck: { state: "never" },
         changedFiles: ["src/override.ts", "src/written.ts"],
+        acknowledgements: { identityVersion: 1, findings: [] },
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -598,6 +630,20 @@ describe("/jscpd", () => {
     expect(notify).toHaveBeenCalledWith("Unavailable in test.", "warning");
   });
 
+  it("dispatches changed through the shared boundary and uses its terminal view", async () => {
+    const { executor, execute } = createExecutor(changedResult);
+    const definition = createJscpdSlashCommandDefinition(executor);
+    const { context, notify } = commandContext();
+
+    await definition.handler("changed", context);
+
+    expect(execute).toHaveBeenCalledWith(
+      { command: "changed", args: [] },
+      { cwd: "/project", signal: undefined },
+    );
+    expect(notify).toHaveBeenCalledWith("Terminal changed result in test.", "info");
+  });
+
   it("renders bounded status through the slash command at info level", async () => {
     const { executor, execute } = createExecutor(statusResult);
     const definition = createJscpdSlashCommandDefinition(executor);
@@ -617,11 +663,11 @@ describe("/jscpd", () => {
     const definition = createJscpdSlashCommandDefinition(executor);
     const { context, notify } = commandContext();
 
-    await definition.handler("changed", context);
+    await definition.handler("unknown", context);
 
     expect(execute).not.toHaveBeenCalled();
     expect(notify).toHaveBeenCalledWith(
-      "Unsupported jscpd command. Supported commands: scan, status, off, on, help.",
+      "Unsupported jscpd command. Supported commands: scan, changed, status, off, on, help.",
       "error",
     );
   });
@@ -647,6 +693,28 @@ describe("jscpd_run", () => {
     expect(result).toEqual({
       content: [{ type: "text", text: "Unavailable in test." }],
       details: unavailableResult,
+    });
+  });
+
+  it("returns changed content through the same agent-tool path", async () => {
+    const { executor, execute } = createExecutor(changedResult);
+    const definition = createJscpdToolDefinition(executor);
+
+    const result = await definition.execute(
+      "tool-call",
+      { command: "changed" },
+      undefined,
+      undefined,
+      toolContext(),
+    );
+
+    expect(execute).toHaveBeenCalledWith(
+      { command: "changed", args: [] },
+      { cwd: "/project", signal: undefined },
+    );
+    expect(result).toEqual({
+      content: [{ type: "text", text: "Model changed result in test." }],
+      details: changedResult,
     });
   });
 

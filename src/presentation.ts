@@ -1,4 +1,6 @@
 import type {
+  JscpdChangedFinding,
+  JscpdChangedResult,
   JscpdCompletedResult,
   JscpdPresentedFinding,
   JscpdScanReport,
@@ -54,6 +56,61 @@ export function presentJscpdScan(
   };
 }
 
+/** Present only unacknowledged net-new groups involving session-owned files. */
+export function presentJscpdChanged(
+  clonePairs: readonly JscpdScanReport["clonePairs"][number][],
+  changedFiles: ReadonlySet<string>,
+  configuredMaxFindings = DEFAULT_MAX_PRESENTED_FINDINGS,
+  ambiguousFindings = 0,
+): JscpdChangedResult {
+  const maxFindings = boundedFindingLimit(configuredMaxFindings);
+  const findings = clonePairs
+    .slice(0, maxFindings)
+    .map((pair) => presentChangedFinding(pair, changedFiles));
+  const omittedFindings = Math.max(0, clonePairs.length - findings.length);
+  const outcome = findings.length === 0 ? "clean" : "findings";
+  const ambiguity =
+    ambiguousFindings > 0
+      ? ` ${plural(ambiguousFindings, "clone group")} could not be classified conservatively.`
+      : "";
+  if (outcome === "clean") {
+    const message = `jscpd changed: no unacknowledged new duplicate blocks involve session-owned changed files.${ambiguity}`;
+    return Object.freeze({
+      status: "changed",
+      outcome,
+      scanPerformed: true,
+      message,
+      terminalMessage: message,
+      findings: Object.freeze(findings),
+      omittedFindings,
+      ambiguousFindings,
+    });
+  }
+  const headline = `jscpd changed found ${plural(clonePairs.length, "unacknowledged new duplicate block")} involving session-owned changed files.`;
+  const findingLines = findings.map((finding, index) => formatChangedFinding(finding, index + 1));
+  const omittedLine =
+    omittedFindings > 0
+      ? [
+          `${plural(omittedFindings, "additional new duplicate block")} omitted by the display limit and not acknowledged.`,
+        ]
+      : [];
+  const guidance =
+    "“new in this session” marks a tracked changed file; “existing match” marks the other current location. Inspect both before deciding whether to refactor.";
+  const message = [headline, ...findingLines, ...omittedLine, ambiguity.trim(), guidance]
+    .filter(Boolean)
+    .join("\n");
+  return Object.freeze({
+    status: "changed",
+    outcome,
+    scanPerformed: true,
+    message,
+    terminalMessage: message,
+    findings: Object.freeze(findings),
+    omittedFindings,
+    ambiguousFindings,
+  });
+}
+
 function boundedFindingLimit(value: number): number {
   return Number.isSafeInteger(value) && value >= 1 && value <= MAX_CONFIGURED_PRESENTED_FINDINGS
     ? value
@@ -98,9 +155,38 @@ function presentFinding(pair: JscpdScanReport["clonePairs"][number]): JscpdPrese
   });
 }
 
+function presentChangedFinding(
+  pair: JscpdScanReport["clonePairs"][number],
+  changedFiles: ReadonlySet<string>,
+): JscpdChangedFinding {
+  const occurrences = pair.occurrences.map((occurrence) =>
+    Object.freeze({
+      path: boundedPath(occurrence.path),
+      startLine: occurrence.start.line,
+      endLine: occurrence.end.line,
+      relation: changedFiles.has(occurrence.path) ? "new-session" : "existing-match",
+    }),
+  ) as [JscpdChangedFinding["occurrences"][0], JscpdChangedFinding["occurrences"][1]];
+  return Object.freeze({
+    format: pair.format,
+    lines: pair.lines,
+    tokens: pair.tokens,
+    occurrences: Object.freeze(occurrences),
+  });
+}
+
 function formatFinding(finding: JscpdPresentedFinding, ordinal: number): string {
   const [first, second] = finding.occurrences;
   return `${ordinal}. ${formatOccurrence(first)} ↔ ${formatOccurrence(second)} — ${finding.lines} lines, ${finding.tokens} tokens (${finding.format}).`;
+}
+
+function formatChangedFinding(finding: JscpdChangedFinding, ordinal: number): string {
+  const [first, second] = finding.occurrences;
+  return `${ordinal}. ${relationLabel(first.relation)}: ${formatOccurrence(first)} ↔ ${relationLabel(second.relation)}: ${formatOccurrence(second)} — ${finding.lines} lines, ${finding.tokens} tokens (${finding.format}).`;
+}
+
+function relationLabel(relation: JscpdChangedFinding["occurrences"][number]["relation"]): string {
+  return relation === "new-session" ? "new in this session" : "existing match";
 }
 
 function formatOccurrence(occurrence: JscpdPresentedFinding["occurrences"][number]): string {

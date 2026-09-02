@@ -58,6 +58,7 @@ export function createJscpdStatusAwareExecutor(
   statusService: JscpdStatusService,
   sessionMode: JscpdSessionModeService,
   stateChanged: () => void = () => {},
+  changedExecutor: JscpdCommandExecutor = scanExecutor,
 ): JscpdCommandExecutor {
   return {
     async execute(invocation, context) {
@@ -82,6 +83,12 @@ export function createJscpdStatusAwareExecutor(
           return helpResult();
         case "scan": {
           const result = await scanExecutor.execute(invocation, context);
+          statusService.record(result);
+          stateChanged();
+          return result;
+        }
+        case "changed": {
+          const result = await changedExecutor.execute(invocation, context);
           statusService.record(result);
           stateChanged();
           return result;
@@ -212,9 +219,18 @@ function lastCheckFromResult(result: JscpdExecutionResult): JscpdLastCheck | und
       return failedLastCheck(result);
     case "unavailable":
       return unavailableLastCheck(result);
+    case "changed":
+      if (!result.scanPerformed) return undefined;
+      return result.outcome === "clean"
+        ? Object.freeze({ state: "clean" })
+        : Object.freeze({
+            state: "findings",
+            clones: result.findings.length + result.omittedFindings,
+          });
     case "status":
     case "control":
     case "help":
+    case "changed-unavailable":
       return undefined;
   }
 }

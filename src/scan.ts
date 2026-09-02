@@ -187,7 +187,7 @@ async function resolveScanScope(
   return { ok: true, target: projectRelative === "" ? "." : toPortablePath(projectRelative) };
 }
 
-function executionResult(
+export function executionResult(
   result: JscpdRunResult<JscpdScanReport>,
   maxFindings: number,
 ): JscpdExecutionResult {
@@ -273,7 +273,9 @@ function pathFailure(
   return { ok: false, result: scanFailure(reason, message) };
 }
 
-function capabilityUnavailableResult(capability: JscpdCapabilityResult): JscpdUnavailableResult {
+export function capabilityUnavailableResult(
+  capability: JscpdCapabilityResult,
+): JscpdUnavailableResult {
   switch (capability.status) {
     case "available":
       throw new Error("Available capability must proceed to scan execution.");

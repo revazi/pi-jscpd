@@ -23,6 +23,8 @@ export interface JscpdChangedFileTracker {
   reset(): void;
   /** Record one verified built-in tool result. Returns true only for a newly tracked path. */
   recordToolResult(event: JscpdMutationToolResult, cwd: string): Promise<boolean>;
+  /** Record and return the canonical path even when it was already tracked. */
+  recordToolResultPath(event: JscpdMutationToolResult, cwd: string): Promise<string | undefined>;
   /** Deterministically sorted canonical project-relative paths. */
   files(): readonly string[];
 }
@@ -46,6 +48,19 @@ export function createJscpdChangedFileTracker(): JscpdChangedFileTracker {
   let roots: ProjectRoots | undefined;
   let changedFiles = new Set<string>();
 
+  const recordToolMutation = async (event: JscpdMutationToolResult, cwd: string) => {
+    const expectedGeneration = generation;
+    const expectedRoots = roots;
+    return recordMutation(
+      event,
+      cwd,
+      expectedGeneration,
+      expectedRoots,
+      changedFiles,
+      () => generation === expectedGeneration && roots === expectedRoots,
+    );
+  };
+
   return {
     async start(cwd, restored = []) {
       generation += 1;
@@ -64,14 +79,10 @@ export function createJscpdChangedFileTracker(): JscpdChangedFileTracker {
       changedFiles = new Set();
     },
     async recordToolResult(event, cwd) {
-      const rawPath = successfulMutationPath(event);
-      const snapshot = activeTrackerSnapshot(generation, roots);
-      if (!rawPath || !snapshot) return false;
-
-      const projectPath = await canonicalChangedFile(rawPath, cwd, snapshot.roots);
-      if (!projectPath || !isCurrentTrackerSnapshot(snapshot, generation, roots)) return false;
-
-      return addChangedFile(changedFiles, projectPath);
+      return (await recordToolMutation(event, cwd))?.added ?? false;
+    },
+    async recordToolResultPath(event, cwd) {
+      return (await recordToolMutation(event, cwd))?.path;
     },
     files() {
       return Object.freeze([...changedFiles].sort(compareText));
@@ -226,10 +237,25 @@ function isCurrentTrackerSnapshot(
   return snapshot.generation === generation && snapshot.roots === roots;
 }
 
-function addChangedFile(changedFiles: Set<string>, projectPath: string): boolean {
-  if (changedFiles.has(projectPath) || changedFiles.size >= MAX_CHANGED_FILES) return false;
-  changedFiles.add(projectPath);
-  return true;
+async function recordMutation(
+  event: JscpdMutationToolResult,
+  cwd: string,
+  generation: number,
+  roots: ProjectRoots | undefined,
+  changedFiles: Set<string>,
+  isCurrent: () => boolean,
+): Promise<{ readonly path: string; readonly added: boolean } | undefined> {
+  const rawPath = successfulMutationPath(event);
+  const snapshot = activeTrackerSnapshot(generation, roots);
+  if (!rawPath || !snapshot) return undefined;
+  const projectPath = await canonicalChangedFile(rawPath, cwd, snapshot.roots);
+  if (!projectPath || !isCurrent() || !isCurrentTrackerSnapshot(snapshot, generation, roots)) {
+    return undefined;
+  }
+  const alreadyTracked = changedFiles.has(projectPath);
+  const hasCapacity = alreadyTracked || changedFiles.size < MAX_CHANGED_FILES;
+  if (!alreadyTracked && hasCapacity) changedFiles.add(projectPath);
+  return Object.freeze({ path: projectPath, added: !alreadyTracked && hasCapacity });
 }
 
 function isSafeRawPath(value: unknown): value is string {
