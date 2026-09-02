@@ -189,17 +189,23 @@ the invariant that shutdown only cancels and cleans owned work.
 
 ## Implementation boundary
 
-The next M4 slice may add a small scheduler and focused lifecycle tests for:
+M4.2 adds the bounded scheduler primitive: attributable mutations advance a
+generation, repeated automatic requests coalesce to one active plus one latest
+pending generation, explicit scans cancel only automatic ownership, deferred
+completions remain retryable, and reset or shutdown rejects stale work. It does
+not request an automatic scan.
+
+The remaining M4 slices must wire the settled lifecycle and add focused tests
+for:
 
 - many writes followed by one settled event;
 - read-only settled runs;
 - queued follow-ups and retry/compaction sequences;
 - a new prompt cancelling an in-flight check;
-- explicit operations superseding automatic work;
 - stale branch/reload completions;
 - quiet clean and failure outcomes;
 - durable, bounded finding insertion without a surprise turn; and
-- idempotent shutdown cleanup.
+- idempotent process cleanup.
 
 M6 must pin a Pi compatibility range that includes the documented
 `agent_settled` contract. If that contract is unavailable or changes, remain

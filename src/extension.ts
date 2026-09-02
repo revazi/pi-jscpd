@@ -20,6 +20,11 @@ import { parseJscpdSlashArgs } from "./parser.js";
 import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
 import { createJscpdScanExecutor } from "./scan.js";
 import {
+  createJscpdScanScheduler,
+  createJscpdScheduledExecutor,
+  type JscpdScanScheduler,
+} from "./scheduler.js";
+import {
   JSCPD_SESSION_STATE_TYPE,
   restoreJscpdSessionState,
   snapshotJscpdSessionState,
@@ -48,6 +53,7 @@ export interface JscpdExtensionOptions {
   adapterService?: JscpdService;
   configService?: JscpdConfigService;
   baselineService?: JscpdBaselineService;
+  scheduler?: JscpdScanScheduler;
 }
 
 export function registerJscpdExtension(
@@ -64,6 +70,7 @@ export function registerJscpdExtension(
   let persistSessionState = () => {};
   const changedFiles = createJscpdChangedFileTracker();
   const acknowledgements = createJscpdAcknowledgementTracker();
+  const scheduler = options.scheduler ?? createJscpdScanScheduler();
   const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService();
   if (!executor) {
@@ -112,11 +119,13 @@ export function registerJscpdExtension(
       changedExecutor,
     );
   }
+  executor = createJscpdScheduledExecutor(executor, scheduler);
 
   pi.registerTool(createJscpdToolDefinition(executor));
   pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor));
 
   pi.on("session_start", async (_event, ctx) => {
+    scheduler.reset();
     baselineService?.invalidate();
     capabilityService?.invalidate();
     adapterService.invalidate();
@@ -147,6 +156,7 @@ export function registerJscpdExtension(
     }
   });
   pi.on("session_tree", async (_event, ctx) => {
+    scheduler.reset();
     baselineService?.invalidate();
     adapterService.invalidate();
     const config = configService.current().config;
@@ -163,12 +173,16 @@ export function registerJscpdExtension(
     startBaselineQuietly(baselineService, baselineContext);
   });
   pi.on("session_before_switch", () => {
+    scheduler.reset();
     baselineContext = undefined;
     baselineService?.invalidate();
     changedFiles.reset();
     acknowledgements.reset();
     capabilityService?.invalidate();
     adapterService.invalidate();
+  });
+  pi.on("before_agent_start", () => {
+    scheduler.cancelAutomatic();
   });
   pi.on("tool_call", async (event) => {
     if (!isBuiltInMutationTool(pi, event.toolName)) return;
@@ -180,6 +194,7 @@ export function registerJscpdExtension(
       const previouslyTracked = new Set(changedFiles.files());
       const path = await changedFiles.recordToolResultPath(event, ctx.cwd);
       if (path) {
+        scheduler.markChanged();
         const acknowledgementChanged = acknowledgements.invalidatePaths([path]);
         baselineContext = baselineContext
           ? Object.freeze({ ...baselineContext, hasPriorChanges: true })
@@ -194,6 +209,7 @@ export function registerJscpdExtension(
     baselineContext = undefined;
     baselineService?.invalidate();
     shutdownPromise ??= Promise.resolve().then(async () => {
+      await scheduler.dispose();
       capabilityService?.dispose();
       await adapterService.dispose();
     });
