@@ -16,7 +16,10 @@ rescan flow.
 **Explicit scans and session-delta checks with acknowledgement tracking are implemented.**
 
 Automatic scans are not implemented yet. The M4 lifecycle decision selects a
-coalesced background checkpoint after Pi's `agent_settled` event; see the
+coalesced background checkpoint after Pi's `agent_settled` event, and the
+bounded scheduler now tracks mutation generations, coalesces pending automatic
+work, and lets explicit scans supersede only scheduler-owned work. No lifecycle
+hook requests an automatic scan yet. See the
 [automatic advisory checkpoint decision](docs/automatic-checkpoint.md) for the
 measured candidates, cancellation model, and quiet-context policy.
 
@@ -319,6 +322,7 @@ users do not receive duplicate findings.
 │   ├── baseline.ts        ephemeral generation-safe initial report capture
 │   ├── clone-identity.ts  internal content identity and baseline comparison
 │   ├── changed-files.ts   bounded structured-event changed-file attribution
+│   ├── scheduler.ts       coalesced automatic and explicit scan ownership
 │   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
 ├── test/                  package and command-contract tests
@@ -363,8 +367,9 @@ restoration, conservative changed-file tracking, ephemeral initial baseline
 capture, content-aware comparison, changed-only reporting, and acknowledgement
 tracking are in place. Tests use deterministic fakes and do not download
 anything; a real installed v5 binary can be used for a local scan smoke. The
-automatic checkpoint process model is documented, but its scheduler remains a
-future implementation milestone. The bare `/jscpd` overlay is tracked separately in
+automatic checkpoint process model and bounded scheduler are implemented, but
+automatic execution and presentation remain future milestones. The bare `/jscpd`
+overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks

@@ -17,6 +17,7 @@ import {
 } from "../src/extension.js";
 import type { JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
+import { createJscpdScanScheduler } from "../src/scheduler.js";
 import { JSCPD_SESSION_STATE_TYPE, JSCPD_SESSION_STATE_VERSION } from "../src/session-state.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
 
@@ -176,6 +177,7 @@ describe("Pi extension registration", () => {
       "session_start",
       "session_tree",
       "session_before_switch",
+      "before_agent_start",
       "tool_call",
       "tool_result",
       "session_shutdown",
@@ -237,6 +239,10 @@ describe("Pi extension registration", () => {
     const capability = createCapabilityService();
     const adapter = createAdapterService();
     const config = createConfigService([{ message: "Invalid project configuration." }]);
+    const scheduler = createJscpdScanScheduler();
+    const resetScheduler = vi.spyOn(scheduler, "reset");
+    const cancelAutomatic = vi.spyOn(scheduler, "cancelAutomatic");
+    const disposeScheduler = vi.spyOn(scheduler, "dispose");
     const notify = vi.fn();
     const pi = {
       registerTool: vi.fn(),
@@ -250,6 +256,7 @@ describe("Pi extension registration", () => {
       capabilityService: capability.service,
       adapterService: adapter.service,
       configService: config.service,
+      scheduler,
     });
     await handlers.get("session_start")?.(
       {},
@@ -261,6 +268,7 @@ describe("Pi extension registration", () => {
         ui: { notify },
       },
     );
+    await handlers.get("before_agent_start")?.();
     await handlers.get("session_before_switch")?.();
     await handlers.get("session_shutdown")?.();
     await handlers.get("session_shutdown")?.();
@@ -271,6 +279,9 @@ describe("Pi extension registration", () => {
     expect(capability.dispose).toHaveBeenCalledOnce();
     expect(adapter.invalidate).toHaveBeenCalledTimes(2);
     expect(adapter.dispose).toHaveBeenCalledOnce();
+    expect(resetScheduler).toHaveBeenCalledTimes(2);
+    expect(cancelAutomatic).toHaveBeenCalledOnce();
+    expect(disposeScheduler).toHaveBeenCalledOnce();
   });
 
   it("persists controls and restores active-branch state on resume, reload, and tree navigation", async () => {
@@ -510,6 +521,8 @@ describe("Pi extension registration", () => {
     await mkdir(source, { recursive: true });
     const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
     const appendEntry = vi.fn();
+    const scheduler = createJscpdScanScheduler();
+    const markChanged = vi.spyOn(scheduler, "markChanged");
     let editSource = "builtin";
     const pi = {
       registerTool: vi.fn(),
@@ -535,6 +548,7 @@ describe("Pi extension registration", () => {
         capabilityService: createCapabilityService().service,
         adapterService: createAdapterService().service,
         configService: createConfigService().service,
+        scheduler,
       });
       await handlers.get("session_start")?.(
         { reason: "startup" },
@@ -595,6 +609,8 @@ describe("Pi extension registration", () => {
         changedFiles: ["src/override.ts", "src/written.ts"],
         acknowledgements: { identityVersion: 1, findings: [] },
       });
+      expect(markChanged).toHaveBeenCalledTimes(3);
+      expect(scheduler.snapshot().changedGeneration).toBe(3);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
