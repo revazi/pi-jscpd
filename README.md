@@ -13,7 +13,7 @@ rescan flow.
 
 ## Project status
 
-**Explicit scans, bounded status, changed-file tracking, and initial baseline capture are implemented.**
+**Explicit scans, session tracking, baseline capture, and stable clone comparison are implemented.**
 
 The extension registers `/jscpd scan`, `/jscpd status`, and the `jscpd_run` agent
 tool from one typed command registry. On the first explicit scan or status
@@ -94,7 +94,19 @@ fragment is persisted. Reload, resume, fork, or tree navigation with already
 attributed changed files is marked partial instead of recapturing the modified
 tree as an initial baseline. Lifecycle replacement cancels or discards stale
 work, and all failures remain advisory. Stable clone identity and comparison are
-intentionally deferred to the next milestone.
+implemented as an internal content-aware comparison layer. Each occurrence is
+fingerprinted from its canonical project-relative path and the bounded source
+bytes addressed by jscpd's normalized offsets; line, column, and offset values
+are not identity inputs. Group fingerprints include format and jscpd's
+line/token size plus the sorted occurrence identities, so occurrence order and
+ordinary line movement do not change identity while changed block content does.
+
+Comparison classifies uniquely identified groups as existing, new, or removed.
+Unavailable source bytes, malformed/partial inputs, and repeated indistinguishable
+groups remain explicitly ambiguous rather than being matched by report order.
+The SHA-256 representation is opaque and internal: it is not persisted or
+presented as a versioned jscpd identifier. `/jscpd changed` and acknowledgement
+tracking remain the next milestone.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
@@ -275,6 +287,7 @@ users do not receive duplicate findings.
 │   ├── scan.ts            scope validation and end-to-end scan orchestration
 │   ├── status.ts          capability, config, and last-check status state
 │   ├── baseline.ts        ephemeral generation-safe initial report capture
+│   ├── clone-identity.ts  internal content identity and baseline comparison
 │   ├── changed-files.ts   bounded structured-event changed-file attribution
 │   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
@@ -315,10 +328,10 @@ The command contract, lazy jscpd v5 capability probe, bounded process/report
 lifecycle, strict JSON validation, scope-safe scan orchestration, and concise
 presentation, trusted extension configuration, branch-local session state
 restoration, conservative changed-file tracking, and ephemeral initial baseline
-capture are in place. Tests use deterministic fakes and do not download
-anything; a real installed v5 binary can be used for a local scan smoke. Stable
-baseline comparison, changed-only reporting, and automatic checkpoints remain
-future milestones. The bare `/jscpd` overlay is tracked
+capture and content-aware baseline comparison are in place. Tests use
+deterministic fakes and do not download anything; a real installed v5 binary
+can be used for a local scan smoke. Changed-only reporting, acknowledgement
+tracking, and automatic checkpoints remain future milestones. The bare `/jscpd` overlay is tracked
 separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the

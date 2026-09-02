@@ -1,4 +1,16 @@
+import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, sep } from "node:path";
+
+/** Resolve an existing absolute directory without exposing filesystem errors. */
+export async function canonicalDirectory(cwd: string): Promise<string | undefined> {
+  if (!isAbsolute(cwd)) return undefined;
+  try {
+    const [canonical, metadata] = await Promise.all([realpath(cwd), stat(cwd)]);
+    return metadata.isDirectory() ? canonical : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /** Reject control characters before paths or labels reach filesystem APIs. */
 export function hasControlCharacters(value: string): boolean {

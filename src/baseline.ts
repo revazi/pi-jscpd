@@ -1,8 +1,8 @@
-import { realpath, stat } from "node:fs/promises";
-import { isAbsolute } from "node:path";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
+import { indexJscpdCloneReport, type JscpdCloneSnapshot } from "./clone-identity.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReport } from "./jscpd-report.js";
+import { canonicalDirectory } from "./path-utils.js";
 import { createJscpdScanArguments, JSCPD_CLONE_POSITIVE_EXIT_CODES } from "./scan.js";
 import type { JscpdReportErrorCode, JscpdScanReport } from "./types.js";
 
@@ -21,6 +21,8 @@ export type JscpdBaselineState =
       readonly outcome: "clean" | "findings";
       /** Strict normalized report retained in memory only. */
       readonly report: JscpdScanReport;
+      /** Content-aware identities captured before source mutation. */
+      readonly snapshot: JscpdCloneSnapshot;
     }
   | {
       readonly status: "unavailable";
@@ -146,7 +148,7 @@ async function captureBaseline(
   signal: AbortSignal,
   path: string | undefined,
 ): Promise<JscpdBaselineState> {
-  const cwd = await canonicalProjectDirectory(context.cwd);
+  const cwd = await canonicalDirectory(context.cwd);
   if (!cwd) return failed("project", "invalid-project");
 
   const capability = await safeProbe(capabilityService, { cwd, path, signal });
@@ -167,17 +169,7 @@ async function captureBaseline(
   } catch {
     return failed("scan", "internal-error");
   }
-  return stateFromRunResult(result);
-}
-
-async function canonicalProjectDirectory(cwd: string): Promise<string | undefined> {
-  if (!isAbsolute(cwd)) return undefined;
-  try {
-    const [canonical, metadata] = await Promise.all([realpath(cwd), stat(cwd)]);
-    return metadata.isDirectory() ? canonical : undefined;
-  } catch {
-    return undefined;
-  }
+  return stateFromRunResult(result, cwd);
 }
 
 async function safeProbe(
@@ -212,12 +204,15 @@ function stateFromCapability(
   }
 }
 
-function stateFromRunResult(result: JscpdRunResult<JscpdScanReport>): JscpdBaselineState {
+async function stateFromRunResult(
+  result: JscpdRunResult<JscpdScanReport>,
+  cwd: string,
+): Promise<JscpdBaselineState> {
   switch (result.status) {
     case "report":
-      return accepted("findings", result.value);
+      return accepted("findings", result.value, cwd);
     case "no-findings":
-      return result.value ? accepted("clean", result.value) : failed("scan", "invalid-report");
+      return result.value ? accepted("clean", result.value, cwd) : failed("scan", "invalid-report");
     case "no-report":
       return failed("scan", "missing-report");
     case "cancelled":
@@ -231,8 +226,13 @@ function stateFromRunResult(result: JscpdRunResult<JscpdScanReport>): JscpdBasel
   }
 }
 
-function accepted(outcome: "clean" | "findings", report: JscpdScanReport): JscpdBaselineState {
-  return Object.freeze({ status: "accepted", outcome, report });
+async function accepted(
+  outcome: "clean" | "findings",
+  report: JscpdScanReport,
+  cwd: string,
+): Promise<JscpdBaselineState> {
+  const snapshot = await indexJscpdCloneReport(report, cwd);
+  return Object.freeze({ status: "accepted", outcome, report, snapshot });
 }
 
 function failedFromRun(
