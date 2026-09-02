@@ -15,6 +15,11 @@ rescan flow.
 
 **Explicit scans and session-delta checks with acknowledgement tracking are implemented.**
 
+Automatic scans are not implemented yet. The M4 lifecycle decision selects a
+coalesced background checkpoint after Pi's `agent_settled` event; see the
+[automatic advisory checkpoint decision](docs/automatic-checkpoint.md) for the
+measured candidates, cancellation model, and quiet-context policy.
+
 The extension registers `/jscpd scan`, `/jscpd changed`, `/jscpd status`, and the
 `jscpd_run` agent tool from one typed command registry. On the first explicit
 scan, changed check, or status request in a project/session,
@@ -317,6 +322,8 @@ users do not receive duplicate findings.
 │   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
 ├── test/                  package and command-contract tests
+├── docs/
+│   └── automatic-checkpoint.md  accepted M4 lifecycle decision
 ├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
 ├── package.json           Pi package manifest
@@ -355,9 +362,9 @@ presentation, trusted extension configuration, branch-local session state
 restoration, conservative changed-file tracking, ephemeral initial baseline
 capture, content-aware comparison, changed-only reporting, and acknowledgement
 tracking are in place. Tests use deterministic fakes and do not download
-anything; a real installed v5 binary can be used for a local scan smoke.
-Automatic checkpoints remain a future milestone. The bare `/jscpd` overlay is tracked
-separately in
+anything; a real installed v5 binary can be used for a local scan smoke. The
+automatic checkpoint process model is documented, but its scheduler remains a
+future implementation milestone. The bare `/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks
