@@ -13,7 +13,7 @@ rescan flow.
 
 ## Project status
 
-**Explicit scans and bounded status reporting are implemented.**
+**Explicit scans, bounded status reporting, and session changed-file tracking are implemented.**
 
 The extension registers `/jscpd scan`, `/jscpd status`, and the `jscpd_run` agent
 tool from one typed command registry. On the first explicit scan or status
@@ -53,10 +53,31 @@ and version state, and the session's latest clean, findings, cancelled, failed,
 or never-run check without exposing child output or environment content.
 `/jscpd off` disables scanning for the current session; status and help remain
 available, and `/jscpd on` restores scanning without changing project files.
-The session override and bounded last-check summary are saved as versioned Pi
-custom entries outside model context. Reload, resume, fork, and `/tree` restore
-the latest valid snapshot on the active branch; a new branch without one resets
-to trusted configuration and a never-run check.
+The session override, bounded last-check summary, and changed-file set are saved
+as versioned Pi custom entries outside model context. Reload, resume, fork, and
+`/tree` restore the latest valid snapshot on the active branch; a new branch
+without one resets to trusted configuration, a never-run check, and no changed
+files. Pre-tracking version 1 snapshots retain their mode and last-check state
+while migrating to an empty changed-file set.
+
+The changed-file tracker listens only to successful structured `tool_result`
+events from Pi's active built-in `write` and `edit` tools. It uses the event's
+structured `input.path` and `isError` fields, verifies built-in tool provenance,
+and never parses result text, edit patches, or shell output. Existing targets
+are resolved after the tool completes, must be regular files inside the
+canonical project root, and are stored as bounded, deduplicated, portable
+project-relative paths. In-project symlink aliases resolve to their canonical
+target; lexical escapes and symlinks outside the project are rejected.
+
+This is deliberately conservative. Manual edits, `!` commands, the `bash` tool,
+and custom mutation tools are not attributed because Pi provides no stable
+structured file list for their effects. The installed built-ins expose no
+structured delete or rename operation. Tracked paths are therefore append-only:
+a later unobserved delete or rename does not erase the source path, and a rename
+destination is added only after its own successful built-in write/edit result.
+If a result target is already missing or cannot be verified, it is ignored
+rather than guessed. Explicit project scans remain the fallback for unobserved
+filesystem changes.
 
 The package name is provisional. npm publication is disabled intentionally
 until naming and compatibility are decided. The source repository is public
@@ -182,13 +203,16 @@ directory and are passed after `--`. Neither surface constructs a shell command.
 The `off` and `on` controls are session-only overrides. While off, explicit scan
 requests return a consistent disabled diagnostic instead of starting a process;
 `status`, `help`, and `on` remain available. Pi custom entries preserve the
-latest override and bounded last-check state on each conversation branch, so
-reload, resume, fork, and tree navigation reconstruct state from the active
-branch only. A genuinely new branch with no snapshot uses the current trusted
-configuration and a never-run check. Capability caches, child processes,
-temporary reports, and loaded configuration are never restored: they are
-invalidated or cleaned up, and configuration is loaded again under the current
-trust decision. Future `changed` behavior is not registered yet.
+latest override, bounded last-check state, and canonical changed-file set on
+each conversation branch, so reload, resume, fork, and tree navigation
+reconstruct state from the active branch only. A genuinely new branch with no
+snapshot uses the current trusted configuration, a never-run check, and an
+empty changed-file set. Version 1 snapshots migrate their valid mode and
+last-check state with an empty changed-file set. Capability caches, child
+processes, temporary reports, and loaded configuration are never restored: they
+are invalidated or cleaned
+up, and configuration is loaded again under the current trust decision. The
+changed-file set is internal groundwork; `/jscpd changed` is not registered yet.
 The bare `/jscpd` command remains reserved for an interactive overlay; its exact
 views and controls will be agreed in
 [the overlay interaction issue](https://github.com/revazi/pi-jscpd/issues/25)
@@ -233,6 +257,7 @@ users do not receive duplicate findings.
 │   ├── jscpd-report.ts    strict v5 JSON validation and normalization
 │   ├── scan.ts            scope validation and end-to-end scan orchestration
 │   ├── status.ts          capability, config, and last-check status state
+│   ├── changed-files.ts   bounded structured-event changed-file attribution
 │   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
 ├── test/                  package and command-contract tests
@@ -270,11 +295,12 @@ pi -e ./src/index.ts
 
 The command contract, lazy jscpd v5 capability probe, bounded process/report
 lifecycle, strict JSON validation, scope-safe scan orchestration, and concise
-presentation, trusted extension configuration, and branch-local session state
-restoration are in place. Tests use a deterministic fake executable and do not
-download anything; a real installed v5 binary can be used for a local scan
-smoke. Changed-file tracking, baseline deltas, and automatic checkpoints remain
-future milestones. The bare `/jscpd` overlay is tracked separately in
+presentation, trusted extension configuration, branch-local session state
+restoration, and conservative changed-file tracking are in place. Tests use a
+deterministic fake executable and do not download anything; a real installed v5
+binary can be used for a local scan smoke. Baseline deltas and automatic
+checkpoints remain future milestones. The bare `/jscpd` overlay is tracked
+separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks

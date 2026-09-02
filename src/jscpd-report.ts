@@ -1,5 +1,6 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { compareText, hasControlCharacters, isPathInside } from "./path-utils.js";
 import type {
   JscpdCloneOccurrence,
   JscpdClonePair,
@@ -789,28 +790,6 @@ function requirePercentage(value: unknown): number {
     fail("invalid-statistics");
   }
   return value;
-}
-
-function hasControlCharacters(value: string): boolean {
-  for (const character of value) {
-    const codePoint = character.codePointAt(0) ?? 0;
-    if (codePoint <= 0x1f || codePoint === 0x7f) {
-      return true;
-    }
-  }
-  return false;
-}
-
-function isPathInside(parent: string, candidate: string): boolean {
-  const fromParent = relative(parent, candidate);
-  return (
-    fromParent === "" ||
-    (fromParent !== ".." && !fromParent.startsWith(`..${sep}`) && !isAbsolute(fromParent))
-  );
-}
-
-function compareText(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function fail(code: JscpdReportErrorCode): never {
