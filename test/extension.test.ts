@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type {
   ExtensionAPI,
   ExtensionCommandContext,
@@ -13,7 +16,7 @@ import {
 } from "../src/extension.js";
 import type { JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
-import { JSCPD_SESSION_STATE_TYPE } from "../src/session-state.js";
+import { JSCPD_SESSION_STATE_TYPE, JSCPD_SESSION_STATE_VERSION } from "../src/session-state.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
 
 const unavailableResult = {
@@ -136,6 +139,7 @@ describe("Pi extension registration", () => {
       "session_start",
       "session_tree",
       "session_before_switch",
+      "tool_result",
       "session_shutdown",
     ]);
   });
@@ -261,9 +265,10 @@ describe("Pi extension registration", () => {
         type: "custom",
         customType: JSCPD_SESSION_STATE_TYPE,
         data: {
-          version: 1,
+          version: JSCPD_SESSION_STATE_VERSION,
           modeOverride: "disabled",
           lastCheck: { state: "findings", clones: 2 },
+          changedFiles: ["src/resumed.ts"],
         },
       },
     ];
@@ -318,14 +323,15 @@ describe("Pi extension registration", () => {
 
     await command.handler("on", commandContext().context);
     expect(appendEntry).toHaveBeenLastCalledWith(JSCPD_SESSION_STATE_TYPE, {
-      version: 1,
+      version: JSCPD_SESSION_STATE_VERSION,
       modeOverride: "enabled",
       lastCheck: { state: "findings", clones: 2 },
+      changedFiles: ["src/resumed.ts"],
     });
 
     await handlers.get("session_tree")?.(
       { newLeafId: "before-state" },
-      { sessionManager: { getBranch: () => [] } },
+      { cwd: "/project", sessionManager: { getBranch: () => [] } },
     );
     const branched = await tool.execute(
       "tool-call",
@@ -340,6 +346,108 @@ describe("Pi extension registration", () => {
       modeSource: "configuration",
       lastCheck: { state: "never" },
     });
+    await command.handler("off", commandContext().context);
+    expect(appendEntry).toHaveBeenLastCalledWith(JSCPD_SESSION_STATE_TYPE, {
+      version: JSCPD_SESSION_STATE_VERSION,
+      modeOverride: "disabled",
+      lastCheck: { state: "never" },
+      changedFiles: [],
+    });
+  });
+
+  it("persists only successful results from active built-in write/edit tools", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-jscpd-extension-changes-test-"));
+    const project = join(root, "project");
+    const source = join(project, "src");
+    await mkdir(source, { recursive: true });
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const appendEntry = vi.fn();
+    let editSource = "builtin";
+    const pi = {
+      registerTool: vi.fn(),
+      registerCommand: vi.fn(),
+      appendEntry,
+      getAllTools: () => [
+        {
+          name: "write",
+          sourceInfo: { source: "builtin" },
+        },
+        {
+          name: "edit",
+          sourceInfo: { source: editSource },
+        },
+      ],
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
+    } as unknown as ExtensionAPI;
+
+    try {
+      registerJscpdExtension(pi, {
+        capabilityService: createCapabilityService().service,
+        adapterService: createAdapterService().service,
+        configService: createConfigService().service,
+      });
+      await handlers.get("session_start")?.(
+        { reason: "startup" },
+        {
+          cwd: project,
+          hasUI: false,
+          isProjectTrusted: () => true,
+          sessionManager: { getBranch: () => [] },
+          ui: { notify: vi.fn() },
+        },
+      );
+
+      await writeFile(join(source, "written.ts"), "written\n");
+      await handlers.get("tool_result")?.(
+        {
+          toolName: "write",
+          toolCallId: "write-1",
+          input: { path: "src/written.ts", content: "private source is ignored" },
+          content: [{ type: "text", text: "arbitrary result text is ignored" }],
+          details: undefined,
+          isError: false,
+        },
+        { cwd: project },
+      );
+      expect(appendEntry).toHaveBeenLastCalledWith(JSCPD_SESSION_STATE_TYPE, {
+        version: JSCPD_SESSION_STATE_VERSION,
+        modeOverride: null,
+        lastCheck: { state: "never" },
+        changedFiles: ["src/written.ts"],
+      });
+
+      await handlers.get("tool_result")?.(
+        { toolName: "write", input: { path: "src/written.ts" }, isError: false },
+        { cwd: project },
+      );
+      await handlers.get("tool_result")?.(
+        { toolName: "write", input: { path: "src/failed.ts" }, isError: true },
+        { cwd: project },
+      );
+      editSource = "project-extension";
+      await writeFile(join(source, "override.ts"), "override\n");
+      await handlers.get("tool_result")?.(
+        { toolName: "edit", input: { path: "src/override.ts" }, isError: false },
+        { cwd: project },
+      );
+      expect(appendEntry).toHaveBeenCalledTimes(1);
+
+      editSource = "builtin";
+      await handlers.get("tool_result")?.(
+        { toolName: "edit", input: { path: "src/override.ts" }, isError: false },
+        { cwd: project },
+      );
+      expect(appendEntry).toHaveBeenLastCalledWith(JSCPD_SESSION_STATE_TYPE, {
+        version: JSCPD_SESSION_STATE_VERSION,
+        modeOverride: null,
+        lastCheck: { state: "never" },
+        changedFiles: ["src/override.ts", "src/written.ts"],
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });
 

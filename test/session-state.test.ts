@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { JscpdCapabilityService } from "../src/capability.js";
+import { createJscpdChangedFileTracker, MAX_CHANGED_FILES } from "../src/changed-files.js";
 import type { JscpdConfigService } from "../src/config.js";
 import {
   JSCPD_SESSION_STATE_TYPE,
@@ -27,8 +28,12 @@ function customEntry(id: string, data: unknown) {
   };
 }
 
-function state(modeOverride: "enabled" | "disabled" | null, lastCheck: unknown) {
-  return { version: JSCPD_SESSION_STATE_VERSION, modeOverride, lastCheck };
+function state(
+  modeOverride: "enabled" | "disabled" | null,
+  lastCheck: unknown,
+  changedFiles: unknown = [],
+) {
+  return { version: JSCPD_SESSION_STATE_VERSION, modeOverride, lastCheck, changedFiles };
 }
 
 function services() {
@@ -59,8 +64,10 @@ function services() {
 }
 
 describe("jscpd session state", () => {
-  it("snapshots only the mode override and bounded last-check summary", () => {
+  it("snapshots only bounded branch-local state", async () => {
     const { mode, status } = services();
+    const changedFiles = createJscpdChangedFileTracker();
+    await changedFiles.start(process.cwd(), ["src/z.ts", "src/a.ts"]);
     mode.disable();
     status.record({
       status: "failed",
@@ -68,31 +75,63 @@ describe("jscpd session state", () => {
       message: "private child output must not persist",
     });
 
-    expect(snapshotJscpdSessionState(mode, status)).toEqual(
-      state("disabled", { state: "failed", reason: "scan-timed-out" }),
+    const snapshot = snapshotJscpdSessionState(mode, status, changedFiles);
+    expect(snapshot).toEqual(
+      state("disabled", { state: "failed", reason: "scan-timed-out" }, ["src/a.ts", "src/z.ts"]),
     );
+    expect(Object.isFrozen(snapshot.changedFiles)).toBe(true);
   });
 
   it("restores the latest snapshot from the supplied active branch only", () => {
     const branchA = [
-      customEntry("a", state("disabled", { state: "clean" })),
+      customEntry("a", state("disabled", { state: "clean" }, ["src/a.ts"])),
       { type: "message", id: "message-a" },
     ];
-    const branchB = [customEntry("b", state("enabled", { state: "findings", clones: 2 }))];
+    const branchB = [
+      customEntry("b", state("enabled", { state: "findings", clones: 2 }, ["src/b.ts"])),
+    ];
 
-    expect(restoreJscpdSessionState(branchA)).toEqual(state("disabled", { state: "clean" }));
+    expect(restoreJscpdSessionState(branchA)).toEqual(
+      state("disabled", { state: "clean" }, ["src/a.ts"]),
+    );
     expect(restoreJscpdSessionState(branchB)).toEqual(
-      state("enabled", { state: "findings", clones: 2 }),
+      state("enabled", { state: "findings", clones: 2 }, ["src/b.ts"]),
     );
     expect(restoreJscpdSessionState([])).toBeUndefined();
+  });
+
+  it("migrates version 1 snapshots without dropping session controls or status", () => {
+    const versionOne = {
+      version: 1,
+      modeOverride: "disabled",
+      lastCheck: { state: "findings", clones: 3 },
+    };
+
+    expect(restoreJscpdSessionState([customEntry("v1", versionOne)])).toEqual(
+      state("disabled", { state: "findings", clones: 3 }, []),
+    );
   });
 
   it.each([
     state("disabled", { state: "findings", clones: 1_001 }),
     state("disabled", { state: "failed", reason: "unknown" }),
     state("disabled", { state: "clean", extra: true }),
-    { version: 2, modeOverride: "disabled", lastCheck: { state: "clean" } },
+    state("disabled", { state: "clean" }, ["../outside.ts"]),
+    state("disabled", { state: "clean" }, ["src/a.ts", "src/a.ts"]),
+    state(
+      "disabled",
+      { state: "clean" },
+      Array.from({ length: MAX_CHANGED_FILES + 1 }, (_, index) => `src/${index}.ts`),
+    ),
     { version: 1, modeOverride: "automatic", lastCheck: { state: "clean" } },
+    {
+      version: 1,
+      modeOverride: "disabled",
+      lastCheck: { state: "clean" },
+      changedFiles: [],
+    },
+    { version: 2, modeOverride: "automatic", lastCheck: { state: "clean" }, changedFiles: [] },
+    { version: 3, modeOverride: "disabled", lastCheck: { state: "clean" }, changedFiles: [] },
   ])("rejects malformed or stale latest snapshots without reviving older state", (latest) => {
     const older = customEntry("older", state("disabled", { state: "clean" }));
 

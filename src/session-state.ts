@@ -1,8 +1,13 @@
+import {
+  isSafeChangedFilePath,
+  type JscpdChangedFileTracker,
+  MAX_CHANGED_FILES,
+} from "./changed-files.js";
 import type { JscpdSessionModeService, JscpdStatusService } from "./status.js";
 import type { JscpdLastCheck, JscpdScanFailureReason, JscpdUnavailableReason } from "./types.js";
 
 export const JSCPD_SESSION_STATE_TYPE = "pi-jscpd/session-state";
-export const JSCPD_SESSION_STATE_VERSION = 1;
+export const JSCPD_SESSION_STATE_VERSION = 2;
 
 export type JscpdSessionModeOverride = "enabled" | "disabled" | null;
 
@@ -10,6 +15,7 @@ export interface JscpdPersistedSessionState {
   readonly version: typeof JSCPD_SESSION_STATE_VERSION;
   readonly modeOverride: JscpdSessionModeOverride;
   readonly lastCheck: JscpdLastCheck;
+  readonly changedFiles: readonly string[];
 }
 
 const SCAN_FAILURE_REASONS = new Set<JscpdScanFailureReason>([
@@ -40,11 +46,13 @@ const MAX_RESTORED_CLONES = 1_000;
 export function snapshotJscpdSessionState(
   mode: JscpdSessionModeService,
   status: JscpdStatusService,
+  changedFiles: JscpdChangedFileTracker,
 ): JscpdPersistedSessionState {
   return Object.freeze({
     version: JSCPD_SESSION_STATE_VERSION,
     modeOverride: mode.override(),
     lastCheck: status.lastCheck(),
+    changedFiles: Object.freeze([...changedFiles.files()]),
   });
 }
 
@@ -71,22 +79,52 @@ function isJscpdCustomEntry(
 }
 
 function parsePersistedState(value: unknown): JscpdPersistedSessionState | undefined {
-  if (!hasExactKeys(value, ["version", "modeOverride", "lastCheck"])) return undefined;
+  if (!isRecord(value)) return undefined;
+  if (value.version === 1) return migrateVersionOneState(value);
   if (value.version !== JSCPD_SESSION_STATE_VERSION) return undefined;
-  if (
-    value.modeOverride !== null &&
-    value.modeOverride !== "enabled" &&
-    value.modeOverride !== "disabled"
-  ) {
+  if (!hasExactKeys(value, ["version", "modeOverride", "lastCheck", "changedFiles"])) {
     return undefined;
   }
-  const lastCheck = parseLastCheck(value.lastCheck);
-  if (!lastCheck) return undefined;
+  return parseStateFields(value.modeOverride, value.lastCheck, value.changedFiles);
+}
+
+/** Preserve pre-M3 session controls/status while starting changed-file attribution empty. */
+function migrateVersionOneState(value: unknown): JscpdPersistedSessionState | undefined {
+  if (!hasExactKeys(value, ["version", "modeOverride", "lastCheck"]) || value.version !== 1) {
+    return undefined;
+  }
+  return parseStateFields(value.modeOverride, value.lastCheck, []);
+}
+
+function parseStateFields(
+  modeOverride: unknown,
+  lastCheckValue: unknown,
+  changedFilesValue: unknown,
+): JscpdPersistedSessionState | undefined {
+  if (modeOverride !== null && modeOverride !== "enabled" && modeOverride !== "disabled") {
+    return undefined;
+  }
+  const lastCheck = parseLastCheck(lastCheckValue);
+  const changedFiles = parseChangedFiles(changedFilesValue);
+  if (!lastCheck || !changedFiles) return undefined;
   return Object.freeze({
     version: JSCPD_SESSION_STATE_VERSION,
-    modeOverride: value.modeOverride,
+    modeOverride,
     lastCheck,
+    changedFiles,
   });
+}
+
+function parseChangedFiles(value: unknown): readonly string[] | undefined {
+  if (!Array.isArray(value) || value.length > MAX_CHANGED_FILES) return undefined;
+  const files: string[] = [];
+  const seen = new Set<string>();
+  for (const path of value) {
+    if (!isSafeChangedFilePath(path) || seen.has(path)) return undefined;
+    seen.add(path);
+    files.push(path);
+  }
+  return Object.freeze(files);
 }
 
 function parseLastCheck(value: unknown): JscpdLastCheck | undefined {

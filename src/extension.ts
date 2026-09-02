@@ -4,6 +4,7 @@ import type {
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { createJscpdCapabilityService, type JscpdCapabilityService } from "./capability.js";
+import { createJscpdChangedFileTracker, type JscpdChangedFileTracker } from "./changed-files.js";
 import { createJscpdConfigService, type JscpdConfigService } from "./config.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
 import { dispatchJscpdCommand } from "./dispatch.js";
@@ -50,6 +51,8 @@ export function registerJscpdExtension(
   let statusService: JscpdStatusService | undefined;
   let sessionMode: JscpdSessionModeService | undefined;
   let shutdownPromise: Promise<void> | undefined;
+  let persistSessionState = () => {};
+  const changedFiles = createJscpdChangedFileTracker();
   const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService();
   if (!executor) {
@@ -62,12 +65,12 @@ export function registerJscpdExtension(
       }),
     });
     statusService = createJscpdStatusService(capabilityService, configService, sessionMode);
-    const persistSessionState = () => {
+    persistSessionState = () => {
       if (!sessionMode || !statusService) return;
       try {
         pi.appendEntry(
           JSCPD_SESSION_STATE_TYPE,
-          snapshotJscpdSessionState(sessionMode, statusService),
+          snapshotJscpdSessionState(sessionMode, statusService, changedFiles),
         );
       } catch {
         // Pi session persistence is advisory and must not break scans or controls.
@@ -91,9 +94,11 @@ export function registerJscpdExtension(
       cwd: ctx.cwd,
       trusted: ctx.isProjectTrusted(),
     });
-    restoreSessionState(
+    await restoreSessionState(
       ctx.sessionManager.getBranch(),
+      ctx.cwd,
       loaded.config.enabled,
+      changedFiles,
       sessionMode,
       statusService,
     );
@@ -103,18 +108,29 @@ export function registerJscpdExtension(
       }
     }
   });
-  pi.on("session_tree", (_event, ctx) => {
+  pi.on("session_tree", async (_event, ctx) => {
     adapterService.invalidate();
-    restoreSessionState(
+    await restoreSessionState(
       ctx.sessionManager.getBranch(),
+      ctx.cwd,
       configService.current().config.enabled,
+      changedFiles,
       sessionMode,
       statusService,
     );
   });
   pi.on("session_before_switch", () => {
+    changedFiles.reset();
     capabilityService?.invalidate();
     adapterService.invalidate();
+  });
+  pi.on("tool_result", async (event, ctx) => {
+    if (!isBuiltInMutationTool(pi, event.toolName)) return;
+    try {
+      if (await changedFiles.recordToolResult(event, ctx.cwd)) persistSessionState();
+    } catch {
+      // Changed-file attribution is advisory and must not affect tool completion.
+    }
   });
   pi.on("session_shutdown", () => {
     shutdownPromise ??= Promise.resolve().then(async () => {
@@ -125,16 +141,29 @@ export function registerJscpdExtension(
   });
 }
 
-function restoreSessionState(
+async function restoreSessionState(
   activeBranch: readonly unknown[],
+  cwd: string,
   configuredEnabled: boolean,
+  changedFiles: JscpdChangedFileTracker,
   sessionMode?: JscpdSessionModeService,
   statusService?: JscpdStatusService,
-): void {
-  if (!sessionMode || !statusService) return;
+): Promise<void> {
   const restored = restoreJscpdSessionState(activeBranch);
+  await changedFiles.start(cwd, restored?.changedFiles);
+  if (!sessionMode || !statusService) return;
   sessionMode.restore(configuredEnabled, restored?.modeOverride);
   statusService.restore(restored?.lastCheck);
+}
+
+function isBuiltInMutationTool(pi: ExtensionAPI, toolName: string): boolean {
+  if (toolName !== "edit" && toolName !== "write") return false;
+  try {
+    const tool = pi.getAllTools().find((candidate) => candidate.name === toolName);
+    return tool?.sourceInfo.source === "builtin";
+  } catch {
+    return false;
+  }
 }
 
 export function createJscpdToolDefinition(executor: JscpdCommandExecutor): JscpdToolDefinition {
