@@ -200,6 +200,68 @@ describe("bounded jscpd status", () => {
     expect(stateChanged).toHaveBeenCalledTimes(2);
   });
 
+  it("routes a completed changed check through its dedicated executor and records its status", async () => {
+    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => completed("clean"));
+    const changedExecute = vi.fn<JscpdCommandExecutor["execute"]>(async () => ({
+      status: "changed",
+      outcome: "clean",
+      scanPerformed: true,
+      message: "no new session duplication",
+      terminalMessage: "no new session duplication",
+      findings: [],
+      omittedFindings: 0,
+      ambiguousFindings: 0,
+    }));
+    const mode = sessionMode();
+    const status = createJscpdStatusService(
+      capabilityService(available).service,
+      configService(),
+      mode,
+    );
+    const stateChanged = vi.fn();
+    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode, stateChanged, {
+      execute: changedExecute,
+    });
+
+    await expect(
+      executor.execute({ command: "changed", args: [] }, { cwd: "/project" }),
+    ).resolves.toMatchObject({ status: "changed", outcome: "clean" });
+    expect(changedExecute).toHaveBeenCalledOnce();
+    expect(execute).not.toHaveBeenCalled();
+    expect(stateChanged).toHaveBeenCalledOnce();
+    expect(status.lastCheck()).toEqual({ state: "clean" });
+  });
+
+  it("does not record a clean check when changed short-circuits before scanning", async () => {
+    const changedExecute = vi.fn<JscpdCommandExecutor["execute"]>(async () => ({
+      status: "changed",
+      outcome: "clean",
+      scanPerformed: false,
+      message: "no tracked files",
+      terminalMessage: "no tracked files",
+      findings: [],
+      omittedFindings: 0,
+      ambiguousFindings: 0,
+    }));
+    const mode = sessionMode();
+    const status = createJscpdStatusService(
+      capabilityService(available).service,
+      configService(),
+      mode,
+    );
+    const executor = createJscpdStatusAwareExecutor(
+      { execute: async () => completed("clean") },
+      status,
+      mode,
+      undefined,
+      { execute: changedExecute },
+    );
+
+    await executor.execute({ command: "changed", args: [] }, { cwd: "/project" });
+
+    expect(status.lastCheck()).toEqual({ state: "never" });
+  });
+
   it("routes status without scanning and records scan results for the next status", async () => {
     const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => completed("findings", 1));
     const mode = sessionMode();

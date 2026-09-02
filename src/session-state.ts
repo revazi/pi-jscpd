@@ -1,4 +1,11 @@
 import {
+  emptyJscpdAcknowledgements,
+  type JscpdAcknowledgementTracker,
+  type JscpdPersistedAcknowledgements,
+  parseJscpdAcknowledgements,
+  snapshotJscpdAcknowledgements,
+} from "./acknowledgements.js";
+import {
   isSafeChangedFilePath,
   type JscpdChangedFileTracker,
   MAX_CHANGED_FILES,
@@ -7,7 +14,7 @@ import type { JscpdSessionModeService, JscpdStatusService } from "./status.js";
 import type { JscpdLastCheck, JscpdScanFailureReason, JscpdUnavailableReason } from "./types.js";
 
 export const JSCPD_SESSION_STATE_TYPE = "pi-jscpd/session-state";
-export const JSCPD_SESSION_STATE_VERSION = 2;
+export const JSCPD_SESSION_STATE_VERSION = 3;
 
 export type JscpdSessionModeOverride = "enabled" | "disabled" | null;
 
@@ -16,6 +23,7 @@ export interface JscpdPersistedSessionState {
   readonly modeOverride: JscpdSessionModeOverride;
   readonly lastCheck: JscpdLastCheck;
   readonly changedFiles: readonly string[];
+  readonly acknowledgements: JscpdPersistedAcknowledgements;
 }
 
 const SCAN_FAILURE_REASONS = new Set<JscpdScanFailureReason>([
@@ -47,12 +55,14 @@ export function snapshotJscpdSessionState(
   mode: JscpdSessionModeService,
   status: JscpdStatusService,
   changedFiles: JscpdChangedFileTracker,
+  acknowledgements: JscpdAcknowledgementTracker,
 ): JscpdPersistedSessionState {
   return Object.freeze({
     version: JSCPD_SESSION_STATE_VERSION,
     modeOverride: mode.override(),
     lastCheck: status.lastCheck(),
     changedFiles: Object.freeze([...changedFiles.files()]),
+    acknowledgements: snapshotJscpdAcknowledgements(acknowledgements),
   });
 }
 
@@ -81,11 +91,25 @@ function isJscpdCustomEntry(
 function parsePersistedState(value: unknown): JscpdPersistedSessionState | undefined {
   if (!isRecord(value)) return undefined;
   if (value.version === 1) return migrateVersionOneState(value);
+  if (value.version === 2) return migrateVersionTwoState(value);
   if (value.version !== JSCPD_SESSION_STATE_VERSION) return undefined;
-  if (!hasExactKeys(value, ["version", "modeOverride", "lastCheck", "changedFiles"])) {
+  if (
+    !hasExactKeys(value, [
+      "version",
+      "modeOverride",
+      "lastCheck",
+      "changedFiles",
+      "acknowledgements",
+    ])
+  ) {
     return undefined;
   }
-  return parseStateFields(value.modeOverride, value.lastCheck, value.changedFiles);
+  return parseStateFields(
+    value.modeOverride,
+    value.lastCheck,
+    value.changedFiles,
+    value.acknowledgements,
+  );
 }
 
 /** Preserve pre-M3 session controls/status while starting changed-file attribution empty. */
@@ -93,25 +117,44 @@ function migrateVersionOneState(value: unknown): JscpdPersistedSessionState | un
   if (!hasExactKeys(value, ["version", "modeOverride", "lastCheck"]) || value.version !== 1) {
     return undefined;
   }
-  return parseStateFields(value.modeOverride, value.lastCheck, []);
+  return parseStateFields(value.modeOverride, value.lastCheck, [], emptyJscpdAcknowledgements());
+}
+
+/** Preserve M3 changed-file attribution while starting acknowledgement identity v1 empty. */
+function migrateVersionTwoState(value: unknown): JscpdPersistedSessionState | undefined {
+  if (
+    !hasExactKeys(value, ["version", "modeOverride", "lastCheck", "changedFiles"]) ||
+    value.version !== 2
+  ) {
+    return undefined;
+  }
+  return parseStateFields(
+    value.modeOverride,
+    value.lastCheck,
+    value.changedFiles,
+    emptyJscpdAcknowledgements(),
+  );
 }
 
 function parseStateFields(
   modeOverride: unknown,
   lastCheckValue: unknown,
   changedFilesValue: unknown,
+  acknowledgementsValue: unknown,
 ): JscpdPersistedSessionState | undefined {
   if (modeOverride !== null && modeOverride !== "enabled" && modeOverride !== "disabled") {
     return undefined;
   }
   const lastCheck = parseLastCheck(lastCheckValue);
   const changedFiles = parseChangedFiles(changedFilesValue);
-  if (!lastCheck || !changedFiles) return undefined;
+  const acknowledgements = parseJscpdAcknowledgements(acknowledgementsValue);
+  if (!lastCheck || !changedFiles || !acknowledgements) return undefined;
   return Object.freeze({
     version: JSCPD_SESSION_STATE_VERSION,
     modeOverride,
     lastCheck,
     changedFiles,
+    acknowledgements,
   });
 }
 

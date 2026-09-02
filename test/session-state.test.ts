@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createJscpdAcknowledgementTracker } from "../src/acknowledgements.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import { createJscpdChangedFileTracker, MAX_CHANGED_FILES } from "../src/changed-files.js";
 import type { JscpdConfigService } from "../src/config.js";
@@ -32,8 +33,15 @@ function state(
   modeOverride: "enabled" | "disabled" | null,
   lastCheck: unknown,
   changedFiles: unknown = [],
+  acknowledgements: unknown = { identityVersion: 1, findings: [] },
 ) {
-  return { version: JSCPD_SESSION_STATE_VERSION, modeOverride, lastCheck, changedFiles };
+  return {
+    version: JSCPD_SESSION_STATE_VERSION,
+    modeOverride,
+    lastCheck,
+    changedFiles,
+    acknowledgements,
+  };
 }
 
 function services() {
@@ -75,7 +83,12 @@ describe("jscpd session state", () => {
       message: "private child output must not persist",
     });
 
-    const snapshot = snapshotJscpdSessionState(mode, status, changedFiles);
+    const snapshot = snapshotJscpdSessionState(
+      mode,
+      status,
+      changedFiles,
+      createJscpdAcknowledgementTracker(),
+    );
     expect(snapshot).toEqual(
       state("disabled", { state: "failed", reason: "scan-timed-out" }, ["src/a.ts", "src/z.ts"]),
     );
@@ -100,16 +113,38 @@ describe("jscpd session state", () => {
     expect(restoreJscpdSessionState([])).toBeUndefined();
   });
 
-  it("migrates version 1 snapshots without dropping session controls or status", () => {
+  it("migrates version 1 and 2 snapshots without dropping prior state", () => {
     const versionOne = {
       version: 1,
       modeOverride: "disabled",
       lastCheck: { state: "findings", clones: 3 },
     };
+    const versionTwo = {
+      version: 2,
+      modeOverride: "enabled",
+      lastCheck: { state: "clean" },
+      changedFiles: ["src/a.ts"],
+    };
 
     expect(restoreJscpdSessionState([customEntry("v1", versionOne)])).toEqual(
       state("disabled", { state: "findings", clones: 3 }, []),
     );
+    expect(restoreJscpdSessionState([customEntry("v2", versionTwo)])).toEqual(
+      state("enabled", { state: "clean" }, ["src/a.ts"]),
+    );
+  });
+
+  it("keeps opaque acknowledgements bounded and active-branch scoped", () => {
+    const fingerprint = "a".repeat(64);
+    const acknowledged = {
+      identityVersion: 1,
+      findings: [{ fingerprint, paths: ["src/a.ts", "src/b.ts"] }],
+    };
+    const branchA = [customEntry("a", state(null, { state: "clean" }, ["src/a.ts"], acknowledged))];
+    const branchB = [customEntry("b", state(null, { state: "clean" }, ["src/b.ts"]))];
+
+    expect(restoreJscpdSessionState(branchA)?.acknowledgements).toEqual(acknowledged);
+    expect(restoreJscpdSessionState(branchB)?.acknowledgements.findings).toEqual([]);
   });
 
   it.each([
@@ -118,6 +153,11 @@ describe("jscpd session state", () => {
     state("disabled", { state: "clean", extra: true }),
     state("disabled", { state: "clean" }, ["../outside.ts"]),
     state("disabled", { state: "clean" }, ["src/a.ts", "src/a.ts"]),
+    state("disabled", { state: "clean" }, [], { identityVersion: 2, findings: [] }),
+    state("disabled", { state: "clean" }, [], {
+      identityVersion: 1,
+      findings: [{ fingerprint: "short", paths: ["src/a.ts", "src/b.ts"] }],
+    }),
     state(
       "disabled",
       { state: "clean" },
@@ -132,6 +172,13 @@ describe("jscpd session state", () => {
     },
     { version: 2, modeOverride: "automatic", lastCheck: { state: "clean" }, changedFiles: [] },
     { version: 3, modeOverride: "disabled", lastCheck: { state: "clean" }, changedFiles: [] },
+    {
+      version: 4,
+      modeOverride: "disabled",
+      lastCheck: { state: "clean" },
+      changedFiles: [],
+      acknowledgements: { identityVersion: 1, findings: [] },
+    },
   ])("rejects malformed or stale latest snapshots without reviving older state", (latest) => {
     const older = customEntry("older", state("disabled", { state: "clean" }));
 

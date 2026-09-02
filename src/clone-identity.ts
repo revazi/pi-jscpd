@@ -20,7 +20,7 @@ export type JscpdCloneIdentityIssue =
 
 export interface JscpdIndexedCloneGroup {
   readonly clone: JscpdClonePair;
-  /** Opaque, internal-only group digest. It is deliberately not a persistence format. */
+  /** Opaque internal group digest; persisted only behind an explicit identity-version marker. */
   readonly fingerprint?: string;
   /** Opaque occurrence digests in the report's occurrence order. */
   readonly occurrenceFingerprints?: readonly [string, string];

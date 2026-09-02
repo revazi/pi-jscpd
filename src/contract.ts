@@ -16,11 +16,12 @@ export const jscpdRunParams = Type.Object(
         Type.String({
           minLength: 1,
           maxLength: JSCPD_MAX_ARGUMENT_LENGTH,
-          description: "One scan path scope. The status command accepts no arguments.",
+          description: "One scan path scope. Other commands accept no arguments.",
         }),
         {
           maxItems: maxArguments,
-          description: "Optional in-project scan scopes; omit for project scan or status.",
+          description:
+            "Optional in-project scan scopes; omit for a full scan or argument-free command.",
         },
       ),
     ),
@@ -32,7 +33,7 @@ export const jscpdToolContract = {
   name: "jscpd_run",
   label: "jscpd",
   description:
-    "Run a local read-only jscpd v5 scan or inspect bounded binary, configuration, and last-check status.",
-  promptSnippet: "Scan for duplicate blocks with jscpd or inspect jscpd status",
+    "Run a local read-only jscpd v5 scan, show new session duplication, or inspect bounded status.",
+  promptSnippet: "Scan for duplicate blocks or show new session duplication with jscpd",
   parameters: jscpdRunParams,
 } as const;

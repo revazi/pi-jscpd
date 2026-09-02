@@ -3,12 +3,14 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { createJscpdAcknowledgementTracker } from "./acknowledgements.js";
 import {
   createJscpdBaselineService,
   type JscpdBaselineService,
   type JscpdBaselineStartContext,
 } from "./baseline.js";
 import { createJscpdCapabilityService, type JscpdCapabilityService } from "./capability.js";
+import { createJscpdChangedExecutor } from "./changed.js";
 import { createJscpdChangedFileTracker, type JscpdChangedFileTracker } from "./changed-files.js";
 import { createJscpdConfigService, type JscpdConfigService } from "./config.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
@@ -61,6 +63,7 @@ export function registerJscpdExtension(
   let shutdownPromise: Promise<void> | undefined;
   let persistSessionState = () => {};
   const changedFiles = createJscpdChangedFileTracker();
+  const acknowledgements = createJscpdAcknowledgementTracker();
   const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService();
   if (!executor) {
@@ -79,16 +82,35 @@ export function registerJscpdExtension(
       try {
         pi.appendEntry(
           JSCPD_SESSION_STATE_TYPE,
-          snapshotJscpdSessionState(sessionMode, statusService, changedFiles),
+          snapshotJscpdSessionState(sessionMode, statusService, changedFiles, acknowledgements),
         );
       } catch {
         // Pi session persistence is advisory and must not break scans or controls.
       }
     };
-    executor = createJscpdStatusAwareExecutor(scanExecutor, statusService, sessionMode, () => {
-      persistSessionState();
-      synchronizeBaselineMode(baselineService, baselineContext, sessionMode);
-    });
+    const changedExecutor = createJscpdChangedExecutor(
+      capabilityService,
+      adapterService,
+      baselineService,
+      changedFiles,
+      acknowledgements,
+      {
+        config: () => ({
+          ...configService.current().config,
+          enabled: sessionMode?.isEnabled() ?? true,
+        }),
+      },
+    );
+    executor = createJscpdStatusAwareExecutor(
+      scanExecutor,
+      statusService,
+      sessionMode,
+      () => {
+        persistSessionState();
+        synchronizeBaselineMode(baselineService, baselineContext, sessionMode);
+      },
+      changedExecutor,
+    );
   }
 
   pi.registerTool(createJscpdToolDefinition(executor));
@@ -107,6 +129,7 @@ export function registerJscpdExtension(
       ctx.cwd,
       loaded.config.enabled,
       changedFiles,
+      acknowledgements,
       sessionMode,
       statusService,
     );
@@ -132,6 +155,7 @@ export function registerJscpdExtension(
       ctx.cwd,
       config.enabled,
       changedFiles,
+      acknowledgements,
       sessionMode,
       statusService,
     );
@@ -142,6 +166,7 @@ export function registerJscpdExtension(
     baselineContext = undefined;
     baselineService?.invalidate();
     changedFiles.reset();
+    acknowledgements.reset();
     capabilityService?.invalidate();
     adapterService.invalidate();
   });
@@ -152,11 +177,14 @@ export function registerJscpdExtension(
   pi.on("tool_result", async (event, ctx) => {
     if (!isBuiltInMutationTool(pi, event.toolName)) return;
     try {
-      if (await changedFiles.recordToolResult(event, ctx.cwd)) {
+      const previouslyTracked = new Set(changedFiles.files());
+      const path = await changedFiles.recordToolResultPath(event, ctx.cwd);
+      if (path) {
+        const acknowledgementChanged = acknowledgements.invalidatePaths([path]);
         baselineContext = baselineContext
           ? Object.freeze({ ...baselineContext, hasPriorChanges: true })
           : undefined;
-        persistSessionState();
+        if (!previouslyTracked.has(path) || acknowledgementChanged) persistSessionState();
       }
     } catch {
       // Changed-file attribution is advisory and must not affect tool completion.
@@ -222,11 +250,13 @@ async function restoreSessionState(
   cwd: string,
   configuredEnabled: boolean,
   changedFiles: JscpdChangedFileTracker,
+  acknowledgements: ReturnType<typeof createJscpdAcknowledgementTracker>,
   sessionMode?: JscpdSessionModeService,
   statusService?: JscpdStatusService,
 ): Promise<void> {
   const restored = restoreJscpdSessionState(activeBranch);
   await changedFiles.start(cwd, restored?.changedFiles);
+  acknowledgements.restore(restored?.acknowledgements);
   if (!sessionMode || !statusService) return;
   sessionMode.restore(configuredEnabled, restored?.modeOverride);
   statusService.restore(restored?.lastCheck);
@@ -295,6 +325,7 @@ function terminalResultMessage(result: JscpdDispatchResult): string {
     case "status":
     case "control":
     case "help":
+    case "changed":
       return result.terminalMessage;
     default:
       return result.message;
@@ -307,6 +338,7 @@ function resultNotificationLevel(result: JscpdDispatchResult): "info" | "warning
     case "status":
     case "control":
     case "help":
+    case "changed":
       return "info";
     case "invalid":
     case "error":

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { presentJscpdScan } from "../src/presentation.js";
+import { presentJscpdChanged, presentJscpdScan } from "../src/presentation.js";
 import type { JscpdClonePair, JscpdScanReport } from "../src/types.js";
 
 function statisticsRow(clones: number) {
@@ -36,6 +36,35 @@ function clonePair(index: number, path: string): JscpdClonePair {
     ],
   };
 }
+
+describe("bounded changed presentation", () => {
+  it("labels session-owned and existing-match locations and leaves omitted findings unacknowledged", () => {
+    const pairs = [clonePair(1, "src"), clonePair(2, "src")];
+    const changed = new Set(["src/first-1.ts", "src/first-2.ts"]);
+
+    const result = presentJscpdChanged(pairs, changed, 1, 1);
+
+    expect(result).toMatchObject({
+      status: "changed",
+      outcome: "findings",
+      scanPerformed: true,
+      omittedFindings: 1,
+      ambiguousFindings: 1,
+      findings: [
+        {
+          occurrences: [
+            { relation: "new-session", path: "src/first-1.ts" },
+            { relation: "existing-match", path: "src/second-1.ts" },
+          ],
+        },
+      ],
+    });
+    expect(result.message).toContain("new in this session");
+    expect(result.message).toContain("existing match");
+    expect(result.message).toContain("not acknowledged");
+    expect(result.message).toContain("could not be classified conservatively");
+  });
+});
 
 describe("bounded scan presentation", () => {
   it("caps findings and path display while retaining both locations and summary statistics", () => {

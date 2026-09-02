@@ -125,6 +125,44 @@ export interface JscpdPresentedFinding {
   readonly occurrences: readonly [JscpdPresentedOccurrence, JscpdPresentedOccurrence];
 }
 
+export interface JscpdChangedOccurrence extends JscpdPresentedOccurrence {
+  readonly relation: "new-session" | "existing-match";
+}
+
+export interface JscpdChangedFinding {
+  readonly format: string;
+  readonly lines: number;
+  readonly tokens: number;
+  readonly occurrences: readonly [JscpdChangedOccurrence, JscpdChangedOccurrence];
+}
+
+export interface JscpdChangedResult {
+  readonly status: "changed";
+  readonly outcome: "findings" | "clean";
+  /** False only when the check short-circuited because no session-owned files were tracked. */
+  readonly scanPerformed: boolean;
+  readonly message: string;
+  readonly terminalMessage: string;
+  readonly findings: readonly JscpdChangedFinding[];
+  readonly omittedFindings: number;
+  readonly ambiguousFindings: number;
+}
+
+export type JscpdChangedUnavailableReason =
+  | "baseline-pending"
+  | "baseline-unavailable"
+  | "baseline-partial"
+  | "baseline-cancelled"
+  | "baseline-timed-out"
+  | "baseline-failed"
+  | "identity-partial";
+
+export interface JscpdChangedUnavailableResult {
+  readonly status: "changed-unavailable";
+  readonly reason: JscpdChangedUnavailableReason;
+  readonly message: string;
+}
+
 export interface JscpdCompletedResult {
   readonly status: "completed";
   readonly outcome: "findings" | "clean";
@@ -197,7 +235,9 @@ export type JscpdExecutionResult =
   | JscpdScanFailureResult
   | JscpdStatusResult
   | JscpdControlResult
-  | JscpdHelpResult;
+  | JscpdHelpResult
+  | JscpdChangedResult
+  | JscpdChangedUnavailableResult;
 
 export interface JscpdCommandExecutor {
   execute(

@@ -15,6 +15,12 @@ export const jscpdCommandRegistry = [
     maxArguments: 32,
   },
   {
+    name: "changed",
+    description: "Show unacknowledged new duplication involving session changes",
+    argumentHint: "",
+    maxArguments: 0,
+  },
+  {
     name: "status",
     description: "Show binary, configuration, and last-check status",
     argumentHint: "",

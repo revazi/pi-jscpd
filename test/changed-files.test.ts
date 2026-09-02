@@ -216,6 +216,9 @@ describe("session-owned changed-file tracking", () => {
     await tracker.start(project, restored);
 
     await expect(tracker.recordToolResult(result("write", extra), project)).resolves.toBe(false);
+    await expect(tracker.recordToolResultPath(result("write", extra), project)).resolves.toBe(
+      "src/extra.ts",
+    );
     expect(tracker.files()).toHaveLength(MAX_CHANGED_FILES);
   });
 

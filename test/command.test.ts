@@ -25,6 +25,12 @@ describe("jscpd command registry", () => {
         maxArguments: 32,
       },
       {
+        name: "changed",
+        description: "Show unacknowledged new duplication involving session changes",
+        argumentHint: "",
+        maxArguments: 0,
+      },
+      {
         name: "status",
         description: "Show binary, configuration, and last-check status",
         argumentHint: "",
@@ -49,14 +55,17 @@ describe("jscpd command registry", () => {
         maxArguments: 0,
       },
     ]);
-    expect(jscpdCommandNames).toEqual(["scan", "status", "off", "on", "help"]);
-    expect(jscpdArgumentHint).toBe("[scan [target ...]|status|off|on|help]");
+    expect(jscpdCommandNames).toEqual(["scan", "changed", "status", "off", "on", "help"]);
+    expect(jscpdArgumentHint).toBe("[scan [target ...]|changed|status|off|on|help]");
     expect(getJscpdArgumentCompletions("sc")).toEqual([
       {
         value: "scan",
         label: "scan [target ...]",
         description: "Request an explicit duplication scan",
       },
+    ]);
+    expect(getJscpdArgumentCompletions("ch")).toEqual([
+      expect.objectContaining({ value: "changed", label: "changed" }),
     ]);
     expect(getJscpdArgumentCompletions("st")).toEqual([
       {
@@ -141,9 +150,9 @@ describe("jscpd command parsing", () => {
 
   it.each([
     {
-      name: "an unsupported command",
-      result: parseJscpdSlashArgs("changed"),
-      code: "unsupported-command",
+      name: "arguments supplied to changed",
+      result: parseJscpdSlashArgs("changed extra"),
+      code: "too-many-arguments",
     },
     {
       name: "arguments supplied to status",
@@ -234,7 +243,7 @@ describe("jscpd command dispatch", () => {
   it("does not execute unsupported input", async () => {
     const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => unavailableResult);
 
-    const result = await dispatchJscpdCommand("changed", [], { cwd: "/project" }, { execute });
+    const result = await dispatchJscpdCommand("unknown", [], { cwd: "/project" }, { execute });
 
     expect(execute).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "invalid", reason: "unsupported-command" });

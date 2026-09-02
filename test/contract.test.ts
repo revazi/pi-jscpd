@@ -26,6 +26,7 @@ describe("jscpd_run contract", () => {
         args: ["src/with spaces", "lib/example.ts"],
       }),
     ).toBe(true);
+    expect(Value.Check(jscpdRunParams, { command: "changed" })).toBe(true);
     expect(Value.Check(jscpdRunParams, { command: "status" })).toBe(true);
     expect(Value.Check(jscpdRunParams, { command: "off" })).toBe(true);
     expect(Value.Check(jscpdRunParams, { command: "on" })).toBe(true);
@@ -33,7 +34,7 @@ describe("jscpd_run contract", () => {
   });
 
   it.each([
-    { name: "unsupported command", value: { command: "changed" } },
+    { name: "unsupported command", value: { command: "unknown" } },
     { name: "missing command", value: { args: [] } },
     { name: "string args", value: { command: "scan", args: "src" } },
     { name: "empty token", value: { command: "scan", args: [""] } },
