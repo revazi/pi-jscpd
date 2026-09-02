@@ -7,6 +7,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import type { JscpdBaselineService, JscpdBaselineState } from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigService } from "../src/config.js";
 import {
@@ -89,6 +90,31 @@ function createConfigService(
   };
 }
 
+function createBaselineService(state: JscpdBaselineState = { status: "unstarted" }) {
+  let current = state;
+  const start = vi.fn<JscpdBaselineService["start"]>(async () => current);
+  const wait = vi.fn<JscpdBaselineService["wait"]>(async () => current);
+  const disable = vi.fn(() => {
+    current = { status: "unavailable", reason: "disabled" };
+  });
+  const invalidate = vi.fn(() => {
+    current = { status: "unstarted" };
+  });
+  return {
+    service: {
+      start,
+      wait,
+      disable,
+      invalidate,
+      current: () => current,
+    } satisfies JscpdBaselineService,
+    start,
+    wait,
+    disable,
+    invalidate,
+  };
+}
+
 function createCapabilityService() {
   const probe = vi.fn<JscpdCapabilityService["probe"]>(async () => ({
     status: "available",
@@ -139,6 +165,7 @@ describe("Pi extension registration", () => {
       "session_start",
       "session_tree",
       "session_before_switch",
+      "tool_call",
       "tool_result",
       "session_shutdown",
     ]);
@@ -353,6 +380,97 @@ describe("Pi extension registration", () => {
       lastCheck: { state: "never" },
       changedFiles: [],
     });
+  });
+
+  it("starts baseline capture quietly and waits only before active built-in mutations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-jscpd-extension-baseline-test-"));
+    const project = join(root, "project");
+    await mkdir(project);
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    let releaseWait!: () => void;
+    const baseline = createBaselineService({ status: "pending" });
+    baseline.wait.mockImplementation(
+      () =>
+        new Promise<JscpdBaselineState>((resolve) => {
+          releaseWait = () => resolve({ status: "cancelled", stage: "lifecycle" });
+        }),
+    );
+    const registerCommand = vi.fn();
+    const pi = {
+      registerTool: vi.fn(),
+      registerCommand,
+      appendEntry: vi.fn(),
+      getAllTools: () => [
+        { name: "write", sourceInfo: { source: "builtin" } },
+        { name: "edit", sourceInfo: { source: "project-extension" } },
+        { name: "read", sourceInfo: { source: "builtin" } },
+      ],
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
+    } as unknown as ExtensionAPI;
+
+    try {
+      registerJscpdExtension(pi, {
+        capabilityService: createCapabilityService().service,
+        adapterService: createAdapterService().service,
+        configService: createConfigService().service,
+        baselineService: baseline.service,
+      });
+      await handlers.get("session_start")?.(
+        { reason: "startup" },
+        {
+          cwd: project,
+          hasUI: false,
+          isProjectTrusted: () => true,
+          sessionManager: { getBranch: () => [] },
+          ui: { notify: vi.fn() },
+        },
+      );
+      expect(baseline.start).toHaveBeenCalledWith({
+        cwd: project,
+        enabled: true,
+        timeoutMs: 30_000,
+        hasPriorChanges: false,
+      });
+
+      await handlers.get("tool_call")?.({ toolName: "read", input: { path: "x" } }, {});
+      await handlers.get("tool_call")?.({ toolName: "edit", input: { path: "x" } }, {});
+      expect(baseline.wait).not.toHaveBeenCalled();
+
+      let settled = false;
+      const mutation = Promise.resolve(
+        handlers.get("tool_call")?.({ toolName: "write", input: { path: "x" } }, {}),
+      ).then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+      expect(baseline.wait).toHaveBeenCalledOnce();
+      releaseWait();
+      await mutation;
+      expect(settled).toBe(true);
+
+      const command = registerCommand.mock.calls[0]?.[1] as ReturnType<
+        typeof createJscpdSlashCommandDefinition
+      >;
+      await command.handler("off", commandContext().context);
+      expect(baseline.disable).toHaveBeenCalledOnce();
+      await command.handler("on", commandContext().context);
+      expect(baseline.start).toHaveBeenCalledTimes(2);
+      expect(baseline.start).toHaveBeenLastCalledWith({
+        cwd: project,
+        enabled: true,
+        timeoutMs: 30_000,
+        hasPriorChanges: false,
+      });
+
+      await handlers.get("session_before_switch")?.();
+      await handlers.get("session_shutdown")?.();
+      expect(baseline.invalidate).toHaveBeenCalledTimes(3);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   it("persists only successful results from active built-in write/edit tools", async () => {

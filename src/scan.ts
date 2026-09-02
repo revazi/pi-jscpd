@@ -14,7 +14,7 @@ import type {
   JscpdUnavailableResult,
 } from "./types.js";
 
-const JSCPD_CLONE_POSITIVE_EXIT_CODES = [1] as const;
+export const JSCPD_CLONE_POSITIVE_EXIT_CODES = [1] as const;
 
 export interface JscpdScanExecutorOptions {
   /** Stable PATH override for deterministic tests; normal Pi execution uses the session PATH. */
@@ -80,7 +80,7 @@ export function createJscpdScanExecutor(
 }
 
 /** User tokens are scopes only; all reporter controls are extension-owned and precede `--`. */
-function createJscpdScanArguments(
+export function createJscpdScanArguments(
   reportDirectory: string,
   targets: readonly string[],
 ): readonly string[] {

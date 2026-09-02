@@ -3,6 +3,11 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import {
+  createJscpdBaselineService,
+  type JscpdBaselineService,
+  type JscpdBaselineStartContext,
+} from "./baseline.js";
 import { createJscpdCapabilityService, type JscpdCapabilityService } from "./capability.js";
 import { createJscpdChangedFileTracker, type JscpdChangedFileTracker } from "./changed-files.js";
 import { createJscpdConfigService, type JscpdConfigService } from "./config.js";
@@ -40,6 +45,7 @@ export interface JscpdExtensionOptions {
   capabilityService?: JscpdCapabilityService;
   adapterService?: JscpdService;
   configService?: JscpdConfigService;
+  baselineService?: JscpdBaselineService;
 }
 
 export function registerJscpdExtension(
@@ -50,6 +56,8 @@ export function registerJscpdExtension(
   let executor = options.executor;
   let statusService: JscpdStatusService | undefined;
   let sessionMode: JscpdSessionModeService | undefined;
+  let baselineService = options.baselineService;
+  let baselineContext: JscpdBaselineStartContext | undefined;
   let shutdownPromise: Promise<void> | undefined;
   let persistSessionState = () => {};
   const changedFiles = createJscpdChangedFileTracker();
@@ -65,6 +73,7 @@ export function registerJscpdExtension(
       }),
     });
     statusService = createJscpdStatusService(capabilityService, configService, sessionMode);
+    baselineService ??= createJscpdBaselineService(capabilityService, adapterService);
     persistSessionState = () => {
       if (!sessionMode || !statusService) return;
       try {
@@ -76,18 +85,17 @@ export function registerJscpdExtension(
         // Pi session persistence is advisory and must not break scans or controls.
       }
     };
-    executor = createJscpdStatusAwareExecutor(
-      scanExecutor,
-      statusService,
-      sessionMode,
-      persistSessionState,
-    );
+    executor = createJscpdStatusAwareExecutor(scanExecutor, statusService, sessionMode, () => {
+      persistSessionState();
+      synchronizeBaselineMode(baselineService, baselineContext, sessionMode);
+    });
   }
 
   pi.registerTool(createJscpdToolDefinition(executor));
   pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor));
 
   pi.on("session_start", async (_event, ctx) => {
+    baselineService?.invalidate();
     capabilityService?.invalidate();
     adapterService.invalidate();
     const loaded = await configService.load({
@@ -102,6 +110,13 @@ export function registerJscpdExtension(
       sessionMode,
       statusService,
     );
+    baselineContext = createBaselineContext(
+      ctx.cwd,
+      loaded.config.timeoutMs,
+      changedFiles,
+      sessionMode,
+    );
+    startBaselineQuietly(baselineService, baselineContext);
     if (ctx.hasUI) {
       for (const diagnostic of loaded.diagnostics) {
         ctx.ui.notify(diagnostic.message, "warning");
@@ -109,36 +124,97 @@ export function registerJscpdExtension(
     }
   });
   pi.on("session_tree", async (_event, ctx) => {
+    baselineService?.invalidate();
     adapterService.invalidate();
+    const config = configService.current().config;
     await restoreSessionState(
       ctx.sessionManager.getBranch(),
       ctx.cwd,
-      configService.current().config.enabled,
+      config.enabled,
       changedFiles,
       sessionMode,
       statusService,
     );
+    baselineContext = createBaselineContext(ctx.cwd, config.timeoutMs, changedFiles, sessionMode);
+    startBaselineQuietly(baselineService, baselineContext);
   });
   pi.on("session_before_switch", () => {
+    baselineContext = undefined;
+    baselineService?.invalidate();
     changedFiles.reset();
     capabilityService?.invalidate();
     adapterService.invalidate();
   });
+  pi.on("tool_call", async (event) => {
+    if (!isBuiltInMutationTool(pi, event.toolName)) return;
+    await baselineService?.wait();
+  });
   pi.on("tool_result", async (event, ctx) => {
     if (!isBuiltInMutationTool(pi, event.toolName)) return;
     try {
-      if (await changedFiles.recordToolResult(event, ctx.cwd)) persistSessionState();
+      if (await changedFiles.recordToolResult(event, ctx.cwd)) {
+        baselineContext = baselineContext
+          ? Object.freeze({ ...baselineContext, hasPriorChanges: true })
+          : undefined;
+        persistSessionState();
+      }
     } catch {
       // Changed-file attribution is advisory and must not affect tool completion.
     }
   });
   pi.on("session_shutdown", () => {
+    baselineContext = undefined;
+    baselineService?.invalidate();
     shutdownPromise ??= Promise.resolve().then(async () => {
       capabilityService?.dispose();
       await adapterService.dispose();
     });
     return shutdownPromise;
   });
+}
+
+function createBaselineContext(
+  cwd: string,
+  timeoutMs: number,
+  changedFiles: JscpdChangedFileTracker,
+  sessionMode?: JscpdSessionModeService,
+): JscpdBaselineStartContext {
+  return Object.freeze({
+    cwd,
+    enabled: sessionMode?.isEnabled() ?? true,
+    timeoutMs,
+    hasPriorChanges: changedFiles.files().length > 0,
+  });
+}
+
+function startBaselineQuietly(
+  baselineService: JscpdBaselineService | undefined,
+  context: JscpdBaselineStartContext,
+): void {
+  void baselineService?.start(context).catch(() => undefined);
+}
+
+function synchronizeBaselineMode(
+  baselineService: JscpdBaselineService | undefined,
+  context: JscpdBaselineStartContext | undefined,
+  sessionMode: JscpdSessionModeService | undefined,
+): void {
+  if (!baselineService || !context || !sessionMode) return;
+  if (!sessionMode.isEnabled()) {
+    baselineService.disable();
+    return;
+  }
+  const current = baselineService.current();
+  if (
+    current.status === "unstarted" ||
+    (current.status === "unavailable" && current.reason === "disabled")
+  ) {
+    startBaselineQuietly(baselineService, {
+      ...context,
+      enabled: true,
+      hasPriorChanges: context.hasPriorChanges,
+    });
+  }
 }
 
 async function restoreSessionState(
