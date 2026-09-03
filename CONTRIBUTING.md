@@ -25,15 +25,20 @@ Use a host from the [compatibility matrix](docs/compatibility.md). Install the
 locked dependencies without changing global Pi configuration:
 
 ```text
-npm ci
+npm ci --ignore-scripts
+npm run docs:check
+npm run repo:hygiene
 npm run check
+npm run pack:certify
 npm run pack:dry-run
 ```
 
 `npm run check` validates the active Node/Pi fixtures, type checks strict ESM
 TypeScript, runs Biome's formatting/lint checks, and executes the network-free
-test suite. CI repeats those checks and the package dry run on Node 22.19.0 and
-24.12.0.
+test suite. The documentation and hygiene checks validate public local links,
+release guards, ignored/private path policy, package metadata, and the
+non-publishing workflow. `pack:certify` installs and exercises the exact tarball.
+CI repeats those checks on Node 22.19.0 and 24.12.0.
 
 Tests must not require network access, read or modify global Pi configuration,
 write reports into a source tree, or depend on a locally installed jscpd binary.
@@ -54,7 +59,10 @@ Before requesting review, run:
 
 ```text
 npm run format
+npm run docs:check
+npm run repo:hygiene
 npm run check
+npm run pack:certify
 npm run pack:dry-run
 ```
 
@@ -88,6 +96,8 @@ workflow changes also require the manual compatibility evidence described in
 
 Only [Revaz Zakalashvili](https://github.com/revazi), as package maintainer and
 repository owner, may approve a version, remove `"private": true`, create a tag,
-or publish to npm. Release work must follow the repository's guarded release
-workflow once that workflow is implemented. A contributor, reviewer,
-CODEOWNERS approval, or passing CI does not grant publication authority.
+configure registry authentication, or publish. The current manual workflow is
+readiness-only: it has no registry credentials or write permission and cannot
+release anything. Follow [the release preparation policy](docs/release.md). A
+contributor, reviewer, CODEOWNERS approval, or passing CI does not grant
+publication authority.

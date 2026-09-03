@@ -169,6 +169,7 @@ function validateInstalledPackage(projectDirectory) {
   assert.equal(manifest.name, "pi-jscpd");
   assert.equal(manifest.version, "0.0.0");
   assert.equal(manifest.private, true, "Certification must not remove the release guard.");
+  assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
   assert.deepEqual(manifest.pi?.extensions, ["./src/index.ts"]);
   assert.equal(manifest.dependencies, undefined, "The package must not own runtime dependencies.");
   assert.equal(manifest.optionalDependencies, undefined);

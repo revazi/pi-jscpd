@@ -11,6 +11,7 @@ interface PackageManifest {
   repository?: { type?: string; url?: string };
   homepage?: string;
   bugs?: { url?: string };
+  publishConfig?: { access?: string; provenance?: boolean };
   files?: string[];
   keywords?: string[];
   scripts?: Record<string, string>;
@@ -55,21 +56,31 @@ describe("Pi package manifest", () => {
     expect(manifest.devDependencies?.typebox).toBe("1.3.7");
   });
 
-  it("runs pinned tooling and compatibility validation in the standard check", async () => {
+  it("pins development tooling fixtures", async () => {
     const manifest = await readManifest();
 
     for (const name of ["@biomejs/biome", "@types/node", "typescript", "vitest"]) {
       expect(manifest.devDependencies?.[name]).toMatch(/^\d+\.\d+\.\d+$/);
     }
-    expect(manifest.scripts?.format).toBe(
+  });
+
+  it("defines compatibility, quality, package, and release-readiness scripts", async () => {
+    const scripts = (await readManifest()).scripts;
+
+    expect(scripts?.format).toBe(
       "biome check --write src test scripts package.json tsconfig.json biome.json",
     );
-    expect(manifest.scripts?.lint).toBe(
+    expect(scripts?.lint).toBe(
       "biome check src test scripts package.json tsconfig.json biome.json",
     );
-    expect(manifest.scripts?.["compatibility:check"]).toBe("node scripts/check-compatibility.mjs");
-    expect(manifest.scripts?.["pack:certify"]).toBe("node scripts/package-certify.mjs");
-    expect(manifest.scripts?.check).toBe(
+    expect(scripts?.["compatibility:check"]).toBe("node scripts/check-compatibility.mjs");
+    expect(scripts?.["docs:check"]).toBe("node scripts/check-markdown.mjs");
+    expect(scripts?.["repo:hygiene"]).toBe("node scripts/check-repository-hygiene.mjs");
+    expect(scripts?.["pack:certify"]).toBe("node scripts/package-certify.mjs");
+    expect(scripts?.["release:check"]).toBe(
+      "npm run docs:check && npm run repo:hygiene && npm run check && npm run pack:certify && npm run pack:dry-run",
+    );
+    expect(scripts?.check).toBe(
       "npm run compatibility:check && npm run typecheck && npm run lint && npm test",
     );
   });
@@ -90,6 +101,7 @@ describe("Pi package manifest", () => {
     });
     expect(manifest.homepage).toBe("https://github.com/revazi/pi-jscpd#readme");
     expect(manifest.bugs?.url).toBe("https://github.com/revazi/pi-jscpd/issues");
+    expect(manifest.publishConfig).toEqual({ access: "public", provenance: true });
     expect(manifest.files).toEqual([
       "src",
       "docs",

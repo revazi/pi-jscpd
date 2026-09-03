@@ -1,0 +1,62 @@
+name: Release readiness (no publish)
+run-name: Check unreleased commit ${{ inputs.reviewed_sha }} without publishing
+
+on:
+  workflow_dispatch:
+    inputs:
+      reviewed_sha:
+        description: Exact reviewed 40-character commit on origin/main
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-readiness-${{ inputs.reviewed_sha }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Readiness only (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node:
+          - 22.19.0
+          - 24.12.0
+    steps:
+      - name: Check out the reviewed commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.reviewed_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Verify reviewed main source and unreleased guard
+        shell: bash
+        env:
+          REVIEWED_SHA: ${{ inputs.reviewed_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
+          test "$(git rev-parse origin/main)" = "$REVIEWED_SHA"
+          test "$(node -p "require('./package.json').version")" = "0.0.0"
+          test "$(node -p "require('./package.json').private")" = "true"
+          test -z "$(git status --porcelain --untracked-files=no)"
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Run complete non-publishing release checks
+        run: npm run release:check

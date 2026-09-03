@@ -157,11 +157,12 @@ that surfaced the finding. Missing, partial, cancelled, timed-out, or failed
 baselines and scans fail open with bounded diagnostics and do not acknowledge
 anything.
 
-The canonical package name is `pi-jscpd`, owned and maintained by
-[Revaz Zakalashvili](https://github.com/revazi). The package remains version
-`0.0.0` and `private` until publication is approved separately; selecting an
-available name does not reserve it on npm. The source repository is public under
-the MIT License.
+The canonical package identity is `pi-jscpd`, maintained by
+[Revaz Zakalashvili](https://github.com/revazi). **It is not released:** the
+package remains version `0.0.0` with `"private": true`; no npm publication,
+release tag, or GitHub release is authorized. Selecting an available name does
+not reserve it on npm. The source repository is public under the MIT License.
+See the [release preparation policy](docs/release.md).
 
 ## Compatibility
 
@@ -408,9 +409,12 @@ limitations are documented in the
 │   ├── automatic-checkpoint.md  accepted M4 lifecycle decision
 │   ├── compatibility.md         supported host and fixture matrix
 │   ├── fallow-coexistence.md    supported overlap signals and choices
-│   └── overlay-interaction.md   accepted bare-command overlay contract
+│   ├── overlay-interaction.md   accepted bare-command overlay contract
+│   └── release.md               non-publishing release preparation policy
 ├── scripts/
 │   ├── check-compatibility.mjs  host range and pinned-fixture validation
+│   ├── check-markdown.mjs       public local-link validation
+│   ├── check-repository-hygiene.mjs  tracked/package release guards
 │   └── package-certify.mjs      isolated packed-artifact certification
 ├── .github/               CI, dependency policy, and contribution templates
 ├── biome.json             formatting and lint policy
@@ -438,8 +442,11 @@ npm install
 npm run format       # apply Biome formatting and safe fixes
 npm run lint         # check formatting, lint rules, and import organization
 npm run compatibility:check  # verify the active host and pinned Pi fixtures
+npm run docs:check   # validate public Markdown and local links
+npm run repo:hygiene # reject tracked/private/generated release hazards
 npm run check        # compatibility, typecheck, Biome, and tests
 npm run pack:certify # pack, install, exercise, and clean up the exact artifact
+npm run release:check # complete non-publishing release-readiness gate
 ```
 
 Biome, TypeScript, Vitest, Node types, and the supported Pi/TypeBox fixtures are
@@ -484,8 +491,10 @@ public issue. User-visible changes are tracked in
 [CHANGELOG.md](CHANGELOG.md).
 
 Only the named maintainer may approve a version, remove the private-package
-guard, tag a release, or publish to npm. Passing CI or review does not grant
-publication authority.
+guard, tag a release, configure npm publication, or publish. The manual release
+readiness workflow is deliberately unprivileged and cannot release anything.
+Passing CI or review does not grant publication authority; see
+[release preparation and publication policy](docs/release.md).
 
 ## Maintainer and project links
 

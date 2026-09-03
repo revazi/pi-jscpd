@@ -7,7 +7,10 @@ latest `main` branch only. Version `0.0.0` and repository snapshots are
 unreleased development artifacts, not supported distribution channels.
 
 After the first approved release, this table will identify maintained release
-lines and the changelog will identify security-relevant updates.
+lines and the changelog will identify security-relevant updates. The current
+manual release-readiness workflow cannot publish or create a release; the
+[release policy](docs/release.md) defines the separate approval, rollback, and
+post-release checks.
 
 | Version | Supported |
 | --- | --- |
@@ -67,4 +70,7 @@ to publish data. Security fixes must preserve those boundaries.
 
 Only [Revaz Zakalashvili](https://github.com/revazi) may authorize an npm
 publication or security release. A pull request, automated dependency update,
-CI result, or third-party review does not itself authorize release.
+CI result, readiness run, or third-party review does not itself authorize a
+release. If a vulnerability affects a future published version, coordinate any
+deprecation, corrected release, advisory, and bounded post-release verification
+privately before disclosure; npm versions must never be overwritten.

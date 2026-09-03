@@ -5,6 +5,13 @@ dist/
 /outputs/
 *.tgz
 *.log
+/reports/
+/tmp/
+/.npmrc
+/.env
+/.env.*
+*.pem
+*.key
 .DS_Store
 
 # Private coding-agent context stays local to the checkout.
