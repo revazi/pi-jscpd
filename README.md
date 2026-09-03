@@ -156,9 +156,25 @@ that surfaced the finding. Missing, partial, cancelled, timed-out, or failed
 baselines and scans fail open with bounded diagnostics and do not acknowledge
 anything.
 
-The package name is provisional. npm publication is disabled intentionally
-until naming and compatibility are decided. The source repository is public
-under the MIT License.
+The canonical package name is `pi-jscpd`, owned and maintained by
+[Revaz Zakalashvili](https://github.com/revazi). The package remains version
+`0.0.0` and `private` until publication is approved separately; selecting an
+available name does not reserve it on npm. The source repository is public under
+the MIT License.
+
+## Compatibility
+
+The supported host contract is Node.js `>=22.19.0 <23 || >=24 <25` and the Pi
+`0.84` patch line starting at `0.84.4`. Pi AI, coding-agent, and TUI packages use
+`>=0.84.4 <0.85.0` peer ranges so the extension shares its host runtime, while
+development fixtures pin all three at `0.84.4`. TypeBox is supported from
+`1.3.7` up to, but not including, version 2 and is tested at `1.3.7`.
+
+The full project check is run with Node `22.19.0` and `24.12.0`. npm may warn or
+reject installation outside the declared Node and peer ranges. Forced installs
+outside those ranges are unsupported and may fail to load; the extension does
+not claim compatibility through a runtime shim. See the
+[compatibility policy and test matrix](docs/compatibility.md).
 
 ## Extension configuration
 
@@ -389,8 +405,11 @@ limitations are documented in the
 ├── test/                  package and command-contract tests
 ├── docs/
 │   ├── automatic-checkpoint.md  accepted M4 lifecycle decision
+│   ├── compatibility.md         supported host and fixture matrix
 │   ├── fallow-coexistence.md    supported overlap signals and choices
 │   └── overlay-interaction.md   accepted bare-command overlay contract
+├── scripts/
+│   └── check-compatibility.mjs  host range and pinned-fixture validation
 ├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
 ├── package.json           Pi package manifest
@@ -402,8 +421,8 @@ limitations are documented in the
 
 Prerequisites:
 
-- Node.js 22 or newer
-- Pi
+- Node.js `>=22.19.0 <23 || >=24 <25`
+- Pi `>=0.84.4 <0.85.0`
 - an already installed jscpd v5 (`jscpd` or `cpd`) for real scans
 
 Install development dependencies and verify the scan slice:
@@ -412,10 +431,12 @@ Install development dependencies and verify the scan slice:
 npm install
 npm run format       # apply Biome formatting and safe fixes
 npm run lint         # check formatting, lint rules, and import organization
-npm run check        # typecheck, Biome, and tests
+npm run compatibility:check  # verify the active host and pinned Pi fixtures
+npm run check        # compatibility, typecheck, Biome, and tests
 ```
 
-Biome is pinned in `devDependencies` so local and CI checks use the same version.
+Biome, TypeScript, Vitest, Node types, and the supported Pi/TypeBox fixtures are
+pinned in `devDependencies` so local and CI checks use the tested versions.
 
 Load the current extension directly in Pi:
 
