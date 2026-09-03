@@ -73,10 +73,12 @@ all submitted changes, including AI-assisted changes.
 
 Repository vulnerability alerts and Dependabot security updates are enabled.
 Dependabot also checks direct npm dependencies and GitHub Actions monthly. Pi
-0.84 patches and development tooling are grouped. Pi minor/major updates are ignored
-because a new Pi release line needs deliberate API and UI recertification; open
-a focused compatibility issue instead of widening ranges automatically. GitHub
-Actions are SHA-pinned and updates must retain least-privilege permissions.
+0.84 patches and compatible development-tooling updates are grouped. Major
+updates to development tools and Pi minor/major updates are ignored because they
+need deliberate recertification. The minimum TypeBox fixture is excluded from
+scheduled version updates and changes only through a focused compatibility
+review; vulnerability alerts and security updates remain enabled. GitHub Actions
+are SHA-pinned and updates must retain least-privilege permissions.
 
 A dependency PR must pass both Node jobs. Pi, TypeBox-major, Node-range, and
 workflow changes also require the manual compatibility evidence described in

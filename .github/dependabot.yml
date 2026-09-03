@@ -7,12 +7,28 @@ updates:
     open-pull-requests-limit: 5
     versioning-strategy: increase-if-necessary
     allow:
-      - dependency-type: direct
+      - dependency-name: "@earendil-works/pi-*"
+      - dependency-name: "@biomejs/biome"
+      - dependency-name: "@types/node"
+      - dependency-name: typescript
+      - dependency-name: vitest
     ignore:
       - dependency-name: "@earendil-works/pi-*"
         update-types:
           - version-update:semver-major
           - version-update:semver-minor
+      - dependency-name: "@biomejs/biome"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: "@types/node"
+        update-types:
+          - version-update:semver-major
+      - dependency-name: typescript
+        update-types:
+          - version-update:semver-major
+      - dependency-name: vitest
+        update-types:
+          - version-update:semver-major
     groups:
       pi-0-84-patches:
         patterns:

@@ -37,6 +37,8 @@ describe("public repository safeguards", () => {
     expect(dependabot.match(/interval: monthly/g)).toHaveLength(2);
     expect(dependabot).toContain('dependency-name: "@earendil-works/pi-*"');
     expect(dependabot).toContain("version-update:semver-minor");
+    expect(dependabot).toContain("dependency-name: vitest");
+    expect(dependabot).not.toContain("dependency-type: direct");
     expect(dependabot).toContain("reviewers:\n      - revazi");
   });
 
