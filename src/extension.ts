@@ -1,12 +1,18 @@
 import type {
   ExtensionAPI,
+  ExtensionContext,
   RegisteredCommand,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { createJscpdAcknowledgementTracker } from "./acknowledgements.js";
 import {
-  createJscpdAutomaticAcknowledgementView,
+  boundedJscpdAutomaticFindingLimit,
+  createJscpdAutomaticAcknowledgementTransaction,
   createJscpdAutomaticCheck,
+  handleJscpdAutomaticResult,
+  JSCPD_AUTOMATIC_MESSAGE_TYPE,
+  JSCPD_AUTOMATIC_STATUS_KEY,
+  type JscpdAutomaticAcknowledgementTransaction,
   type JscpdAutomaticCheck,
 } from "./automatic.js";
 import {
@@ -72,6 +78,7 @@ export function registerJscpdExtension(
   let sessionMode: JscpdSessionModeService | undefined;
   let baselineService = options.baselineService;
   let automaticCheck = options.automaticCheck;
+  let automaticAcknowledgements: JscpdAutomaticAcknowledgementTransaction | undefined;
   let baselineContext: JscpdBaselineStartContext | undefined;
   let shutdownPromise: Promise<void> | undefined;
   let persistSessionState = () => {};
@@ -116,15 +123,26 @@ export function registerJscpdExtension(
       acknowledgements,
       changedOptions,
     );
+    automaticAcknowledgements = createJscpdAutomaticAcknowledgementTransaction(acknowledgements);
     automaticCheck ??= createJscpdAutomaticCheck(
       createJscpdChangedExecutor(
         capabilityService,
         adapterService,
         baselineService,
         changedFiles,
-        createJscpdAutomaticAcknowledgementView(acknowledgements),
-        changedOptions,
+        automaticAcknowledgements.tracker,
+        {
+          config: () => {
+            const config = changedOptions.config();
+            return {
+              ...config,
+              maxFindings: boundedJscpdAutomaticFindingLimit(config.maxFindings),
+            };
+          },
+          prioritizeFindings: true,
+        },
       ),
+      { beforeRun: automaticAcknowledgements.discard },
     );
     executor = createJscpdStatusAwareExecutor(
       scanExecutor,
@@ -168,6 +186,7 @@ export function registerJscpdExtension(
     );
     startBaselineQuietly(baselineService, baselineContext);
     if (ctx.hasUI) {
+      safeSetStatus(ctx.ui, undefined);
       for (const diagnostic of loaded.diagnostics) {
         ctx.ui.notify(diagnostic.message, "warning");
       }
@@ -189,6 +208,7 @@ export function registerJscpdExtension(
     );
     baselineContext = createBaselineContext(ctx.cwd, config.timeoutMs, changedFiles, sessionMode);
     startBaselineQuietly(baselineService, baselineContext);
+    if (ctx.hasUI) safeSetStatus(ctx.ui, undefined);
   });
   pi.on("session_before_switch", () => {
     scheduler.reset();
@@ -199,8 +219,12 @@ export function registerJscpdExtension(
     capabilityService?.invalidate();
     adapterService.invalidate();
   });
-  pi.on("before_agent_start", () => {
+  pi.on("before_agent_start", (_event, ctx) => {
     scheduler.cancelAutomatic();
+    const snapshot = scheduler.snapshot();
+    if (ctx.hasUI && snapshot.changedGeneration > snapshot.attemptedGeneration) {
+      safeSetStatus(ctx.ui, "jscpd: changes pending");
+    }
   });
   pi.on("tool_call", async (event) => {
     if (!isBuiltInMutationTool(pi, event.toolName)) return;
@@ -213,6 +237,7 @@ export function registerJscpdExtension(
       const path = await changedFiles.recordToolResultPath(event, ctx.cwd);
       if (path) {
         scheduler.markChanged();
+        if (ctx.hasUI) safeSetStatus(ctx.ui, "jscpd: changes pending");
         const acknowledgementChanged = acknowledgements.invalidatePaths([path]);
         baselineContext = baselineContext
           ? Object.freeze({ ...baselineContext, hasPriorChanges: true })
@@ -225,8 +250,15 @@ export function registerJscpdExtension(
   });
   pi.on("agent_settled", (_event, ctx) => {
     if (!automaticCheck || !ctx.isIdle() || ctx.hasPendingMessages()) return;
-    const cwd = ctx.cwd;
-    scheduler.requestAutomatic(({ signal }) => automaticCheck.run({ cwd, signal }));
+    requestAutomaticCheck(
+      pi,
+      ctx,
+      scheduler,
+      automaticCheck,
+      automaticAcknowledgements,
+      statusService,
+      persistSessionState,
+    );
   });
   pi.on("session_shutdown", () => {
     baselineContext = undefined;
@@ -238,6 +270,85 @@ export function registerJscpdExtension(
     });
     return shutdownPromise;
   });
+}
+
+function requestAutomaticCheck(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  scheduler: JscpdScanScheduler,
+  automaticCheck: JscpdAutomaticCheck,
+  acknowledgements: JscpdAutomaticAcknowledgementTransaction | undefined,
+  status: JscpdStatusService | undefined,
+  persist: () => void,
+): void {
+  const cwd = ctx.cwd;
+  scheduler.requestAutomatic(async ({ signal, isCurrent }) => {
+    setAutomaticCheckingStatus(ctx, isCurrent);
+    const disposition = await automaticCheck.run({
+      cwd,
+      signal,
+      isCurrent,
+      onResult:
+        acknowledgements && status
+          ? (result) =>
+              handleJscpdAutomaticResult(result, {
+                isCurrent,
+                isIdle: () => ctx.isIdle(),
+                hasPendingMessages: () => ctx.hasPendingMessages(),
+                acknowledgements,
+                sendFinding(content, details) {
+                  pi.sendMessage(
+                    {
+                      customType: JSCPD_AUTOMATIC_MESSAGE_TYPE,
+                      content,
+                      display: ctx.hasUI,
+                      details,
+                    },
+                    { triggerTurn: false },
+                  );
+                },
+                record: (resultToRecord) => status.record(resultToRecord),
+                persist,
+                setStatus: ctx.hasUI ? (text) => safeSetStatus(ctx.ui, text) : undefined,
+              })
+          : undefined,
+    });
+    restoreDeferredAutomaticStatus(ctx, isCurrent, disposition);
+    return disposition;
+  });
+}
+
+function setAutomaticCheckingStatus(ctx: ExtensionContext, isCurrent: () => boolean): void {
+  if (ctx.hasUI && isCurrent() && ctx.isIdle() && !ctx.hasPendingMessages()) {
+    safeSetStatus(ctx.ui, "jscpd: checking changes…");
+  }
+}
+
+function restoreDeferredAutomaticStatus(
+  ctx: ExtensionContext,
+  isCurrent: () => boolean,
+  disposition: "attempted" | "deferred",
+): void {
+  if (
+    disposition === "deferred" &&
+    ctx.hasUI &&
+    isCurrent() &&
+    ctx.isIdle() &&
+    !ctx.hasPendingMessages()
+  ) {
+    safeSetStatus(ctx.ui, "jscpd: changes pending");
+  }
+}
+
+function safeSetStatus(
+  ui: { setStatus(key: string, text: string | undefined): void },
+  text: string | undefined,
+): void {
+  try {
+    ui.setStatus(JSCPD_AUTOMATIC_STATUS_KEY, text);
+  } catch {
+    // Footer status is optional and must not affect scans or lifecycle cleanup.
+  }
 }
 
 function createBaselineContext(

@@ -2,7 +2,11 @@ import type { JscpdAcknowledgedFinding, JscpdAcknowledgementTracker } from "./ac
 import type { JscpdBaselineService, JscpdBaselineState } from "./baseline.js";
 import type { JscpdCapabilityService } from "./capability.js";
 import type { JscpdChangedFileTracker } from "./changed-files.js";
-import { compareJscpdCloneSnapshots, indexJscpdCloneReport } from "./clone-identity.js";
+import {
+  compareJscpdCloneSnapshots,
+  indexJscpdCloneReport,
+  type JscpdIndexedCloneGroup,
+} from "./clone-identity.js";
 import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
 import type { JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReport } from "./jscpd-report.js";
@@ -25,6 +29,8 @@ export interface JscpdChangedExecutorOptions {
   readonly path?: string;
   readonly config?: () => JscpdConfig;
   readonly stateChanged?: () => void;
+  /** Prefer the most actionable changed-file clone groups before applying the display cap. */
+  readonly prioritizeFindings?: boolean;
 }
 
 /** Run and compare one full-project report, then acknowledge only findings actually surfaced. */
@@ -76,88 +82,121 @@ async function executeChanged(
   options: JscpdChangedExecutorOptions,
   scope: number,
 ): Promise<JscpdExecutionResult> {
-  if (acknowledgements.scope() !== scope) return lifecycleChanged();
-  const config = options.config?.() ?? DEFAULT_JSCPD_CONFIG;
-  if (!config.enabled) {
-    return {
-      status: "unavailable",
-      reason: "disabled",
-      message: "jscpd scanning is disabled for this session. Run /jscpd on to re-enable it.",
-    };
-  }
-  const ownedPaths = changedFiles.files();
-  if (ownedPaths.length === 0) {
-    const message = "jscpd changed: no session-owned changed files are tracked; no scan ran.";
-    return Object.freeze({
-      status: "changed",
-      outcome: "clean",
-      scanPerformed: false,
-      message,
-      terminalMessage: message,
-      findings: Object.freeze([]),
-      omittedFindings: 0,
-      ambiguousFindings: 0,
-    });
-  }
+  const prepared = await prepareChangedCheck(
+    baselineService,
+    changedFiles,
+    acknowledgements,
+    options,
+    scope,
+  );
+  if (prepared.status === "result") return prepared.result;
+  const scanned = await scanCurrentChanges(
+    capabilityService,
+    service,
+    acknowledgements,
+    context,
+    options,
+    prepared.config,
+    scope,
+  );
+  if (scanned.status === "result") return scanned.result;
+  return compareCurrentChanges(
+    scanned.report,
+    scanned.cwd,
+    prepared.baseline,
+    prepared.ownedPaths,
+    acknowledgements,
+    options,
+    prepared.config,
+    scope,
+  );
+}
 
+interface JscpdPreparedChangedCheck {
+  readonly status: "ready";
+  readonly config: JscpdConfig;
+  readonly ownedPaths: readonly string[];
+  readonly baseline: Extract<JscpdBaselineState, { status: "accepted" }>;
+}
+
+interface JscpdScannedChanges {
+  readonly status: "ready";
+  readonly cwd: string;
+  readonly report: JscpdScanReport;
+}
+
+interface JscpdChangedResultStep {
+  readonly status: "result";
+  readonly result: JscpdExecutionResult;
+}
+
+async function prepareChangedCheck(
+  baselineService: JscpdBaselineService,
+  changedFiles: JscpdChangedFileTracker,
+  acknowledgements: JscpdAcknowledgementTracker,
+  options: JscpdChangedExecutorOptions,
+  scope: number,
+): Promise<JscpdPreparedChangedCheck | JscpdChangedResultStep> {
+  if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
+  const config = options.config?.() ?? DEFAULT_JSCPD_CONFIG;
+  if (!config.enabled) return resultStep(disabledResult());
+  const ownedPaths = changedFiles.files();
+  if (ownedPaths.length === 0) return resultStep(noTrackedFilesResult());
   const baseline = await safeBaseline(baselineService);
-  if (acknowledgements.scope() !== scope) return lifecycleChanged();
-  if (baseline.status !== "accepted") return unavailableBaseline(baseline);
+  if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
+  if (baseline.status !== "accepted") return resultStep(unavailableBaseline(baseline));
   if (baseline.snapshot.status !== "accepted") {
-    return changedUnavailable(
-      "baseline-partial",
-      "jscpd changed is unavailable because the accepted baseline has incomplete clone identities; no findings were acknowledged.",
+    return resultStep(
+      changedUnavailable(
+        "baseline-partial",
+        "jscpd changed is unavailable because the accepted baseline has incomplete clone identities; no findings were acknowledged.",
+      ),
     );
   }
+  return Object.freeze({ status: "ready", config, ownedPaths, baseline });
+}
 
+async function scanCurrentChanges(
+  capabilityService: JscpdCapabilityService,
+  service: JscpdService,
+  acknowledgements: JscpdAcknowledgementTracker,
+  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  options: JscpdChangedExecutorOptions,
+  config: JscpdConfig,
+  scope: number,
+): Promise<JscpdScannedChanges | JscpdChangedResultStep> {
   const cwd = await canonicalDirectory(context.cwd);
-  if (!cwd) {
-    return {
-      status: "failed",
-      reason: "unsupported-path",
-      message: "jscpd changed requires an available project working directory; no scan ran.",
-    };
+  if (!cwd) return resultStep(unsupportedPathResult());
+  const capability = await safeCapabilityProbe(
+    capabilityService,
+    cwd,
+    options.path,
+    context.signal,
+  );
+  if (!capability) return resultStep(probeFailedResult());
+  if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
+  if (capability.status !== "available") {
+    return resultStep(capabilityUnavailableResult(capability));
   }
-  let capability: Awaited<ReturnType<JscpdCapabilityService["probe"]>>;
-  try {
-    capability = await capabilityService.probe({
-      cwd,
-      path: options.path,
-      signal: context.signal,
-    });
-  } catch {
-    return {
-      status: "unavailable",
-      reason: "probe-failed",
-      message: "The jscpd executable check failed safely; no scan ran.",
-    };
-  }
-  if (acknowledgements.scope() !== scope) return lifecycleChanged();
-  if (capability.status !== "available") return capabilityUnavailableResult(capability);
-
-  let run: JscpdRunResult<JscpdScanReport>;
-  try {
-    run = await service.run<JscpdScanReport>({
-      executable: capability.executable,
-      cwd,
-      path: options.path,
-      signal: context.signal,
-      timeoutMs: options.config ? config.timeoutMs : undefined,
-      reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
-      createArguments: ({ directory }) => createJscpdScanArguments(directory, ["."]),
-      consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, cwd),
-    });
-  } catch {
-    return {
-      status: "failed",
-      reason: "process-failed",
-      message: "The jscpd scan process failed safely; child output was not included.",
-    };
-  }
-  if (acknowledgements.scope() !== scope) return lifecycleChanged();
+  const run = await safeCurrentScan(service, capability.executable, cwd, context, options, config);
+  if (!run) return resultStep(processFailedResult());
+  if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
   const report = reportFromRun(run);
-  if (!report) return executionResult(run, config.maxFindings);
+  return report
+    ? Object.freeze({ status: "ready", cwd, report })
+    : resultStep(executionResult(run, config.maxFindings));
+}
 
+async function compareCurrentChanges(
+  report: JscpdScanReport,
+  cwd: string,
+  baseline: Extract<JscpdBaselineState, { status: "accepted" }>,
+  ownedPaths: readonly string[],
+  acknowledgements: JscpdAcknowledgementTracker,
+  options: JscpdChangedExecutorOptions,
+  config: JscpdConfig,
+  scope: number,
+): Promise<JscpdExecutionResult> {
   const revision = acknowledgements.revision();
   const current = await indexJscpdCloneReport(report, cwd);
   if (acknowledgements.scope() !== scope) return lifecycleChanged();
@@ -168,17 +207,14 @@ async function executeChanged(
     );
   }
   const comparison = compareJscpdCloneSnapshots(baseline.snapshot, current);
-  const newGroups = new Set(comparison.new);
   const changedPathSet = new Set(ownedPaths);
-  const active = current.groups.flatMap((group) =>
-    group.fingerprint ? [acknowledgedFinding(group.fingerprint, group.clone)] : [],
+  const { active, candidates } = selectChangedCandidates(
+    current.groups,
+    comparison.new,
+    changedPathSet,
+    acknowledgements,
+    options.prioritizeFindings ?? false,
   );
-  const candidates = current.groups.flatMap((group) => {
-    if (!group.fingerprint || !newGroups.has(group.clone)) return [];
-    if (!group.clone.occurrences.some(({ path }) => changedPathSet.has(path))) return [];
-    if (acknowledgements.has(group.fingerprint)) return [];
-    return [{ group, acknowledgement: acknowledgedFinding(group.fingerprint, group.clone) }];
-  });
   const presented = presentJscpdChanged(
     candidates.map(({ group }) => group.clone),
     changedPathSet,
@@ -190,6 +226,93 @@ async function executeChanged(
     .map(({ acknowledgement }) => acknowledgement);
   if (acknowledgements.reconcile(revision, active, surfaced)) options.stateChanged?.();
   return presented;
+}
+
+async function safeCapabilityProbe(
+  capabilityService: JscpdCapabilityService,
+  cwd: string,
+  path: string | undefined,
+  signal: AbortSignal | undefined,
+): Promise<Awaited<ReturnType<JscpdCapabilityService["probe"]>> | undefined> {
+  try {
+    return await capabilityService.probe({ cwd, path, signal });
+  } catch {
+    return undefined;
+  }
+}
+
+async function safeCurrentScan(
+  service: JscpdService,
+  executable: string,
+  cwd: string,
+  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  options: JscpdChangedExecutorOptions,
+  config: JscpdConfig,
+): Promise<JscpdRunResult<JscpdScanReport> | undefined> {
+  try {
+    return await service.run<JscpdScanReport>({
+      executable,
+      cwd,
+      path: options.path,
+      signal: context.signal,
+      timeoutMs: options.config ? config.timeoutMs : undefined,
+      reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
+      createArguments: ({ directory }) => createJscpdScanArguments(directory, ["."]),
+      consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, cwd),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function resultStep(result: JscpdExecutionResult): JscpdChangedResultStep {
+  return Object.freeze({ status: "result", result });
+}
+
+function disabledResult(): JscpdExecutionResult {
+  return Object.freeze({
+    status: "unavailable",
+    reason: "disabled",
+    message: "jscpd scanning is disabled for this session. Run /jscpd on to re-enable it.",
+  });
+}
+
+function noTrackedFilesResult(): JscpdExecutionResult {
+  const message = "jscpd changed: no session-owned changed files are tracked; no scan ran.";
+  return Object.freeze({
+    status: "changed",
+    outcome: "clean",
+    scanPerformed: false,
+    message,
+    terminalMessage: message,
+    findings: Object.freeze([]),
+    omittedFindings: 0,
+    ambiguousFindings: 0,
+  });
+}
+
+function unsupportedPathResult(): JscpdExecutionResult {
+  return Object.freeze({
+    status: "failed",
+    reason: "unsupported-path",
+    message: "jscpd changed requires an available project working directory; no scan ran.",
+  });
+}
+
+function probeFailedResult(): JscpdExecutionResult {
+  return Object.freeze({
+    status: "unavailable",
+    reason: "probe-failed",
+    message: "The jscpd executable check failed safely; no scan ran.",
+  });
+}
+
+function processFailedResult(): JscpdExecutionResult {
+  return Object.freeze({
+    status: "failed",
+    reason: "process-failed",
+    message: "The jscpd scan process failed safely; child output was not included.",
+  });
 }
 
 function reportFromRun(result: JscpdRunResult<JscpdScanReport>): JscpdScanReport | undefined {
@@ -245,6 +368,69 @@ function unavailableBaseline(state: JscpdBaselineState): JscpdExecutionResult {
         "The pre-session baseline could not be used; no findings were classified or acknowledged.",
       );
   }
+}
+
+interface JscpdChangedCandidate {
+  readonly group: JscpdIndexedCloneGroup;
+  readonly acknowledgement: JscpdAcknowledgedFinding;
+}
+
+function selectChangedCandidates(
+  groups: readonly JscpdIndexedCloneGroup[],
+  newClones: readonly JscpdScanReport["clonePairs"][number][],
+  changedPaths: ReadonlySet<string>,
+  acknowledgements: JscpdAcknowledgementTracker,
+  prioritize: boolean,
+): {
+  readonly active: readonly JscpdAcknowledgedFinding[];
+  readonly candidates: readonly JscpdChangedCandidate[];
+} {
+  const newGroups = new Set(newClones);
+  const active: JscpdAcknowledgedFinding[] = [];
+  const candidates: JscpdChangedCandidate[] = [];
+  for (const group of groups) {
+    if (!group.fingerprint) continue;
+    const acknowledgement = acknowledgedFinding(group.fingerprint, group.clone);
+    active.push(acknowledgement);
+    if (!newGroups.has(group.clone)) continue;
+    if (!group.clone.occurrences.some(({ path }) => changedPaths.has(path))) continue;
+    if (acknowledgements.has(group.fingerprint)) continue;
+    candidates.push({ group, acknowledgement });
+  }
+  if (prioritize)
+    candidates.sort((left, right) => compareChangedCandidate(left, right, changedPaths));
+  return Object.freeze({ active: Object.freeze(active), candidates: Object.freeze(candidates) });
+}
+
+function compareChangedCandidate(
+  left: JscpdChangedCandidate,
+  right: JscpdChangedCandidate,
+  changedPaths: ReadonlySet<string>,
+): number {
+  const changedDifference =
+    changedOccurrenceCount(right.group.clone, changedPaths) -
+    changedOccurrenceCount(left.group.clone, changedPaths);
+  if (changedDifference !== 0) return changedDifference;
+  const lineDifference = right.group.clone.lines - left.group.clone.lines;
+  if (lineDifference !== 0) return lineDifference;
+  const tokenDifference = right.group.clone.tokens - left.group.clone.tokens;
+  if (tokenDifference !== 0) return tokenDifference;
+  return compareText(cloneLocationKey(left.group.clone), cloneLocationKey(right.group.clone));
+}
+
+function changedOccurrenceCount(
+  clone: JscpdScanReport["clonePairs"][number],
+  changedPaths: ReadonlySet<string>,
+): number {
+  return clone.occurrences.filter(({ path }) => changedPaths.has(path)).length;
+}
+
+function cloneLocationKey(clone: JscpdScanReport["clonePairs"][number]): string {
+  return clone.occurrences
+    .map(
+      ({ path, start, end }) => `${path}:${start.line}:${start.column}:${end.line}:${end.column}`,
+    )
+    .join("\0");
 }
 
 function acknowledgedFinding(

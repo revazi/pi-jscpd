@@ -49,10 +49,32 @@ describe("automatic scan scheduler", () => {
     await waitForSnapshot(scheduler, "active");
     expect(contexts).toHaveLength(1);
     expect(contexts[0]?.generation).toBe(3);
+    expect(contexts[0]?.isCurrent()).toBe(true);
     release.resolve();
     await waitForSnapshot(scheduler, "idle");
     expect(scheduler.snapshot().attemptedGeneration).toBe(3);
     expect(scheduler.requestAutomatic(async () => "attempted")).toBe(false);
+  });
+
+  it("invalidates result side effects when a newer mutation arrives", async () => {
+    const scheduler = createJscpdScanScheduler();
+    const release = deferred();
+    let context: JscpdAutomaticScanContext | undefined;
+
+    scheduler.markChanged();
+    scheduler.requestAutomatic(async (current) => {
+      context = current;
+      await release.promise;
+      return "deferred";
+    });
+    await waitForSnapshot(scheduler, "active");
+    expect(context?.isCurrent()).toBe(true);
+
+    scheduler.markChanged();
+    expect(context?.isCurrent()).toBe(false);
+    release.resolve();
+    await waitForSnapshot(scheduler, "idle");
+    expect(scheduler.snapshot().attemptedGeneration).toBe(0);
   });
 
   it("replaces a not-yet-started request with the latest changed generation", async () => {

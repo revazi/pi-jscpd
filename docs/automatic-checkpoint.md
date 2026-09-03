@@ -201,17 +201,23 @@ while other terminal failures are consumed once per unchanged generation.
 Lifecycle transitions cancel owned work and shutdown awaits bounded adapter
 cleanup. Automatic findings are deliberately not acknowledged or injected yet.
 
-The remaining M4 presentation slice must add focused tests for:
+M4.4 implements the presentation boundary. Automatic checks cap delivery at
+five findings, prioritize groups whose two locations changed in the session,
+and preserve deterministic size/location ordering within that priority. Clean
+and failed outcomes update only bounded session/footer status. A current
+finding result sends one custom message with `triggerTurn: false`, then commits
+only the delivered acknowledgement identities; omitted findings remain
+eligible. Non-TUI mode uses the same model-context message with transcript
+display disabled. Delivery failure, queued work, a newer mutation, or a stale
+lifecycle scope leaves the generation retryable without acknowledging it.
 
-- queued follow-ups and retry/compaction sequences at the Pi integration level;
-- stale branch/reload completions;
-- quiet clean and failure status/UI outcomes;
-- durable, bounded finding insertion without a surprise turn; and
-- acknowledgement only after successful delivery.
+Focused tests cover coalescing, scheduler freshness, clean and failure status,
+bounded finding delivery, repeated-finding suppression, non-TUI behavior, and
+acknowledgement-after-delivery ordering.
 
 M6 must pin a Pi compatibility range that includes the documented
 `agent_settled` contract. If that contract is unavailable or changes, remain
 on-demand and revisit this decision; do not silently fall back to `agent_end`.
 
-This document does not enable automatic checks, add configuration, or change the
+The lifecycle decision adds no separate configuration and does not change the
 public command/tool contract.

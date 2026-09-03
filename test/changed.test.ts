@@ -233,6 +233,63 @@ describe("/jscpd changed", () => {
     ).toEqual(["--reporters", "json", "--output", "/tmp/report", "--absolute", "--", "."]);
   });
 
+  it("prioritizes two changed locations before larger one-sided candidates and leaves omissions unacknowledged", async () => {
+    await Promise.all([
+      writeFile(join(project, "src", "e.ts"), thirdBlock),
+      writeFile(join(project, "src", "f.ts"), thirdBlock),
+    ]);
+    const tracker = createJscpdChangedFileTracker();
+    await tracker.start(project, ["src/c.ts", "src/d.ts", "src/e.ts"]);
+    const current = report(
+      clone("src/a.ts", "src/b.ts"),
+      { ...clone("src/e.ts", "src/f.ts", thirdBlock), lines: 20, tokens: 100 },
+      clone("src/c.ts", "src/d.ts", newBlock),
+    );
+    const scan = adapter([{ status: "report", value: current }]);
+    const acknowledgements = createJscpdAcknowledgementTracker();
+    const executor = createJscpdChangedExecutor(
+      capability(),
+      scan.service,
+      baseline(await acceptedBaseline()),
+      tracker,
+      acknowledgements,
+      {
+        config: () => ({ enabled: true, timeoutMs: 1234, maxFindings: 1 }),
+        prioritizeFindings: true,
+      },
+    );
+
+    const first = await executor.execute({ command: "changed", args: [] }, { cwd: project });
+    const second = await executor.execute({ command: "changed", args: [] }, { cwd: project });
+
+    expect(first).toMatchObject({
+      status: "changed",
+      outcome: "findings",
+      omittedFindings: 1,
+      findings: [
+        {
+          occurrences: [
+            { path: "src/c.ts", relation: "new-session" },
+            { path: "src/d.ts", relation: "new-session" },
+          ],
+        },
+      ],
+    });
+    expect(second).toMatchObject({
+      status: "changed",
+      outcome: "findings",
+      omittedFindings: 0,
+      findings: [
+        {
+          occurrences: [
+            { path: "src/e.ts", relation: "new-session" },
+            { path: "src/f.ts", relation: "existing-match" },
+          ],
+        },
+      ],
+    });
+  });
+
   it("acknowledges only displayed findings when the presentation cap omits another", async () => {
     await writeFile(join(project, "src", "a.ts"), newBlock);
     const current = report(
