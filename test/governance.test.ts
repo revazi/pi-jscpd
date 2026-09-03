@@ -45,7 +45,7 @@ describe("public repository safeguards", () => {
 
     expect(gitignore).toContain("/.agents/");
     expect(gitignore).toContain("/AGENTS.md");
-    expect(gitignore).toContain("work/");
+    expect(gitignore).toContain("/work/");
     expect(gitignore).toContain(".pi/jscpd-guardrail.local.json");
   });
 
