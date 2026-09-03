@@ -43,14 +43,12 @@ describe("Pi tool path normalization", () => {
     expect(normalizeWindowsShellPath(input)).toBe(expected);
   });
 
-  it.each([
-    "//server/share/file.ts",
-    "/project/src/file.ts",
-    "/c/mixed\\file.ts",
-    "src/file.ts",
-  ])("leaves a non-drive Windows shell path unchanged: %s", (input) => {
-    expect(normalizeWindowsShellPath(input)).toBe(input);
-  });
+  it.each(["//server/share/file.ts", "/project/src/file.ts", "/c/mixed\\file.ts", "src/file.ts"])(
+    "leaves a non-drive Windows shell path unchanged: %s",
+    (input) => {
+      expect(normalizeWindowsShellPath(input)).toBe(input);
+    },
+  );
 });
 
 describe("session-owned changed-file tracking", () => {
