@@ -64,8 +64,12 @@ describe("Pi package manifest", () => {
       typescript: "5.9.3",
       vitest: "4.1.11",
     });
-    expect(manifest.scripts?.format).toBe("biome check --write .");
-    expect(manifest.scripts?.lint).toBe("biome check .");
+    expect(manifest.scripts?.format).toBe(
+      "biome check --write src test scripts package.json tsconfig.json biome.json",
+    );
+    expect(manifest.scripts?.lint).toBe(
+      "biome check src test scripts package.json tsconfig.json biome.json",
+    );
     expect(manifest.scripts?.["compatibility:check"]).toBe("node scripts/check-compatibility.mjs");
     expect(manifest.scripts?.check).toBe(
       "npm run compatibility:check && npm run typecheck && npm run lint && npm test",
