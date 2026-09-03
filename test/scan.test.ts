@@ -208,10 +208,12 @@ describe("end-to-end explicit scans", () => {
     });
     expect(toolResult.content[0]).toMatchObject({
       type: "text",
-      text: expect.stringContaining("lib/b.ts:1-1 ↔ src/a.ts:1-1"),
+      text: expect.stringMatching(
+        /current location: lib\/b\.ts:1-1.*current location: src\/a\.ts:1-1/s,
+      ),
     });
     expect(notify).toHaveBeenCalledWith(
-      expect.stringContaining("lib/b.ts:1-1 ↔ src/a.ts:1-1"),
+      expect.stringMatching(/current location: lib\/b\.ts:1-1.*current location: src\/a\.ts:1-1/s),
       "info",
     );
 

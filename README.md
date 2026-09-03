@@ -13,7 +13,7 @@ flow.
 
 ## Project status
 
-**Explicit scans, quiet automatic session-delta checks, and the responsive bare-command overview are implemented.**
+**Explicit scans, quiet automatic session-delta checks, the responsive bare-command overview, and shared actionable finding presentation are implemented.**
 
 Automatic changed checks run after Pi's `agent_settled` event. The bounded
 scheduler tracks mutation generations, coalesces pending work, and lets explicit
@@ -54,8 +54,13 @@ clone locations, and removes its restrictive temporary workspace after success,
 failure, timeout, cancellation, invalidation, or shutdown. Clone-positive exit
 status is accepted only with a valid findings report. Tool and terminal output
 come from the same normalized report, cap displayed findings, omit source
-fragments, and include aggregate statistics plus both locations. Missing or
-incompatible binaries, unsafe or unsupported paths, process failures, missing or
+fragments, and include aggregate statistics plus both locations. The overlay,
+slash command, and model-facing results share bounded location, line-span, size,
+format, and changed/existing labels. Full-project results explicitly leave the
+new/existing relation unknown. Advisory guidance asks users to inspect first,
+refactor and test only when appropriate, or retain/configure an intentional
+jscpd exclusion through the normal agent flow. Missing or incompatible binaries,
+unsafe or unsupported paths, process failures, missing or
 invalid reports, timeout, cancellation, and cleanup uncertainty fail open with
 bounded diagnostics. Overlay actions route through the same executor and
 scheduler instead of launching child processes directly.
@@ -333,6 +338,7 @@ users do not receive duplicate findings.
 │   ├── changed-files.ts   bounded structured-event changed-file attribution
 │   ├── automatic.ts       fail-open automatic changed-check execution
 │   ├── scheduler.ts       coalesced automatic and explicit scan ownership
+│   ├── finding-presentation.ts  shared bounded finding details and guidance
 │   ├── overlay.ts         responsive bare-command TUI and non-TUI fallback
 │   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
@@ -381,9 +387,9 @@ tracking are in place. Tests use deterministic fakes and do not download
 anything; a real installed v5 binary can be used for a local scan smoke. The
 automatic checkpoint process model, bounded scheduler, fail-open execution,
 quiet status feedback, and bounded actionable delta delivery are implemented.
-The bare `/jscpd` interaction contract and responsive shell are implemented.
-Actionable presentation and guided refactoring continue in the
-[GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues).
+The bare `/jscpd` interaction contract, responsive shell, and consistent
+actionable finding presentation are implemented. Guided refactor preparation
+continues in the [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues).
 
 ## Contributing
 
