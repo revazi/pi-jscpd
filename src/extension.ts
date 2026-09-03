@@ -27,6 +27,7 @@ import { createJscpdConfigService, type JscpdConfigService } from "./config.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
 import { dispatchJscpdCommand } from "./dispatch.js";
 import { createJscpdService, type JscpdService } from "./jscpd.js";
+import { createJscpdOverlayLauncher, type JscpdOverlayLauncher } from "./overlay.js";
 import { parseJscpdSlashArgs } from "./parser.js";
 import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
 import { createJscpdScanExecutor } from "./scan.js";
@@ -49,9 +50,6 @@ import {
 } from "./status.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
 
-const BARE_COMMAND_MESSAGE =
-  "Bare /jscpd is reserved for a future interactive overlay and does not run a scan.";
-
 type JscpdToolDefinition = ToolDefinition<typeof jscpdRunParams, JscpdDispatchResult>;
 
 type JscpdSlashCommandDefinition = Omit<RegisteredCommand, "name" | "sourceInfo"> & {
@@ -66,6 +64,7 @@ export interface JscpdExtensionOptions {
   baselineService?: JscpdBaselineService;
   scheduler?: JscpdScanScheduler;
   automaticCheck?: JscpdAutomaticCheck;
+  overlayLauncher?: JscpdOverlayLauncher;
 }
 
 export function registerJscpdExtension(
@@ -156,9 +155,12 @@ export function registerJscpdExtension(
     );
   }
   executor = createJscpdScheduledExecutor(executor, scheduler);
+  const overlayLauncher =
+    options.overlayLauncher ??
+    createJscpdOverlayLauncher(executor, { changedFileCount: () => changedFiles.files().length });
 
   pi.registerTool(createJscpdToolDefinition(executor));
-  pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor));
+  pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor, overlayLauncher));
 
   pi.on("session_start", async (_event, ctx) => {
     scheduler.reset();
@@ -442,9 +444,10 @@ export function createJscpdToolDefinition(executor: JscpdCommandExecutor): Jscpd
 
 export function createJscpdSlashCommandDefinition(
   executor: JscpdCommandExecutor,
+  overlayLauncher: JscpdOverlayLauncher = createJscpdOverlayLauncher(executor),
 ): JscpdSlashCommandDefinition {
   return {
-    description: "Run or inspect jscpd. Bare /jscpd is reserved for a future overlay.",
+    description: "Open the jscpd overview or run an explicit subcommand.",
     argumentHint: jscpdArgumentHint,
     getArgumentCompletions: getJscpdArgumentCompletions,
     async handler(rawArgs, ctx) {
@@ -454,7 +457,14 @@ export function createJscpdSlashCommandDefinition(
         return;
       }
       if (parsed.kind === "bare") {
-        ctx.ui.notify(BARE_COMMAND_MESSAGE, "info");
+        try {
+          await overlayLauncher.open(ctx);
+        } catch {
+          ctx.ui.notify(
+            "The jscpd overview could not open; explicit subcommands remain available.",
+            "warning",
+          );
+        }
         return;
       }
 

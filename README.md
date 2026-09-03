@@ -6,14 +6,14 @@
 
 > A Pi-native, polyglot duplication guardrail powered by jscpd.
 
-`pi-jscpd` is planned as a quiet advisory layer for the Pi coding agent. It will
-detect duplicate code introduced during an agent session, point Pi to the
-existing implementation, and support the normal inspect → refactor → test →
-rescan flow.
+`pi-jscpd` is a quiet advisory layer for the Pi coding agent. It detects
+duplicate code introduced during an agent session, points Pi to the existing
+implementation, and supports the normal inspect → refactor → test → rescan
+flow.
 
 ## Project status
 
-**Explicit scans and quiet automatic session-delta checks are implemented.**
+**Explicit scans, quiet automatic session-delta checks, and the responsive bare-command overview are implemented.**
 
 Automatic changed checks run after Pi's `agent_settled` event. The bounded
 scheduler tracks mutation generations, coalesces pending work, and lets explicit
@@ -23,6 +23,13 @@ for the next model context with `triggerTurn: false`; it includes at most five
 prioritized findings and is acknowledged only after delivery. See the
 [automatic advisory checkpoint decision](docs/automatic-checkpoint.md) for the
 measured candidates, cancellation model, and quiet-context policy.
+
+Bare `/jscpd` opens one responsive TUI overview with explicit changed/project
+scan actions, findings and detail views, literal filtering, status controls, and
+help. It starts with status only and never treats opening the overlay as a scan.
+Loading, cancellation, narrow terminals, command-context shutdown, and component
+cleanup remain bounded. RPC receives one notification fallback; JSON and print
+modes receive the same plain status fallback on stderr.
 
 The extension registers `/jscpd scan`, `/jscpd changed`, `/jscpd status`, and the
 `jscpd_run` agent tool from one typed command registry. On the first explicit
@@ -50,8 +57,8 @@ come from the same normalized report, cap displayed findings, omit source
 fragments, and include aggregate statistics plus both locations. Missing or
 incompatible binaries, unsafe or unsupported paths, process failures, missing or
 invalid reports, timeout, cancellation, and cleanup uncertainty fail open with
-bounded diagnostics. Bare `/jscpd` remains reserved for the accepted interactive
-overlay design and never starts an implicit scan.
+bounded diagnostics. Overlay actions route through the same executor and
+scheduler instead of launching child processes directly.
 
 Trusted project and local extension settings are now loaded strictly at session
 start. They can disable scanning, set the bounded per-run timeout, and cap
@@ -231,7 +238,7 @@ The intended result is a guardrail users can install and then largely forget.
 
 ## Intended user experience
 
-Once implemented, the minimal path should look like this:
+After a future npm release, the minimal installation path will be:
 
 ```text
 pi install npm:pi-jscpd
@@ -245,7 +252,7 @@ normally; explicit scan and status requests explain the missing prerequisite.
 The implemented public surface is deliberately small:
 
 ```text
-/jscpd                       report that overlay implementation is pending; do not scan
+/jscpd                       open the responsive overview; do not scan implicitly
 /jscpd scan                  scan the project
 /jscpd scan src "path here"  scan existing in-project files or directories
 /jscpd changed               show unacknowledged new session duplication
@@ -276,11 +283,11 @@ ephemeral baselines, and loaded configuration are never restored: they are
 invalidated or cleaned up, and configuration is loaded again under the current
 trust decision.
 
-The bare `/jscpd` command remains reserved for an interactive overlay. Its
-combined overview, findings/detail views, controls, responsive bounds,
-cancellation rules, and non-TUI fallback are defined in the accepted
-[`/jscpd` overlay interaction contract](docs/overlay-interaction.md). Implementation
-is tracked in [issue #26](https://github.com/revazi/pi-jscpd/issues/26).
+The bare `/jscpd` command implements the accepted
+[`/jscpd` overlay interaction contract](docs/overlay-interaction.md). The first
+shell provides combined overview, findings/detail views, controls, responsive
+bounds, cancellation, cleanup, and non-TUI fallback without automatic source
+changes.
 
 ## Defaults
 
@@ -326,6 +333,7 @@ users do not receive duplicate findings.
 │   ├── changed-files.ts   bounded structured-event changed-file attribution
 │   ├── automatic.ts       fail-open automatic changed-check execution
 │   ├── scheduler.ts       coalesced automatic and explicit scan ownership
+│   ├── overlay.ts         responsive bare-command TUI and non-TUI fallback
 │   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
 ├── test/                  package and command-contract tests
@@ -373,9 +381,9 @@ tracking are in place. Tests use deterministic fakes and do not download
 anything; a real installed v5 binary can be used for a local scan smoke. The
 automatic checkpoint process model, bounded scheduler, fail-open execution,
 quiet status feedback, and bounded actionable delta delivery are implemented.
-The bare `/jscpd` interaction contract is accepted; its responsive shell is
-tracked in [issue #26](https://github.com/revazi/pi-jscpd/issues/26). Development
-is tracked in the [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues).
+The bare `/jscpd` interaction contract and responsive shell are implemented.
+Actionable presentation and guided refactoring continue in the
+[GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues).
 
 ## Contributing
 

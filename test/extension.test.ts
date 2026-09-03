@@ -1096,17 +1096,32 @@ describe("Pi extension registration", () => {
 });
 
 describe("/jscpd", () => {
-  it("keeps the bare command reserved and never dispatches a scan", async () => {
+  it("routes the bare command to the overlay without dispatching an implicit scan", async () => {
     const { executor, execute } = createExecutor();
-    const definition = createJscpdSlashCommandDefinition(executor);
-    const { context, notify } = commandContext();
+    const open = vi.fn(async () => undefined);
+    const definition = createJscpdSlashCommandDefinition(executor, { open });
+    const { context } = commandContext();
 
     await definition.handler("   ", context);
 
+    expect(open).toHaveBeenCalledWith(context);
     expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("fails open when the overlay cannot be opened", async () => {
+    const { executor } = createExecutor();
+    const definition = createJscpdSlashCommandDefinition(executor, {
+      open: async () => {
+        throw new Error("private overlay failure");
+      },
+    });
+    const { context, notify } = commandContext();
+
+    await definition.handler("", context);
+
     expect(notify).toHaveBeenCalledWith(
-      "Bare /jscpd is reserved for a future interactive overlay and does not run a scan.",
-      "info",
+      "The jscpd overview could not open; explicit subcommands remain available.",
+      "warning",
     );
   });
 

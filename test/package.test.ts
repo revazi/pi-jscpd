@@ -13,6 +13,7 @@ interface PackageManifest {
   keywords?: string[];
   scripts?: Record<string, string>;
   devDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
   pi?: { extensions?: string[] };
 }
 
@@ -27,6 +28,8 @@ describe("Pi package manifest", () => {
 
     expect(manifest.pi?.extensions).toEqual(["./src/index.ts"]);
     expect(manifest.keywords).toContain("pi-package");
+    expect(manifest.peerDependencies?.["@earendil-works/pi-tui"]).toBe("*");
+    expect(manifest.devDependencies?.["@earendil-works/pi-tui"]).toBe("*");
   });
 
   it("cannot be published accidentally before the release milestone", async () => {
