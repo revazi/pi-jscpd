@@ -410,7 +410,8 @@ limitations are documented in the
 │   ├── fallow-coexistence.md    supported overlap signals and choices
 │   └── overlay-interaction.md   accepted bare-command overlay contract
 ├── scripts/
-│   └── check-compatibility.mjs  host range and pinned-fixture validation
+│   ├── check-compatibility.mjs  host range and pinned-fixture validation
+│   └── package-certify.mjs      isolated packed-artifact certification
 ├── .github/               CI, dependency policy, and contribution templates
 ├── biome.json             formatting and lint policy
 ├── CHANGELOG.md           unreleased and released user-visible changes
@@ -438,10 +439,15 @@ npm run format       # apply Biome formatting and safe fixes
 npm run lint         # check formatting, lint rules, and import organization
 npm run compatibility:check  # verify the active host and pinned Pi fixtures
 npm run check        # compatibility, typecheck, Biome, and tests
+npm run pack:certify # pack, install, exercise, and clean up the exact artifact
 ```
 
 Biome, TypeScript, Vitest, Node types, and the supported Pi/TypeBox fixtures are
 pinned in `devDependencies` so local and CI checks use the tested versions.
+`pack:certify` is network-free: it installs the generated tarball in a disposable
+project, isolates Pi configuration and temporary state, uses a deterministic
+fake jscpd v5 process, and verifies RPC, tool, TUI-component, JSON, print, and
+shutdown-cleanup contracts. See [compatibility](docs/compatibility.md#packed-artifact-certification).
 
 Load the current extension directly in Pi:
 
@@ -468,8 +474,8 @@ Development continues in the
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Start from
 an open issue, keep each change focused, add tests for behavioral changes, and
 run the required checks on a supported host. CI validates formatting/linting,
-types, tests, compatibility metadata, and package contents on Node 22.19.0 and
-24.12.0.
+types, tests, compatibility metadata, and the installed packed-artifact
+certification on Node 22.19.0 and 24.12.0.
 
 Keep the initial package small. Do not reimplement clone detection, automatically
 install jscpd, or add source mutation to the extension. Report suspected
