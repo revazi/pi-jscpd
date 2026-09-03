@@ -1,0 +1,44 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    versioning-strategy: increase-if-necessary
+    allow:
+      - dependency-type: direct
+    ignore:
+      - dependency-name: "@earendil-works/pi-*"
+        update-types:
+          - version-update:semver-major
+          - version-update:semver-minor
+    groups:
+      pi-0-84-patches:
+        patterns:
+          - "@earendil-works/pi-*"
+      development-tooling:
+        dependency-type: development
+        patterns:
+          - "@biomejs/biome"
+          - "@types/node"
+          - typescript
+          - vitest
+    labels:
+      - dependencies
+    reviewers:
+      - revazi
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+    reviewers:
+      - revazi

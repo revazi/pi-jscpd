@@ -28,14 +28,17 @@
     "src",
     "docs",
     "scripts/check-compatibility.mjs",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
     "README.md",
     "LICENSE"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "format": "biome check --write .",
-    "lint": "biome check .",
+    "format": "biome check --write src test scripts package.json tsconfig.json biome.json",
+    "lint": "biome check src test scripts package.json tsconfig.json biome.json",
     "compatibility:check": "node scripts/check-compatibility.mjs",
     "check": "npm run compatibility:check && npm run typecheck && npm run lint && npm test",
     "pack:dry-run": "npm pack --dry-run"

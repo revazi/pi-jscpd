@@ -1,8 +1,8 @@
 node_modules/
 coverage/
 dist/
-work/
-outputs/
+/work/
+/outputs/
 *.tgz
 *.log
 .DS_Store

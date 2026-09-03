@@ -1,5 +1,6 @@
 # pi-jscpd
 
+[![CI](https://github.com/revazi/pi-jscpd/actions/workflows/ci.yml/badge.svg)](https://github.com/revazi/pi-jscpd/actions/workflows/ci.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
 [![status: automatic checks](https://img.shields.io/badge/status-automatic%20checks-green.svg)](#project-status)
@@ -410,7 +411,11 @@ limitations are documented in the
 │   └── overlay-interaction.md   accepted bare-command overlay contract
 ├── scripts/
 │   └── check-compatibility.mjs  host range and pinned-fixture validation
+├── .github/               CI, dependency policy, and contribution templates
 ├── biome.json             formatting and lint policy
+├── CHANGELOG.md           unreleased and released user-visible changes
+├── CONTRIBUTING.md        development, review, and release ownership
+├── SECURITY.md            private reporting and supported-version policy
 ├── LICENSE                MIT License
 ├── package.json           Pi package manifest
 ├── tsconfig.json
@@ -458,14 +463,23 @@ presentation, and pre/post-refactor verification workflow are implemented.
 Development continues in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues).
 
-## Contributing
+## Contributing and security
 
-Start from an open issue and keep each change focused. Add or update tests for
-behavioral changes, run `npm run check`, and describe user-visible behavior in
-this README.
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Start from
+an open issue, keep each change focused, add tests for behavioral changes, and
+run the required checks on a supported host. CI validates formatting/linting,
+types, tests, compatibility metadata, and package contents on Node 22.19.0 and
+24.12.0.
 
 Keep the initial package small. Do not reimplement clone detection, automatically
-install jscpd, or add source mutation to the extension.
+install jscpd, or add source mutation to the extension. Report suspected
+vulnerabilities privately according to [SECURITY.md](SECURITY.md), never in a
+public issue. User-visible changes are tracked in
+[CHANGELOG.md](CHANGELOG.md).
+
+Only the named maintainer may approve a version, remove the private-package
+guard, tag a release, or publish to npm. Passing CI or review does not grant
+publication authority.
 
 ## Maintainer and project links
 
