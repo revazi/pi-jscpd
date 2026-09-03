@@ -29,6 +29,9 @@ until publication is approved.
   issue forms, pull-request guidance, and release ownership.
 - Exact packed-artifact certification with isolated Pi RPC/tool/TUI-compatible,
   JSON, print, process-tree shutdown, and temporary-report cleanup checks.
+- Non-publishing release-readiness workflow, provenance/access intent,
+  documentation-link validation, repository-hygiene guards, and a future release,
+  rollback, and post-release policy.
 
 ### Security
 

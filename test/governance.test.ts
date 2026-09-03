@@ -18,6 +18,8 @@ describe("public repository safeguards", () => {
     expect(workflow).toContain("run: npm ci --ignore-scripts");
     for (const command of [
       "npm run compatibility:check",
+      "npm run docs:check",
+      "npm run repo:hygiene",
       "npm run lint",
       "npm run typecheck",
       "npm test",
@@ -28,6 +30,29 @@ describe("public repository safeguards", () => {
     }
     expect(workflow).toMatch(/actions\/checkout@[a-f0-9]{40}/);
     expect(workflow).toMatch(/actions\/setup-node@[a-f0-9]{40}/);
+  });
+
+  it("keeps manual release readiness unprivileged and non-publishing", async () => {
+    const workflow = await projectFile(".github/workflows/release-readiness.yml");
+
+    expect(workflow).toContain("name: Release readiness (no publish)");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("permissions: {}");
+    expect(workflow).toContain("persist-credentials: false");
+    expect(workflow).toMatch(/ref: \$\{\{ inputs\.reviewed_sha \}\}/);
+    expect(workflow).toContain('= "0.0.0"');
+    expect(workflow).toContain('= "true"');
+    expect(workflow).toContain("npm run release:check");
+    expect(workflow).toContain("- 22.19.0");
+    expect(workflow).toContain("- 24.12.0");
+    expect(workflow).not.toMatch(/npm\s+publish/i);
+    expect(workflow).not.toMatch(/(?:id-token|contents|packages):\s*write/i);
+    expect(workflow).not.toContain("secrets.");
+    expect(workflow).not.toContain("NODE_AUTH_TOKEN");
+    expect(workflow).not.toContain("NPM_TOKEN");
+    for (const action of workflow.matchAll(/uses: ([^\s]+)/g)) {
+      expect(action[1]).toMatch(/@[a-f0-9]{40}$/);
+    }
   });
 
   it("defines deliberate npm and workflow dependency updates", async () => {
@@ -49,6 +74,10 @@ describe("public repository safeguards", () => {
     expect(gitignore).toContain("/.agents/");
     expect(gitignore).toContain("/AGENTS.md");
     expect(gitignore).toContain("/work/");
+    expect(gitignore).toContain("/outputs/");
+    expect(gitignore).toContain("/reports/");
+    expect(gitignore).toContain("/.npmrc");
+    expect(gitignore).toContain("/.env.*");
     expect(gitignore).toContain(".pi/jscpd-guardrail.local.json");
   });
 
@@ -57,6 +86,7 @@ describe("public repository safeguards", () => {
       "CHANGELOG.md",
       "CONTRIBUTING.md",
       "SECURITY.md",
+      "docs/release.md",
       ".github/CODEOWNERS",
       ".github/ISSUE_TEMPLATE/config.yml",
       ".github/ISSUE_TEMPLATE/bug-report.yml",
@@ -70,6 +100,7 @@ describe("public repository safeguards", () => {
     expect(contents[1]).toContain("Validate (Node 24.12.0)");
     expect(contents[1]).toContain("Only [Revaz Zakalashvili]");
     expect(contents[2]).toContain("private vulnerability reporting");
-    expect(contents[3]).toContain("* @revazi");
+    expect(contents[3]).toContain("preparation only; no release is authorized");
+    expect(contents[4]).toContain("* @revazi");
   });
 });

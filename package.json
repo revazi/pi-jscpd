@@ -17,6 +17,10 @@
   "bugs": {
     "url": "https://github.com/revazi/pi-jscpd/issues"
   },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "keywords": [
     "pi-package",
     "pi-extension",
@@ -40,9 +44,12 @@
     "format": "biome check --write src test scripts package.json tsconfig.json biome.json",
     "lint": "biome check src test scripts package.json tsconfig.json biome.json",
     "compatibility:check": "node scripts/check-compatibility.mjs",
+    "docs:check": "node scripts/check-markdown.mjs",
+    "repo:hygiene": "node scripts/check-repository-hygiene.mjs",
     "check": "npm run compatibility:check && npm run typecheck && npm run lint && npm test",
     "pack:certify": "node scripts/package-certify.mjs",
-    "pack:dry-run": "npm pack --dry-run"
+    "pack:dry-run": "npm pack --dry-run",
+    "release:check": "npm run docs:check && npm run repo:hygiene && npm run check && npm run pack:certify && npm run pack:dry-run"
   },
   "pi": {
     "extensions": [

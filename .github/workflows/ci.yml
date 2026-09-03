@@ -42,6 +42,12 @@ jobs:
       - name: Check host and fixture compatibility
         run: npm run compatibility:check
 
+      - name: Check public documentation
+        run: npm run docs:check
+
+      - name: Check repository hygiene
+        run: npm run repo:hygiene
+
       - name: Check formatting and lint rules
         run: npm run lint
 

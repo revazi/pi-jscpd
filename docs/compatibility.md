@@ -13,9 +13,11 @@ returned no existing package when this name was selected, but a lookup does not
 reserve a name.
 
 The package remains at version `0.0.0` with `"private": true`. It must not be
-published or treated as reserved until the separate release approval removes
-that guard and the maintainer controls the npm name. The source remains MIT
-licensed regardless of publication state.
+published or treated as reserved until separate release approval removes that
+guard and the maintainer controls the npm name. The current manual readiness
+workflow has no publication permission or credentials. The source remains MIT
+licensed regardless of publication state; see the
+[release preparation policy](release.md).
 
 ## Supported and tested matrix
 
@@ -93,7 +95,9 @@ A support-range change must:
 4. run `npm run pack:certify` to smoke-test the exact tarball, extension loading,
    representative command/tool/UI behavior, and shutdown cleanup with the
    candidate Pi version; and
-5. update this matrix and release notes.
+5. update this matrix and release notes; and
+6. run the non-publishing `npm run release:check` gate documented in
+   [the release policy](release.md).
 
 Do not widen peer ranges solely because installation succeeds. Pi lifecycle and
 TUI behavior must be exercised before a new release line is declared supported.
