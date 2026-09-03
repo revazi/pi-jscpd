@@ -27,6 +27,8 @@ until publication is approved.
   compatibility policy.
 - Public CI, dependency-update policy, contribution guidance, security policy,
   issue forms, pull-request guidance, and release ownership.
+- Exact packed-artifact certification with isolated Pi RPC/tool/TUI-compatible,
+  JSON, print, process-tree shutdown, and temporary-report cleanup checks.
 
 ### Security
 

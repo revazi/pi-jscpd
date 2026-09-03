@@ -21,6 +21,7 @@ describe("public repository safeguards", () => {
       "npm run lint",
       "npm run typecheck",
       "npm test",
+      "npm run pack:certify",
       "npm run pack:dry-run",
     ]) {
       expect(workflow).toContain(`run: ${command}`);

@@ -41,6 +41,7 @@
     "lint": "biome check src test scripts package.json tsconfig.json biome.json",
     "compatibility:check": "node scripts/check-compatibility.mjs",
     "check": "npm run compatibility:check && npm run typecheck && npm run lint && npm test",
+    "pack:certify": "node scripts/package-certify.mjs",
     "pack:dry-run": "npm pack --dry-run"
   },
   "pi": {

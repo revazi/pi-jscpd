@@ -51,5 +51,8 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Certify packed artifact
+        run: npm run pack:certify
+
       - name: Inspect package dry run
         run: npm run pack:dry-run

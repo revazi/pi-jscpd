@@ -40,6 +40,32 @@ the full project check; Pi 0.84.4 is the API fixture. A future Pi `0.85` release
 Node 25 release, or TypeBox 2 release requires an explicit compatibility review
 and range update rather than being accepted automatically.
 
+## Packed-artifact certification
+
+`npm run pack:certify` tests the artifact that would be published, not the source
+checkout alone. It runs without network access or a real jscpd installation and:
+
+- compares `npm pack --json` output with the complete tracked runtime, license,
+  and public-document allowlist, including regular-file modes and unsafe/private
+  path rejection;
+- installs that exact tarball with lifecycle scripts disabled in a restrictive
+  disposable project;
+- uses the locked Pi `0.84.4` CLI with isolated home, agent, session, and
+  temporary directories and all resource discovery disabled except the explicit
+  installed package;
+- verifies `/jscpd` discovery and provider-free help/status behavior through RPC,
+  exercises the registered `jscpd_run` contract and installed overlay component,
+  and checks JSON, print, and non-TUI fallback paths; and
+- places a deterministic fake jscpd v5 executable on the disposable `PATH`, then
+  stops Pi during an active scan and asserts that the process tree and every
+  `pi-jscpd-*` report directory are gone.
+
+The generated probe and fake executable are certification fixtures only. They do
+not replace the normal test suite or claim that a real jscpd release was
+executed. CI runs this certification on both supported Node fixtures. The
+certification script itself is development tooling and is deliberately excluded
+from the publishable file allowlist.
+
 ## Unsupported-version behavior
 
 - npm uses `engines.node` and peer dependency ranges during installation. Based
@@ -64,7 +90,8 @@ A support-range change must:
 2. run `npm install` so the lockfile records those fixtures;
 3. pass `npm run check` at the minimum supported Node version and the current
    supported Node LTS fixture;
-4. smoke-test extension loading and representative command/UI behavior with the
+4. run `npm run pack:certify` to smoke-test the exact tarball, extension loading,
+   representative command/tool/UI behavior, and shutdown cleanup with the
    candidate Pi version; and
 5. update this matrix and release notes.
 

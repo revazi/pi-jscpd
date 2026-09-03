@@ -68,6 +68,7 @@ describe("Pi package manifest", () => {
       "biome check src test scripts package.json tsconfig.json biome.json",
     );
     expect(manifest.scripts?.["compatibility:check"]).toBe("node scripts/check-compatibility.mjs");
+    expect(manifest.scripts?.["pack:certify"]).toBe("node scripts/package-certify.mjs");
     expect(manifest.scripts?.check).toBe(
       "npm run compatibility:check && npm run typecheck && npm run lint && npm test",
     );
