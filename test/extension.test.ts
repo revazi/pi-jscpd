@@ -379,6 +379,74 @@ describe("Pi extension registration", () => {
     expect(disposeScheduler).toHaveBeenCalledOnce();
   });
 
+  it("explains detected Pi Fallow overlap once and keeps automatic checks on demand", async () => {
+    const project = await mkdtemp(join(tmpdir(), "pi-jscpd-fallow-extension-test-"));
+    const changedPath = join(project, "changed.ts");
+    await Promise.all([
+      writeFile(changedPath, "export const changed = true;\n"),
+      writeFile(
+        join(project, "package.json"),
+        JSON.stringify({ devDependencies: { "pi-fallow": "0.5" } }),
+      ),
+    ]);
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const automaticRun = vi.fn(async () => "attempted" as const);
+    const notify = vi.fn();
+    const setStatus = vi.fn();
+    const adapter = createAdapterService();
+    registerJscpdExtension(
+      {
+        registerTool: vi.fn(),
+        registerCommand: vi.fn(),
+        getAllTools: () => [
+          { name: "fallow_run", sourceInfo: { source: "extension" } },
+          { name: "write", sourceInfo: { source: "builtin" } },
+        ],
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+          handlers.set(event, handler),
+        ),
+      } as unknown as ExtensionAPI,
+      {
+        adapterService: adapter.service,
+        capabilityService: createCapabilityService().service,
+        configService: createConfigService().service,
+        automaticCheck: { run: automaticRun },
+      },
+    );
+    const context = {
+      cwd: project,
+      hasUI: true,
+      isProjectTrusted: () => true,
+      isIdle: () => true,
+      hasPendingMessages: () => false,
+      sessionManager: { getBranch: () => [] },
+      ui: { notify, setStatus },
+    };
+
+    try {
+      await handlers.get("session_start")?.({}, context);
+      await handlers.get("tool_result")?.(
+        { toolName: "write", input: { path: changedPath }, isError: false },
+        context,
+      );
+      await handlers.get("agent_settled")?.({}, context);
+
+      expect(automaticRun).not.toHaveBeenCalled();
+      expect(notify).toHaveBeenCalledOnce();
+      expect(notify).toHaveBeenCalledWith(
+        expect.stringMatching(/Fallow duplication analysis appears active.*on demand/s),
+        "info",
+      );
+      expect(setStatus).toHaveBeenLastCalledWith(
+        JSCPD_AUTOMATIC_STATUS_KEY,
+        "jscpd: on demand (Fallow overlap)",
+      );
+    } finally {
+      await handlers.get("session_shutdown")?.();
+      await rm(project, { recursive: true, force: true });
+    }
+  });
+
   it("persists controls and restores active-branch state on resume, reload, and tree navigation", async () => {
     const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
     const registerTool = vi.fn();

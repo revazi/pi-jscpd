@@ -513,7 +513,10 @@ export class JscpdOverlayComponent {
         : capability.status === "missing"
           ? "jscpd v5 not found"
           : `binary ${capability.status}`;
-    return `${this.#status.mode} (${this.#status.modeSource}) | ${binary}`;
+    const coexistence = this.#status.fallowAutomatic
+      ? ` | jscpd auto ${this.#status.fallowAutomatic}`
+      : "";
+    return `${this.#status.mode} (${this.#status.modeSource}) | ${binary}${coexistence}`;
   }
 
   #lastCheckLine(): string {

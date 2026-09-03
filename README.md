@@ -20,9 +20,12 @@ scheduler tracks mutation generations, coalesces pending work, and lets explicit
 scans supersede only scheduler-owned work. Clean and failed checks update only a
 compact footer/status state. An actionable delta adds one bounded custom message
 for the next model context with `triggerTurn: false`; it includes at most five
-prioritized findings and is acknowledged only after delivery. See the
-[automatic advisory checkpoint decision](docs/automatic-checkpoint.md) for the
-measured candidates, cancellation model, and quiet-context policy.
+prioritized findings and is acknowledged only after delivery. When conservative
+signals show that Pi Fallow or project scripts already run duplication analysis,
+automatic jscpd changed checks remain on demand and one informational notice
+explains explicit/scoped choices. See the
+[automatic advisory checkpoint decision](docs/automatic-checkpoint.md) and
+[Fallow coexistence policy](docs/fallow-coexistence.md).
 
 Bare `/jscpd` opens one responsive TUI overview with explicit changed/project
 scan actions, findings and detail views, literal filtering, status controls, and
@@ -178,12 +181,18 @@ The minimal schema and defaults are:
 {
   "enabled": true,
   "timeoutMs": 30000,
-  "maxFindings": 10
+  "maxFindings": 10,
+  "fallowCoexistence": "auto"
 }
 ```
 
 `timeoutMs` is an integer from 100 through 300000. `maxFindings` is an integer
-from 1 through 100. These settings govern extension behavior only; clone modes,
+from 1 through 100. `fallowCoexistence` accepts `auto`, `on-demand`, or `allow`.
+The default `auto` policy suppresses only automatic jscpd changed checks after a
+high-confidence Fallow duplication signal; ambiguous evidence does not suppress.
+`on-demand` makes that choice explicit, while `allow` opts into both automatic
+analyzers. Explicit and scoped jscpd requests remain available in every
+coexistence mode. These settings govern extension behavior only; clone modes,
 thresholds, ignores, formats, and other detection policy remain in jscpd's own
 supported configuration.
 
@@ -331,13 +340,22 @@ configuration, edits source, or runs project tests itself.
 ## Relationship to Fallow
 
 Fallow overlaps with jscpd on duplication detection and combines it with broader
-JavaScript/TypeScript analysis such as dead code, dependencies, complexity, and
-architecture checks.
+JavaScript/TypeScript analysis such as dead code, dependencies, complexity,
+architecture, and security-candidate checks. This project is narrower: a
+Pi-native duplication workflow using jscpd's polyglot and embedded-format
+coverage plus session attribution and verification.
 
-This project is narrower: a Pi-native duplication workflow using jscpd's
-polyglot and embedded-format coverage. In repositories already using Fallow for
-duplication, the extension should offer an explicit scope or remain on demand so
-users do not receive duplicate findings.
+The default coexistence detector recognizes an active `fallow_run` tool paired
+with project Fallow evidence, readable strict-JSON Fallow duplication
+configuration, or direct package scripts for Fallow duplication-bearing
+commands. An explicit Fallow duplication disable
+wins. Dependencies alone, unsupported JSONC/TOML, unreadable signals, and
+untrusted project files remain ambiguous and never suppress automatic checks.
+Detected overlap is explained once without changing either tool. Use on-demand
+`/jscpd changed`, scoped `/jscpd scan <target>`, or explicitly set
+`fallowCoexistence` to `allow`. The complete bounded signal contract and
+limitations are documented in the
+[Fallow coexistence policy](docs/fallow-coexistence.md).
 
 ## Repository layout
 
@@ -361,6 +379,7 @@ users do not receive duplicate findings.
 │   ├── clone-identity.ts  internal content identity and baseline comparison
 │   ├── changed-files.ts   bounded structured-event changed-file attribution
 │   ├── automatic.ts       fail-open automatic changed-check execution
+│   ├── fallow.ts          conservative Fallow overlap/coexistence policy
 │   ├── scheduler.ts       coalesced automatic and explicit scan ownership
 │   ├── finding-presentation.ts  shared bounded finding details and guidance
 │   ├── verification.ts    ephemeral pre/post-refactor clone comparison
@@ -370,7 +389,8 @@ users do not receive duplicate findings.
 ├── test/                  package and command-contract tests
 ├── docs/
 │   ├── automatic-checkpoint.md  accepted M4 lifecycle decision
-│   └── overlay-interaction.md    accepted bare-command overlay contract
+│   ├── fallow-coexistence.md    supported overlap signals and choices
+│   └── overlay-interaction.md   accepted bare-command overlay contract
 ├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
 ├── package.json           Pi package manifest

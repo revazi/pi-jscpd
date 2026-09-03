@@ -35,7 +35,12 @@ describe("trusted extension configuration", () => {
     const result = await service.load({ cwd: projectDirectory, trusted: true });
 
     expect(result).toEqual({
-      config: { enabled: true, timeoutMs: 30_000, maxFindings: 10 },
+      config: {
+        enabled: true,
+        timeoutMs: 30_000,
+        maxFindings: 10,
+        fallowCoexistence: "auto",
+      },
       sources: ["defaults"],
       diagnostics: [],
       trusted: true,
@@ -49,17 +54,24 @@ describe("trusted extension configuration", () => {
       enabled: false,
       timeoutMs: 45_000,
       maxFindings: 20,
+      fallowCoexistence: "on-demand",
     });
     await writeConfig("jscpd-guardrail.local.json", {
       enabled: true,
       maxFindings: 3,
+      fallowCoexistence: "allow",
     });
     const service = createJscpdConfigService();
 
     const result = await service.load({ cwd: projectDirectory, trusted: true });
 
     expect(result).toEqual({
-      config: { enabled: true, timeoutMs: 45_000, maxFindings: 3 },
+      config: {
+        enabled: true,
+        timeoutMs: 45_000,
+        maxFindings: 3,
+        fallowCoexistence: "allow",
+      },
       sources: ["defaults", "project", "local"],
       diagnostics: [],
       trusted: true,
@@ -85,6 +97,7 @@ describe("trusted extension configuration", () => {
     [[], "invalid-top-level"],
     [{ futureSetting: true }, "unknown-field"],
     [{ timeoutMs: 99, maxFindings: 0 }, "invalid-value"],
+    [{ fallowCoexistence: "sometimes" }, "invalid-value"],
   ] as const)("rejects an invalid project source atomically: %j", async (value, code) => {
     await writeConfig("jscpd-guardrail.json", value);
     await writeConfig("jscpd-guardrail.local.json", { maxFindings: 4 });
@@ -92,7 +105,12 @@ describe("trusted extension configuration", () => {
 
     const result = await service.load({ cwd: projectDirectory, trusted: true });
 
-    expect(result.config).toEqual({ enabled: true, timeoutMs: 30_000, maxFindings: 4 });
+    expect(result.config).toEqual({
+      enabled: true,
+      timeoutMs: 30_000,
+      maxFindings: 4,
+      fallowCoexistence: "auto",
+    });
     expect(result.sources).toEqual(["defaults", "local"]);
     expect(result.diagnostics).toEqual([expect.objectContaining({ source: "project", code })]);
     expect(JSON.stringify(result)).not.toContain("malformed private body");

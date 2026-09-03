@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService } from "../src/config.js";
+import { createJscpdFallowCoexistenceService } from "../src/fallow.js";
 import {
   createJscpdSessionModeService,
   createJscpdStatusAwareExecutor,
@@ -106,6 +107,32 @@ describe("bounded jscpd status", () => {
     expect(result.terminalMessage).toBe(result.message);
   });
 
+  it("reports explicit Fallow coexistence and automatic on-demand state", async () => {
+    const coexistence = createJscpdFallowCoexistenceService();
+    await coexistence.evaluate({
+      cwd: "/not-inspected",
+      trusted: true,
+      policy: "on-demand",
+      fallowToolAvailable: true,
+    });
+    const service = createJscpdStatusService(
+      capabilityService(available).service,
+      configService(),
+      sessionMode(),
+      coexistence,
+    );
+
+    const result = await service.inspect({ cwd: "/project" });
+
+    expect(result).toMatchObject({
+      fallowOverlap: "explicit-on-demand",
+      fallowAutomatic: "on-demand",
+    });
+    expect(result.message).toContain(
+      "Fallow coexistence: jscpd automatic checks explicitly on demand",
+    );
+  });
+
   it("explains dormant setup without leaking PATH or environment content", async () => {
     const capability = capabilityService({ status: "missing", checked: ["jscpd", "cpd"] });
     const service = createJscpdStatusService(capability.service, configService(), sessionMode());
@@ -134,6 +161,58 @@ describe("bounded jscpd status", () => {
       { status: "failed", reason: "invalid-report", message: "failed" } as const,
       { state: "failed", reason: "invalid-report" },
       "Last check: failed (invalid report)",
+    ],
+    [
+      { status: "unavailable", reason: "probe-cancelled", message: "cancelled" } as const,
+      { state: "cancelled" },
+      "Last check: cancelled",
+    ],
+    [
+      { status: "unavailable", reason: "disabled", message: "disabled" } as const,
+      { state: "failed", reason: "disabled" },
+      "Last check: failed (disabled)",
+    ],
+    [
+      {
+        status: "changed",
+        outcome: "clean",
+        scanPerformed: true,
+        message: "clean",
+        terminalMessage: "clean",
+        findings: [],
+        omittedFindings: 0,
+        ambiguousFindings: 0,
+      } as const,
+      { state: "clean" },
+      "Last check: clean",
+    ],
+    [
+      {
+        status: "changed",
+        outcome: "findings",
+        scanPerformed: true,
+        message: "findings",
+        terminalMessage: "findings",
+        findings: [],
+        omittedFindings: 2,
+        ambiguousFindings: 0,
+      } as const,
+      { state: "findings", clones: 2 },
+      "2 duplicate blocks found",
+    ],
+    [
+      {
+        status: "changed",
+        outcome: "clean",
+        scanPerformed: false,
+        message: "empty",
+        terminalMessage: "empty",
+        findings: [],
+        omittedFindings: 0,
+        ambiguousFindings: 0,
+      } as const,
+      { state: "never" },
+      "Last check: never run",
     ],
   ] as const)("records a bounded last-check state for %j", async (scan, expected, text) => {
     const service = createJscpdStatusService(

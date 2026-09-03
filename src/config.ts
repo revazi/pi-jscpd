@@ -16,12 +16,14 @@ export const DEFAULT_JSCPD_CONFIG: JscpdConfig = Object.freeze({
   enabled: true,
   timeoutMs: 30_000,
   maxFindings: 10,
+  fallowCoexistence: "auto",
 });
 
 export interface JscpdConfig {
   readonly enabled: boolean;
   readonly timeoutMs: number;
   readonly maxFindings: number;
+  readonly fallowCoexistence?: "auto" | "on-demand" | "allow";
 }
 
 export type JscpdConfigSource = "defaults" | "project" | "local";
@@ -64,6 +66,7 @@ interface ConfigPatch {
   enabled?: boolean;
   timeoutMs?: number;
   maxFindings?: number;
+  fallowCoexistence?: "auto" | "on-demand" | "allow";
 }
 type ConfigFileSource = Exclude<JscpdConfigSource, "defaults">;
 
@@ -280,11 +283,22 @@ function parseConfigFile(bytes: Uint8Array, source: ConfigFileSource): ConfigFil
     );
   }
 
+  return { status: "valid", patch: configPatch(value) };
+}
+
+function configPatch(value: Record<string, unknown>): ConfigPatch {
   const patch: ConfigPatch = {};
   if (typeof value.enabled === "boolean") patch.enabled = value.enabled;
   if (typeof value.timeoutMs === "number") patch.timeoutMs = value.timeoutMs;
   if (typeof value.maxFindings === "number") patch.maxFindings = value.maxFindings;
-  return { status: "valid", patch: Object.freeze(patch) };
+  if (
+    value.fallowCoexistence === "auto" ||
+    value.fallowCoexistence === "on-demand" ||
+    value.fallowCoexistence === "allow"
+  ) {
+    patch.fallowCoexistence = value.fallowCoexistence;
+  }
+  return Object.freeze(patch);
 }
 
 function isValidConfigValue(field: keyof JscpdConfig, value: unknown): boolean {
@@ -295,15 +309,22 @@ function isValidConfigValue(field: keyof JscpdConfig, value: unknown): boolean {
       return isBoundedInteger(value, MIN_TIMEOUT_MS, MAX_TIMEOUT_MS);
     case "maxFindings":
       return isBoundedInteger(value, 1, MAX_PRESENTED_FINDINGS);
+    case "fallowCoexistence":
+      return value === "auto" || value === "on-demand" || value === "allow";
   }
 }
 
 function knownFields(): readonly (keyof JscpdConfig)[] {
-  return ["enabled", "timeoutMs", "maxFindings"];
+  return ["enabled", "timeoutMs", "maxFindings", "fallowCoexistence"];
 }
 
 function isKnownConfigField(field: string): field is keyof JscpdConfig {
-  return field === "enabled" || field === "timeoutMs" || field === "maxFindings";
+  return (
+    field === "enabled" ||
+    field === "timeoutMs" ||
+    field === "maxFindings" ||
+    field === "fallowCoexistence"
+  );
 }
 
 function isBoundedInteger(value: unknown, minimum: number, maximum: number): value is number {

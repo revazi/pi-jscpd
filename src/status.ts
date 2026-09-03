@@ -1,6 +1,7 @@
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService, JscpdConfigSource } from "./config.js";
+import type { JscpdFallowCoexistenceService } from "./fallow.js";
 import { renderJscpdCommandHelp } from "./registry.js";
 import type {
   JscpdCommandExecutor,
@@ -102,6 +103,7 @@ export function createJscpdStatusService(
   capabilityService: JscpdCapabilityService,
   configService: JscpdConfigService,
   sessionMode: JscpdSessionModeService,
+  fallowCoexistence?: JscpdFallowCoexistenceService,
 ): JscpdStatusService {
   let lastCheck: JscpdLastCheck = Object.freeze({ state: "never" });
   return {
@@ -110,7 +112,13 @@ export function createJscpdStatusService(
         cwd: context.cwd,
         signal: context.signal,
       });
-      return presentStatus(capability, configService.current(), sessionMode, lastCheck);
+      return presentStatus(
+        capability,
+        configService.current(),
+        sessionMode,
+        lastCheck,
+        fallowCoexistence,
+      );
     },
     record(result) {
       const recorded = lastCheckFromResult(result);
@@ -128,6 +136,7 @@ function presentStatus(
   loadedConfig: JscpdConfigLoadResult,
   sessionMode: JscpdSessionModeService,
   lastCheck: JscpdLastCheck,
+  fallowCoexistence?: JscpdFallowCoexistenceService,
 ): JscpdStatusResult {
   const mode = sessionMode.isEnabled() ? "enabled" : "disabled";
   const modeSource = sessionMode.source();
@@ -140,6 +149,8 @@ function presentStatus(
     stateLine(capability, mode, modeSource),
     `Last check: ${lastCheckLabel(lastCheck)}`,
   ];
+  const overlap = fallowCoexistence?.current();
+  if (overlap) lines.push(overlap.statusText);
   if (loadedConfig.diagnostics.length > 0) {
     lines.push(
       `Configuration diagnostics: ${loadedConfig.diagnostics.length} invalid source${loadedConfig.diagnostics.length === 1 ? "" : "s"} ignored.`,
@@ -157,6 +168,12 @@ function presentStatus(
     configDiagnostics: loadedConfig.diagnostics.length,
     capability,
     lastCheck,
+    ...(overlap
+      ? {
+          fallowOverlap: overlap.status,
+          fallowAutomatic: overlap.automaticAllowed ? ("allowed" as const) : ("on-demand" as const),
+        }
+      : {}),
   });
 }
 
@@ -212,27 +229,22 @@ function stateLine(
 }
 
 function lastCheckFromResult(result: JscpdExecutionResult): JscpdLastCheck | undefined {
-  switch (result.status) {
-    case "completed":
-      return completedLastCheck(result);
-    case "failed":
-      return failedLastCheck(result);
-    case "unavailable":
-      return unavailableLastCheck(result);
-    case "changed":
-      if (!result.scanPerformed) return undefined;
-      return result.outcome === "clean"
-        ? Object.freeze({ state: "clean" })
-        : Object.freeze({
-            state: "findings",
-            clones: result.findings.length + result.omittedFindings,
-          });
-    case "status":
-    case "control":
-    case "help":
-    case "changed-unavailable":
-      return undefined;
-  }
+  if (result.status === "completed") return completedLastCheck(result);
+  if (result.status === "failed") return failedLastCheck(result);
+  if (result.status === "unavailable") return unavailableLastCheck(result);
+  return result.status === "changed" ? changedLastCheck(result) : undefined;
+}
+
+function changedLastCheck(
+  result: Extract<JscpdExecutionResult, { status: "changed" }>,
+): JscpdLastCheck | undefined {
+  if (!result.scanPerformed) return undefined;
+  return result.outcome === "clean"
+    ? Object.freeze({ state: "clean" })
+    : Object.freeze({
+        state: "findings",
+        clones: result.findings.length + result.omittedFindings,
+      });
 }
 
 function completedLastCheck(
