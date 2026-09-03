@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type {
@@ -7,6 +7,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
+import type { JscpdAutomaticCheck } from "../src/automatic.js";
 import type { JscpdBaselineService, JscpdBaselineState } from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigService } from "../src/config.js";
@@ -15,11 +16,11 @@ import {
   createJscpdToolDefinition,
   registerJscpdExtension,
 } from "../src/extension.js";
-import type { JscpdService } from "../src/jscpd.js";
+import type { JscpdRunRequest, JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
 import { createJscpdScanScheduler } from "../src/scheduler.js";
 import { JSCPD_SESSION_STATE_TYPE, JSCPD_SESSION_STATE_VERSION } from "../src/session-state.js";
-import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
+import type { JscpdCommandExecutor, JscpdExecutionResult, JscpdScanReport } from "../src/types.js";
 
 const unavailableResult = {
   status: "unavailable",
@@ -37,6 +38,25 @@ const changedResult = {
   omittedFindings: 0,
   ambiguousFindings: 0,
 } as const;
+
+const cleanScanReport: JscpdScanReport = {
+  statistics: {
+    total: {
+      lines: 0,
+      tokens: 0,
+      sources: 0,
+      clones: 0,
+      duplicatedLines: 0,
+      duplicatedTokens: 0,
+      percentage: 0,
+      percentageTokens: 0,
+      newDuplicatedLines: 0,
+      newClones: 0,
+    },
+    formats: [],
+  },
+  clonePairs: [],
+};
 
 const statusResult = {
   status: "status",
@@ -180,6 +200,7 @@ describe("Pi extension registration", () => {
       "before_agent_start",
       "tool_call",
       "tool_result",
+      "agent_settled",
       "session_shutdown",
     ]);
   });
@@ -612,6 +633,280 @@ describe("Pi extension registration", () => {
       expect(markChanged).toHaveBeenCalledTimes(3);
       expect(scheduler.snapshot().changedGeneration).toBe(3);
     } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("coalesces verified mutations into one detached settled check", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-jscpd-extension-automatic-test-"));
+    const project = join(root, "project");
+    const source = join(project, "src", "file.ts");
+    await mkdir(join(project, "src"), { recursive: true });
+    await writeFile(source, "first\n");
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const scheduler = createJscpdScanScheduler();
+    const run = vi.fn<JscpdAutomaticCheck["run"]>(async () => "attempted");
+    const pi = {
+      registerTool: vi.fn(),
+      registerCommand: vi.fn(),
+      appendEntry: vi.fn(),
+      getAllTools: () => [{ name: "write", sourceInfo: { source: "builtin" } }],
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
+    } as unknown as ExtensionAPI;
+
+    try {
+      registerJscpdExtension(pi, {
+        executor: createExecutor().executor,
+        automaticCheck: { run },
+        scheduler,
+      });
+      await handlers.get("session_start")?.(
+        { reason: "startup" },
+        {
+          cwd: project,
+          hasUI: false,
+          isProjectTrusted: () => true,
+          sessionManager: { getBranch: () => [] },
+          ui: { notify: vi.fn() },
+        },
+      );
+      for (const toolCallId of ["write-1", "write-2", "write-3"]) {
+        await handlers.get("tool_result")?.(
+          { toolName: "write", toolCallId, input: { path: source }, isError: false },
+          { cwd: project },
+        );
+      }
+
+      const settled = handlers.get("agent_settled")?.(
+        {},
+        { cwd: project, isIdle: () => true, hasPendingMessages: () => false },
+      );
+      expect(settled).toBeUndefined();
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+      expect(run.mock.calls[0]?.[0]).toMatchObject({ cwd: project });
+      expect(run.mock.calls[0]?.[0].signal).toBeInstanceOf(AbortSignal);
+      await vi.waitFor(() => expect(scheduler.snapshot().attemptedGeneration).toBe(3));
+
+      await handlers.get("agent_settled")?.(
+        {},
+        { cwd: project, isIdle: () => true, hasPendingMessages: () => false },
+      );
+      expect(run).toHaveBeenCalledOnce();
+    } finally {
+      await handlers.get("session_shutdown")?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("runs the configured changed pipeline once for a settled mutation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-jscpd-extension-automatic-pipeline-test-"));
+    const project = join(root, "project");
+    const source = join(project, "file.ts");
+    await mkdir(project);
+    await writeFile(source, "first\n");
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const scheduler = createJscpdScanScheduler();
+    const capability = createCapabilityService();
+    const run = vi.fn(async (_request: JscpdRunRequest<JscpdScanReport>) => ({
+      status: "no-findings" as const,
+      value: cleanScanReport,
+    }));
+    const adapter = {
+      run: run as unknown as JscpdService["run"],
+      invalidate: vi.fn(),
+      dispose: vi.fn(async () => undefined),
+    } satisfies JscpdService;
+    const acceptedBaseline: JscpdBaselineState = {
+      status: "accepted",
+      outcome: "clean",
+      report: cleanScanReport,
+      snapshot: { status: "accepted", groups: [], omittedGroups: 0 },
+    };
+    const baseline = {
+      start: vi.fn(async () => acceptedBaseline),
+      wait: vi.fn(async () => acceptedBaseline),
+      disable: vi.fn(),
+      invalidate: vi.fn(),
+      current: () => acceptedBaseline,
+    } satisfies JscpdBaselineService;
+    const pi = {
+      registerTool: vi.fn(),
+      registerCommand: vi.fn(),
+      appendEntry: vi.fn(),
+      getAllTools: () => [{ name: "write", sourceInfo: { source: "builtin" } }],
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
+    } as unknown as ExtensionAPI;
+
+    try {
+      registerJscpdExtension(pi, {
+        capabilityService: capability.service,
+        adapterService: adapter,
+        configService: createConfigService([], {
+          enabled: true,
+          timeoutMs: 1_234,
+          maxFindings: 3,
+        }).service,
+        baselineService: baseline,
+        scheduler,
+      });
+      await handlers.get("session_start")?.(
+        { reason: "startup" },
+        {
+          cwd: project,
+          hasUI: false,
+          isProjectTrusted: () => true,
+          sessionManager: { getBranch: () => [] },
+          ui: { notify: vi.fn() },
+        },
+      );
+      await handlers.get("tool_result")?.(
+        { toolName: "write", input: { path: source }, isError: false },
+        { cwd: project },
+      );
+      await handlers.get("agent_settled")?.(
+        {},
+        { cwd: project, isIdle: () => true, hasPendingMessages: () => false },
+      );
+
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+      expect(run.mock.calls[0]?.[0]).toMatchObject({
+        cwd: await realpath(project),
+        timeoutMs: 1_234,
+      });
+      expect(run.mock.calls[0]?.[0].signal).toBeInstanceOf(AbortSignal);
+      await vi.waitFor(() => expect(scheduler.snapshot().attemptedGeneration).toBe(1));
+    } finally {
+      await handlers.get("session_shutdown")?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("consumes a disabled automatic generation without probing or scanning", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-jscpd-extension-automatic-disabled-test-"));
+    const project = join(root, "project");
+    const source = join(project, "file.ts");
+    await mkdir(project);
+    await writeFile(source, "first\n");
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const scheduler = createJscpdScanScheduler();
+    const capability = createCapabilityService();
+    const adapter = createAdapterService();
+    const pi = {
+      registerTool: vi.fn(),
+      registerCommand: vi.fn(),
+      appendEntry: vi.fn(),
+      getAllTools: () => [{ name: "write", sourceInfo: { source: "builtin" } }],
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
+    } as unknown as ExtensionAPI;
+
+    try {
+      registerJscpdExtension(pi, {
+        capabilityService: capability.service,
+        adapterService: adapter.service,
+        configService: createConfigService([], {
+          enabled: false,
+          timeoutMs: 45_000,
+          maxFindings: 3,
+        }).service,
+        scheduler,
+      });
+      await handlers.get("session_start")?.(
+        { reason: "startup" },
+        {
+          cwd: project,
+          hasUI: false,
+          isProjectTrusted: () => true,
+          sessionManager: { getBranch: () => [] },
+          ui: { notify: vi.fn() },
+        },
+      );
+      await handlers.get("tool_result")?.(
+        { toolName: "write", input: { path: source }, isError: false },
+        { cwd: project },
+      );
+      await handlers.get("agent_settled")?.(
+        {},
+        { cwd: project, isIdle: () => true, hasPendingMessages: () => false },
+      );
+
+      await vi.waitFor(() => expect(scheduler.snapshot().attemptedGeneration).toBe(1));
+      expect(capability.probe).not.toHaveBeenCalled();
+    } finally {
+      await handlers.get("session_shutdown")?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("defers settled work with queued messages and cancels an active check before a new run", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-jscpd-extension-automatic-cancel-test-"));
+    const project = join(root, "project");
+    const source = join(project, "file.ts");
+    await mkdir(project);
+    await writeFile(source, "first\n");
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const scheduler = createJscpdScanScheduler();
+    let automaticSignal: AbortSignal | undefined;
+    const run = vi.fn<JscpdAutomaticCheck["run"]>(
+      ({ signal }) =>
+        new Promise<"deferred">((resolve) => {
+          automaticSignal = signal;
+          signal.addEventListener("abort", () => resolve("deferred"), { once: true });
+        }),
+    );
+    const pi = {
+      registerTool: vi.fn(),
+      registerCommand: vi.fn(),
+      appendEntry: vi.fn(),
+      getAllTools: () => [{ name: "write", sourceInfo: { source: "builtin" } }],
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
+    } as unknown as ExtensionAPI;
+
+    try {
+      registerJscpdExtension(pi, {
+        executor: createExecutor().executor,
+        automaticCheck: { run },
+        scheduler,
+      });
+      await handlers.get("session_start")?.(
+        { reason: "startup" },
+        {
+          cwd: project,
+          hasUI: false,
+          isProjectTrusted: () => true,
+          sessionManager: { getBranch: () => [] },
+          ui: { notify: vi.fn() },
+        },
+      );
+      await handlers.get("tool_result")?.(
+        { toolName: "write", input: { path: source }, isError: false },
+        { cwd: project },
+      );
+
+      await handlers.get("agent_settled")?.(
+        {},
+        { cwd: project, isIdle: () => true, hasPendingMessages: () => true },
+      );
+      expect(run).not.toHaveBeenCalled();
+      await handlers.get("agent_settled")?.(
+        {},
+        { cwd: project, isIdle: () => true, hasPendingMessages: () => false },
+      );
+      await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+
+      await handlers.get("before_agent_start")?.();
+      expect(automaticSignal?.aborted).toBe(true);
+      await vi.waitFor(() => expect(scheduler.snapshot().automatic).toBe("idle"));
+      expect(scheduler.snapshot().attemptedGeneration).toBe(0);
+    } finally {
+      await handlers.get("session_shutdown")?.();
       await rm(root, { recursive: true, force: true });
     }
   });
