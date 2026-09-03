@@ -928,7 +928,7 @@ describe("Pi extension registration", () => {
       expect(sendMessage).toHaveBeenCalledWith(
         {
           customType: JSCPD_AUTOMATIC_MESSAGE_TYPE,
-          content: expect.stringMatching(/a\.ts:1-1.*b\.ts:1-1.*Inspect both/s),
+          content: expect.stringMatching(/a\.ts:1-1.*b\.ts:1-1.*inspect both/is),
           display: hasUI,
           details: {
             source: "automatic",

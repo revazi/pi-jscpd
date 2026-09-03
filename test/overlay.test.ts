@@ -297,7 +297,8 @@ describe("jscpd overlay component", () => {
     expect(detail).toContain("new in this session");
     expect(detail).toContain("existing match");
     expect(detail).toContain("12 lines | 60 tokens | typescript");
-    expect(detail).toContain("inspect both locations before changing code");
+    expect(detail).toContain("inspect both locations and surrounding behavior");
+    expect(detail).toContain("jscpd ignore/exclusion");
 
     overlay.instance.handleInput("escape");
     overlay.instance.handleInput("/");

@@ -7,6 +7,12 @@ import {
   truncateToWidth,
   visibleWidth,
 } from "@earendil-works/pi-tui";
+import {
+  jscpdFindingDetailLines,
+  jscpdFindingGuidance,
+  jscpdFindingLocations,
+  jscpdFindingMetadata,
+} from "./finding-presentation.js";
 import type {
   JscpdChangedFinding,
   JscpdCommand,
@@ -523,17 +529,23 @@ export class JscpdOverlayComponent {
       lines.push(`Filter: ${input}`, "");
     }
     if (findings.length === 0) return [...lines, "No findings match this filter."];
+    const allFindings = resultFindings(this.#result);
+    const total = allFindings.length + resultOmitted(this.#result);
     findings.forEach((finding, index) => {
-      const [first, second] = finding.occurrences;
+      const [first, second] = jscpdFindingLocations(finding);
+      const ordinal = allFindings.indexOf(finding) + 1;
       const marker = index === this.#findingIndex ? ">" : " ";
-      lines.push(`${marker} ${index + 1}. ${location(first)} <-> ${location(second)}`);
-      lines.push(`    ${finding.lines} lines | ${finding.tokens} tokens | ${finding.format}`);
+      lines.push(`${marker} ${ordinal}/${total}. ${first.label}: ${first.text}`);
+      lines.push(`    ${second.label}: ${second.text}`);
+      lines.push(`    ${jscpdFindingMetadata(finding)}`);
     });
     const omitted = resultOmitted(this.#result);
-    if (omitted > 0) lines.push(`${omitted} additional findings omitted by the display limit.`);
+    if (omitted > 0) {
+      lines.push(`${counted(omitted, "additional finding")} omitted by the display limit.`);
+    }
     const ambiguous = resultAmbiguous(this.#result);
     if (ambiguous > 0) {
-      lines.push(`${ambiguous} duplicate blocks could not be classified safely.`);
+      lines.push(`${counted(ambiguous, "duplicate block")} could not be classified safely.`);
     }
     return lines;
   }
@@ -541,18 +553,21 @@ export class JscpdOverlayComponent {
   #detailLines(): string[] {
     const finding = this.#filteredFindings()[this.#findingIndex];
     if (!finding) return ["This finding is no longer available.", "Esc returns to Overview."];
-    const [first, second] = finding.occurrences;
+    const allFindings = resultFindings(this.#result);
+    const ordinal = allFindings.indexOf(finding) + 1;
+    const total = allFindings.length + resultOmitted(this.#result);
+    const scope = this.#result?.status === "changed" ? "changed" : "project";
+    const omitted = resultOmitted(this.#result);
+    const ambiguous = resultAmbiguous(this.#result);
     return [
-      `Duplicate block ${this.#findingIndex + 1} of ${this.#filteredFindings().length}`,
-      relation(first),
-      location(first),
-      "matches",
-      relation(second),
-      location(second),
-      `${finding.lines} lines | ${finding.tokens} tokens | ${finding.format}`,
+      ...jscpdFindingDetailLines(finding, ordinal, total),
+      ...(omitted > 0 ? [`${counted(omitted, "additional finding")} omitted.`] : []),
+      ...(ambiguous > 0
+        ? [`${counted(ambiguous, "finding")} could not be classified safely.`]
+        : []),
       "",
-      "Duplication may be intentional; inspect both locations before changing code.",
-      "Use r to rescan after an ordinary user-approved refactor.",
+      ...jscpdFindingGuidance(scope),
+      "Use r to rescan after an ordinary user-approved change.",
     ];
   }
 
@@ -692,18 +707,6 @@ function resultAmbiguous(result?: JscpdExecutionResult): number {
   return result?.status === "changed" ? result.ambiguousFindings : 0;
 }
 
-function location(occurrence: OverlayFinding["occurrences"][number]): string {
-  return `${occurrence.path}:${occurrence.startLine}-${occurrence.endLine}`;
-}
-
-function relation(occurrence: OverlayFinding["occurrences"][number]): string {
-  return "relation" in occurrence
-    ? occurrence.relation === "new-session"
-      ? "new in this session"
-      : "existing match"
-    : "current location";
-}
-
 function executionMessage(result: JscpdExecutionResult): string {
   return "terminalMessage" in result ? result.terminalMessage : result.message;
 }
@@ -714,6 +717,10 @@ function statusLevel(result: JscpdExecutionResult): "info" | "warning" {
 
 function overlayShortcut(data: string): "c" | "s" | "r" | "o" | undefined {
   return (["c", "s", "r", "o"] as const).find((shortcut) => matchesKey(data, shortcut));
+}
+
+function counted(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
 function clamp(value: number, minimum: number, maximum: number): number {
