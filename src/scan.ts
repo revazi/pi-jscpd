@@ -1,6 +1,7 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
+import { indexJscpdCloneReport } from "./clone-identity.js";
 import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReport, JSCPD_STRUCTURED_REPORTER } from "./jscpd-report.js";
@@ -13,6 +14,8 @@ import type {
   JscpdScanReport,
   JscpdUnavailableResult,
 } from "./types.js";
+import type { JscpdVerificationService } from "./verification.js";
+import { withJscpdVerification } from "./verification.js";
 
 export const JSCPD_CLONE_POSITIVE_EXIT_CODES = [1] as const;
 
@@ -21,6 +24,8 @@ export interface JscpdScanExecutorOptions {
   path?: string;
   /** Current trusted extension configuration; omitted by isolated adapter tests. */
   config?: () => JscpdConfig;
+  /** Ephemeral comparison state for explicit pre/post-refactor scans. */
+  verification?: JscpdVerificationService;
 }
 
 interface ResolvedScanScopes {
@@ -40,6 +45,7 @@ export function createJscpdScanExecutor(
 ): JscpdCommandExecutor {
   return {
     async execute(invocation, context): Promise<JscpdExecutionResult> {
+      const verificationScope = options.verification?.scope();
       const config = options.config?.() ?? DEFAULT_JSCPD_CONFIG;
       if (!config.enabled) {
         return {
@@ -74,7 +80,13 @@ export function createJscpdScanExecutor(
           createJscpdScanArguments(directory, scopes.value.targets),
         consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, scopes.value.cwd),
       });
-      return executionResult(scan, config.maxFindings);
+      return executionResultWithVerification(
+        scan,
+        config.maxFindings,
+        scopes.value,
+        options.verification,
+        verificationScope,
+      );
     },
   };
 }
@@ -185,6 +197,32 @@ async function resolveScanScope(
 
   const projectRelative = relative(projectDirectory, canonicalCandidate);
   return { ok: true, target: projectRelative === "" ? "." : toPortablePath(projectRelative) };
+}
+
+async function executionResultWithVerification(
+  scan: JscpdRunResult<JscpdScanReport>,
+  maxFindings: number,
+  scopes: ResolvedScanScopes,
+  service: JscpdVerificationService | undefined,
+  expectedScope: number | undefined,
+): Promise<JscpdExecutionResult> {
+  const result = executionResult(scan, maxFindings);
+  if (!service || expectedScope === undefined || result.status !== "completed") return result;
+  const report = successfulReport(scan);
+  if (!report) return result;
+  const snapshot = await indexJscpdCloneReport(report, scopes.cwd);
+  const verification = service.compareAndRemember(
+    "project",
+    JSON.stringify(scopes.targets),
+    snapshot,
+    expectedScope,
+  );
+  return withJscpdVerification(result, verification);
+}
+
+function successfulReport(result: JscpdRunResult<JscpdScanReport>): JscpdScanReport | undefined {
+  if (result.status === "report" || result.status === "no-findings") return result.value;
+  return undefined;
 }
 
 export function executionResult(

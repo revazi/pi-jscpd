@@ -74,7 +74,9 @@ export function renderJscpdCommandHelp(): string {
   return [
     "jscpd commands",
     ...commands,
-    "  /jscpd — reserved for the future interactive overlay (no scan)",
+    "  /jscpd — open the interactive overview (no implicit scan)",
+    "Verification: after normal edits and tests, rerun the same scan or use r in the overlay.",
+    "Intentional duplication: update normal jscpd ignore/exclusion policy; pi-jscpd never writes it.",
   ].join("\n");
 }
 

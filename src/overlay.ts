@@ -494,7 +494,9 @@ export class JscpdOverlayComponent {
       this.#lastCheckLine(),
       `${this.#safeChangedCount()} session-changed files`,
     ];
-    if (this.#result) lines.push(...executionMessage(this.#result).split("\n").slice(0, 2));
+    if (this.#result) lines.push(executionMessage(this.#result).split("\n")[0] ?? "");
+    const verification = resultVerification(this.#result);
+    if (verification) lines.push(verification.message);
     lines.push("");
     this.#actions().forEach((item, index) => {
       lines.push(`${index === this.#actionIndex ? ">" : " "} ${item.label}`);
@@ -559,12 +561,14 @@ export class JscpdOverlayComponent {
     const scope = this.#result?.status === "changed" ? "changed" : "project";
     const omitted = resultOmitted(this.#result);
     const ambiguous = resultAmbiguous(this.#result);
+    const verification = resultVerification(this.#result);
     return [
       ...jscpdFindingDetailLines(finding, ordinal, total),
       ...(omitted > 0 ? [`${counted(omitted, "additional finding")} omitted.`] : []),
       ...(ambiguous > 0
         ? [`${counted(ambiguous, "finding")} could not be classified safely.`]
         : []),
+      ...(verification ? [verification.message] : []),
       "",
       ...jscpdFindingGuidance(scope),
       "Use r to rescan after an ordinary user-approved change.",
@@ -582,6 +586,8 @@ export class JscpdOverlayComponent {
       "Esc: back/close/cancel | q or Ctrl+C: close",
       "",
       "Advisory only: the overlay never edits source or jscpd configuration.",
+      "After normal edits/tests, r compares with the prior matching explicit check.",
+      "For intentional duplication, update normal jscpd ignore/exclusion policy.",
       "If missing, install jscpd v5 yourself and ensure jscpd or cpd is on PATH.",
       "Use explicit /jscpd scan <target> for scoped paths.",
     ];
@@ -705,6 +711,13 @@ function resultOmitted(result?: JscpdExecutionResult): number {
 
 function resultAmbiguous(result?: JscpdExecutionResult): number {
   return result?.status === "changed" ? result.ambiguousFindings : 0;
+}
+
+function resultVerification(result?: JscpdExecutionResult) {
+  if (result?.status === "changed" || result?.status === "completed") {
+    return result.verification;
+  }
+  return undefined;
 }
 
 function executionMessage(result: JscpdExecutionResult): string {

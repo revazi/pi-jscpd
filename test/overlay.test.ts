@@ -60,6 +60,16 @@ const findingsResult = {
   ],
   omittedFindings: 3,
   ambiguousFindings: 0,
+  verification: {
+    state: "compared",
+    scope: "changed",
+    removed: 1,
+    remaining: 1,
+    created: 0,
+    ambiguous: 0,
+    message:
+      "Verification since the previous matching changed scan: 1 removed, 1 remaining, 0 newly created.",
+  },
 } as const satisfies JscpdExecutionResult;
 
 function theme(): Theme {
@@ -299,8 +309,14 @@ describe("jscpd overlay component", () => {
     expect(detail).toContain("12 lines | 60 tokens | typescript");
     expect(detail).toContain("inspect both locations and surrounding behavior");
     expect(detail).toContain("jscpd ignore/exclusion");
+    expect(detail).toContain("1 removed, 1 remaining, 0 newly created");
 
     overlay.instance.handleInput("escape");
+    overlay.instance.handleInput("\t");
+    expect(overlay.instance.render(100).join("\n")).toContain(
+      "Verification since the previous matching changed scan",
+    );
+    overlay.instance.handleInput("\t");
     overlay.instance.handleInput("/");
     for (const character of "other") overlay.instance.handleInput(character);
     const filtered = overlay.instance.render(100).join("\n");

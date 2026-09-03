@@ -146,6 +146,7 @@ export interface JscpdChangedResult {
   readonly findings: readonly JscpdChangedFinding[];
   readonly omittedFindings: number;
   readonly ambiguousFindings: number;
+  readonly verification?: JscpdVerificationResult;
 }
 
 export type JscpdChangedUnavailableReason =
@@ -163,6 +164,29 @@ export interface JscpdChangedUnavailableResult {
   readonly message: string;
 }
 
+export type JscpdVerificationResult =
+  | {
+      readonly state: "checkpoint";
+      readonly scope: "changed" | "project";
+      readonly groups: number;
+      readonly message: string;
+    }
+  | {
+      readonly state: "compared";
+      readonly scope: "changed" | "project";
+      readonly removed: number;
+      readonly remaining: number;
+      readonly created: number;
+      readonly ambiguous: number;
+      readonly message: string;
+    }
+  | {
+      readonly state: "unavailable";
+      readonly scope: "changed" | "project";
+      readonly reason: "identity-partial" | "lifecycle-changed";
+      readonly message: string;
+    };
+
 export interface JscpdCompletedResult {
   readonly status: "completed";
   readonly outcome: "findings" | "clean";
@@ -173,6 +197,7 @@ export interface JscpdCompletedResult {
   readonly summary: JscpdScanSummary;
   readonly findings: readonly JscpdPresentedFinding[];
   readonly omittedFindings: number;
+  readonly verification?: JscpdVerificationResult;
 }
 
 export type JscpdScanFailureReason =
