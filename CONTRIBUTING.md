@@ -58,9 +58,11 @@ npm run check
 npm run pack:dry-run
 ```
 
-The required CI checks are `Validate (Node 22.19.0)` and
-`Validate (Node 24.12.0)`. Do not merge with either check failing. Reviews and CI
-are evidence, not authorization to publish.
+The protected `main` branch requires the branch to be current and both
+`Validate (Node 22.19.0)` and `Validate (Node 24.12.0)` to pass. The rule applies
+to administrators, requires resolved review conversations, and blocks force
+pushes and branch deletion. Reviews and CI are evidence, not authorization to
+publish.
 
 Keep credentials, proprietary source, source fragments from jscpd reports,
 private paths, generated reports, local overrides, `.agents/`, and `AGENTS.md`
