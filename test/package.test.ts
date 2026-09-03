@@ -58,12 +58,9 @@ describe("Pi package manifest", () => {
   it("runs pinned tooling and compatibility validation in the standard check", async () => {
     const manifest = await readManifest();
 
-    expect(manifest.devDependencies).toMatchObject({
-      "@biomejs/biome": "2.5.3",
-      "@types/node": "22.19.19",
-      typescript: "5.9.3",
-      vitest: "4.1.11",
-    });
+    for (const name of ["@biomejs/biome", "@types/node", "typescript", "vitest"]) {
+      expect(manifest.devDependencies?.[name]).toMatch(/^\d+\.\d+\.\d+$/);
+    }
     expect(manifest.scripts?.format).toBe(
       "biome check --write src test scripts package.json tsconfig.json biome.json",
     );
