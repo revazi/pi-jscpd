@@ -7,7 +7,11 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { describe, expect, it, vi } from "vitest";
-import type { JscpdAutomaticCheck } from "../src/automatic.js";
+import {
+  JSCPD_AUTOMATIC_MESSAGE_TYPE,
+  JSCPD_AUTOMATIC_STATUS_KEY,
+  type JscpdAutomaticCheck,
+} from "../src/automatic.js";
 import type { JscpdBaselineService, JscpdBaselineState } from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigService } from "../src/config.js";
@@ -57,6 +61,46 @@ const cleanScanReport: JscpdScanReport = {
   },
   clonePairs: [],
 };
+
+function oneCloneReport(block: string): JscpdScanReport {
+  const length = Buffer.byteLength(block);
+  return {
+    statistics: {
+      total: {
+        lines: 2,
+        tokens: 10,
+        sources: 2,
+        clones: 1,
+        duplicatedLines: 1,
+        duplicatedTokens: 5,
+        percentage: 100,
+        percentageTokens: 100,
+        newDuplicatedLines: 0,
+        newClones: 0,
+      },
+      formats: [],
+    },
+    clonePairs: [
+      {
+        format: "typescript",
+        lines: 1,
+        tokens: 5,
+        occurrences: [
+          {
+            path: "a.ts",
+            start: { line: 1, column: 0, offset: 0 },
+            end: { line: 1, column: length, offset: length },
+          },
+          {
+            path: "b.ts",
+            start: { line: 1, column: 0, offset: 0 },
+            end: { line: 1, column: length, offset: length },
+          },
+        ],
+      },
+    ],
+  };
+}
 
 const statusResult = {
   status: "status",
@@ -289,7 +333,7 @@ describe("Pi extension registration", () => {
         ui: { notify },
       },
     );
-    await handlers.get("before_agent_start")?.();
+    await handlers.get("before_agent_start")?.({}, { hasUI: false });
     await handlers.get("session_before_switch")?.();
     await handlers.get("session_shutdown")?.();
     await handlers.get("session_shutdown")?.();
@@ -731,10 +775,12 @@ describe("Pi extension registration", () => {
       invalidate: vi.fn(),
       current: () => acceptedBaseline,
     } satisfies JscpdBaselineService;
+    const sendMessage = vi.fn();
     const pi = {
       registerTool: vi.fn(),
       registerCommand: vi.fn(),
       appendEntry: vi.fn(),
+      sendMessage,
       getAllTools: () => [{ name: "write", sourceInfo: { source: "builtin" } }],
       on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
         handlers.set(event, handler),
@@ -779,6 +825,143 @@ describe("Pi extension registration", () => {
       });
       expect(run.mock.calls[0]?.[0].signal).toBeInstanceOf(AbortSignal);
       await vi.waitFor(() => expect(scheduler.snapshot().attemptedGeneration).toBe(1));
+      expect(sendMessage).not.toHaveBeenCalled();
+    } finally {
+      await handlers.get("session_shutdown")?.();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    true,
+    false,
+  ])("delivers and deduplicates one actionable finding with hasUI=%s", async (hasUI) => {
+    const root = await mkdtemp(join(tmpdir(), "pi-jscpd-extension-automatic-finding-test-"));
+    const project = join(root, "project");
+    const block = "const shared = 1;\n";
+    const first = join(project, "a.ts");
+    const second = join(project, "b.ts");
+    const unrelated = join(project, "c.ts");
+    await mkdir(project);
+    await Promise.all([
+      writeFile(first, block),
+      writeFile(second, block),
+      writeFile(unrelated, "const unrelated = true;\n"),
+    ]);
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const scheduler = createJscpdScanScheduler();
+    const capability = createCapabilityService();
+    const report = oneCloneReport(block);
+    const run = vi.fn(async (_request: JscpdRunRequest<JscpdScanReport>) => ({
+      status: "report" as const,
+      value: report,
+    }));
+    const adapter = {
+      run: run as unknown as JscpdService["run"],
+      invalidate: vi.fn(),
+      dispose: vi.fn(async () => undefined),
+    } satisfies JscpdService;
+    const acceptedBaseline: JscpdBaselineState = {
+      status: "accepted",
+      outcome: "clean",
+      report: cleanScanReport,
+      snapshot: { status: "accepted", groups: [], omittedGroups: 0 },
+    };
+    const baseline = {
+      start: vi.fn(async () => acceptedBaseline),
+      wait: vi.fn(async () => acceptedBaseline),
+      disable: vi.fn(),
+      invalidate: vi.fn(),
+      current: () => acceptedBaseline,
+    } satisfies JscpdBaselineService;
+    const sendMessage = vi.fn();
+    const appendEntry = vi.fn();
+    const setStatus = vi.fn();
+    const ui = { notify: vi.fn(), setStatus };
+    const pi = {
+      registerTool: vi.fn(),
+      registerCommand: vi.fn(),
+      appendEntry,
+      sendMessage,
+      getAllTools: () => [{ name: "write", sourceInfo: { source: "builtin" } }],
+      on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+        handlers.set(event, handler),
+      ),
+    } as unknown as ExtensionAPI;
+    const settledContext = {
+      cwd: project,
+      hasUI,
+      ui,
+      isIdle: () => true,
+      hasPendingMessages: () => false,
+    };
+
+    try {
+      registerJscpdExtension(pi, {
+        capabilityService: capability.service,
+        adapterService: adapter,
+        configService: createConfigService([], {
+          enabled: true,
+          timeoutMs: 1_234,
+          maxFindings: 10,
+        }).service,
+        baselineService: baseline,
+        scheduler,
+      });
+      await handlers.get("session_start")?.(
+        { reason: "startup" },
+        {
+          cwd: project,
+          hasUI,
+          isProjectTrusted: () => true,
+          sessionManager: { getBranch: () => [] },
+          ui,
+        },
+      );
+      await handlers.get("tool_result")?.(
+        { toolName: "write", input: { path: first }, isError: false },
+        { cwd: project, hasUI, ui },
+      );
+      await handlers.get("agent_settled")?.({}, settledContext);
+
+      await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+      expect(sendMessage).toHaveBeenCalledWith(
+        {
+          customType: JSCPD_AUTOMATIC_MESSAGE_TYPE,
+          content: expect.stringMatching(/a\.ts:1-1.*b\.ts:1-1.*Inspect both/s),
+          display: hasUI,
+          details: {
+            source: "automatic",
+            findings: 1,
+            omittedFindings: 0,
+            ambiguousFindings: 0,
+          },
+        },
+        { triggerTurn: false },
+      );
+      await vi.waitFor(() => expect(scheduler.snapshot().attemptedGeneration).toBe(1));
+
+      await handlers.get("tool_result")?.(
+        { toolName: "write", input: { path: unrelated }, isError: false },
+        { cwd: project, hasUI, ui },
+      );
+      await handlers.get("agent_settled")?.({}, settledContext);
+      await vi.waitFor(() => expect(scheduler.snapshot().attemptedGeneration).toBe(2));
+
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(run).toHaveBeenCalledTimes(2);
+      const latestState = appendEntry.mock.calls
+        .filter(([type]) => type === JSCPD_SESSION_STATE_TYPE)
+        .at(-1)?.[1];
+      expect(latestState).toMatchObject({
+        acknowledgements: { findings: [{ paths: ["a.ts", "b.ts"] }] },
+        lastCheck: { state: "clean" },
+      });
+      if (hasUI) {
+        expect(setStatus).toHaveBeenLastCalledWith(JSCPD_AUTOMATIC_STATUS_KEY, "jscpd: clean");
+      } else {
+        expect(setStatus).not.toHaveBeenCalled();
+      }
     } finally {
       await handlers.get("session_shutdown")?.();
       await rm(root, { recursive: true, force: true });
@@ -901,7 +1084,7 @@ describe("Pi extension registration", () => {
       );
       await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
 
-      await handlers.get("before_agent_start")?.();
+      await handlers.get("before_agent_start")?.({}, { hasUI: false });
       expect(automaticSignal?.aborted).toBe(true);
       await vi.waitFor(() => expect(scheduler.snapshot().automatic).toBe("idle"));
       expect(scheduler.snapshot().attemptedGeneration).toBe(0);

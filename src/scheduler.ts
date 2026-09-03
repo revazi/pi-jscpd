@@ -3,6 +3,8 @@ import type { JscpdCommandExecutor, JscpdExecutionResult } from "./types.js";
 export interface JscpdAutomaticScanContext {
   readonly generation: number;
   readonly signal: AbortSignal;
+  /** True only while this run still owns the latest mutation in the active lifecycle scope. */
+  readonly isCurrent: () => boolean;
 }
 
 export type JscpdAutomaticScanDisposition = "attempted" | "deferred";
@@ -89,7 +91,15 @@ export function createJscpdScanScheduler(): JscpdScanScheduler {
     const settled = Promise.resolve()
       .then(() =>
         candidate.task(
-          Object.freeze({ generation: candidate.generation, signal: controller.signal }),
+          Object.freeze({
+            generation: candidate.generation,
+            signal: controller.signal,
+            isCurrent: () =>
+              !closed &&
+              !controller.signal.aborted &&
+              candidate.epoch === epoch &&
+              candidate.generation === changedGeneration,
+          }),
         ),
       )
       .then(
