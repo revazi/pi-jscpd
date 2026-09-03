@@ -92,6 +92,9 @@ describe("Pi package manifest", () => {
       "src",
       "docs",
       "scripts/check-compatibility.mjs",
+      "CHANGELOG.md",
+      "CONTRIBUTING.md",
+      "SECURITY.md",
       "README.md",
       "LICENSE",
     ]);

@@ -1,0 +1,63 @@
+name: Bug report
+description: Report a reproducible problem on a supported host.
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Remove credentials, source fragments, child-process output, and private paths before submitting.
+  - type: input
+    id: pi-version
+    attributes:
+      label: Pi version
+      description: Output of `pi --version`.
+      placeholder: 0.84.4
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Output of `node --version`.
+      placeholder: v24.12.0
+    validations:
+      required: true
+  - type: input
+    id: jscpd-version
+    attributes:
+      label: jscpd command and version
+      description: State whether `jscpd` or `cpd` is used. Redact unrelated PATH details.
+      placeholder: jscpd 5.x
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Provide bounded steps or a public fixture without proprietary source.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include only bounded diagnostics safe to publish.
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I reproduced this on versions covered by the compatibility policy, or clearly marked the host as unsupported.
+          required: true
+        - label: I removed secrets, credentials, private paths, source fragments, and sensitive report content.
+          required: true

@@ -1,0 +1,6 @@
+# The maintainer owns release, dependency-policy, and workflow changes.
+* @revazi
+/.github/workflows/ @revazi
+/.github/dependabot.yml @revazi
+/package.json @revazi
+/package-lock.json @revazi

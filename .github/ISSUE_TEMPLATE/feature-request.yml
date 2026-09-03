@@ -1,0 +1,41 @@
+name: Feature request
+description: Propose a focused addition to the advisory jscpd workflow.
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep proposals consistent with the advisory, fail-open, polyglot design. pi-jscpd does not reimplement jscpd or edit source automatically.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow problem should be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest user-visible behavior and how it remains bounded.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Could existing jscpd configuration or Pi's normal agent flow solve this?
+    validations:
+      required: true
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Compatibility impact
+      options:
+        - No public contract or compatibility change
+        - Public command, tool, configuration, persistence, or process-model change
+        - Unsure
+    validations:
+      required: true
