@@ -2,7 +2,7 @@
 
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
-[![status: on-demand scans](https://img.shields.io/badge/status-on--demand%20scans-green.svg)](#project-status)
+[![status: automatic checks](https://img.shields.io/badge/status-automatic%20checks-green.svg)](#project-status)
 
 > A Pi-native, polyglot duplication guardrail powered by jscpd.
 
@@ -15,11 +15,11 @@ rescan flow.
 
 **Explicit scans and session-delta checks with acknowledgement tracking are implemented.**
 
-Automatic scans are not implemented yet. The M4 lifecycle decision selects a
-coalesced background checkpoint after Pi's `agent_settled` event, and the
-bounded scheduler now tracks mutation generations, coalesces pending automatic
-work, and lets explicit scans supersede only scheduler-owned work. No lifecycle
-hook requests an automatic scan yet. See the
+Automatic changed checks now run after Pi's `agent_settled` event. The bounded
+scheduler tracks mutation generations, coalesces pending work, and lets explicit
+scans supersede only scheduler-owned work. Automatic execution is fail-open and
+currently keeps every outcome out of model context; actionable finding delivery
+remains the next M4 slice. See the
 [automatic advisory checkpoint decision](docs/automatic-checkpoint.md) for the
 measured candidates, cancellation model, and quiet-context policy.
 
@@ -322,6 +322,7 @@ users do not receive duplicate findings.
 │   ├── baseline.ts        ephemeral generation-safe initial report capture
 │   ├── clone-identity.ts  internal content identity and baseline comparison
 │   ├── changed-files.ts   bounded structured-event changed-file attribution
+│   ├── automatic.ts       fail-open automatic changed-check execution
 │   ├── scheduler.ts       coalesced automatic and explicit scan ownership
 │   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
@@ -367,9 +368,9 @@ restoration, conservative changed-file tracking, ephemeral initial baseline
 capture, content-aware comparison, changed-only reporting, and acknowledgement
 tracking are in place. Tests use deterministic fakes and do not download
 anything; a real installed v5 binary can be used for a local scan smoke. The
-automatic checkpoint process model and bounded scheduler are implemented, but
-automatic execution and presentation remain future milestones. The bare `/jscpd`
-overlay is tracked separately in
+automatic checkpoint process model, bounded scheduler, and fail-open execution
+are implemented, but actionable automatic presentation remains a future
+milestone. The bare `/jscpd` overlay is tracked separately in
 [issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
 design can be agreed before implementation. Development is tracked in the
 [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks

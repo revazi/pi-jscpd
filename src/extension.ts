@@ -5,6 +5,11 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { createJscpdAcknowledgementTracker } from "./acknowledgements.js";
 import {
+  createJscpdAutomaticAcknowledgementView,
+  createJscpdAutomaticCheck,
+  type JscpdAutomaticCheck,
+} from "./automatic.js";
+import {
   createJscpdBaselineService,
   type JscpdBaselineService,
   type JscpdBaselineStartContext,
@@ -54,6 +59,7 @@ export interface JscpdExtensionOptions {
   configService?: JscpdConfigService;
   baselineService?: JscpdBaselineService;
   scheduler?: JscpdScanScheduler;
+  automaticCheck?: JscpdAutomaticCheck;
 }
 
 export function registerJscpdExtension(
@@ -65,6 +71,7 @@ export function registerJscpdExtension(
   let statusService: JscpdStatusService | undefined;
   let sessionMode: JscpdSessionModeService | undefined;
   let baselineService = options.baselineService;
+  let automaticCheck = options.automaticCheck;
   let baselineContext: JscpdBaselineStartContext | undefined;
   let shutdownPromise: Promise<void> | undefined;
   let persistSessionState = () => {};
@@ -95,18 +102,29 @@ export function registerJscpdExtension(
         // Pi session persistence is advisory and must not break scans or controls.
       }
     };
+    const changedOptions = {
+      config: () => ({
+        ...configService.current().config,
+        enabled: sessionMode?.isEnabled() ?? true,
+      }),
+    };
     const changedExecutor = createJscpdChangedExecutor(
       capabilityService,
       adapterService,
       baselineService,
       changedFiles,
       acknowledgements,
-      {
-        config: () => ({
-          ...configService.current().config,
-          enabled: sessionMode?.isEnabled() ?? true,
-        }),
-      },
+      changedOptions,
+    );
+    automaticCheck ??= createJscpdAutomaticCheck(
+      createJscpdChangedExecutor(
+        capabilityService,
+        adapterService,
+        baselineService,
+        changedFiles,
+        createJscpdAutomaticAcknowledgementView(acknowledgements),
+        changedOptions,
+      ),
     );
     executor = createJscpdStatusAwareExecutor(
       scanExecutor,
@@ -204,6 +222,11 @@ export function registerJscpdExtension(
     } catch {
       // Changed-file attribution is advisory and must not affect tool completion.
     }
+  });
+  pi.on("agent_settled", (_event, ctx) => {
+    if (!automaticCheck || !ctx.isIdle() || ctx.hasPendingMessages()) return;
+    const cwd = ctx.cwd;
+    scheduler.requestAutomatic(({ signal }) => automaticCheck.run({ cwd, signal }));
   });
   pi.on("session_shutdown", () => {
     baselineContext = undefined;

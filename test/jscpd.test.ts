@@ -246,7 +246,11 @@ describe("jscpd temporary report adapter", () => {
     const controller = new AbortController();
     const active = service.run(request("tree", { signal: controller.signal, extraArgs: [marker] }));
     await waitForStart();
-    const descendantPid = Number(await readFile(marker, "utf8"));
+    let descendantPid = 0;
+    await vi.waitFor(async () => {
+      descendantPid = Number(await readFile(marker, "utf8"));
+      expect(descendantPid).toBeGreaterThan(0);
+    });
 
     controller.abort();
 
