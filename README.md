@@ -50,8 +50,8 @@ come from the same normalized report, cap displayed findings, omit source
 fragments, and include aggregate statistics plus both locations. Missing or
 incompatible binaries, unsafe or unsupported paths, process failures, missing or
 invalid reports, timeout, cancellation, and cleanup uncertainty fail open with
-bounded diagnostics. Bare `/jscpd` remains reserved for the future overlay and
-never starts a scan.
+bounded diagnostics. Bare `/jscpd` remains reserved for the accepted interactive
+overlay design and never starts an implicit scan.
 
 Trusted project and local extension settings are now loaded strictly at session
 start. They can disable scanning, set the bounded per-run timeout, and cap
@@ -245,7 +245,7 @@ normally; explicit scan and status requests explain the missing prerequisite.
 The implemented public surface is deliberately small:
 
 ```text
-/jscpd                       report that the future overlay is reserved; do not scan
+/jscpd                       report that overlay implementation is pending; do not scan
 /jscpd scan                  scan the project
 /jscpd scan src "path here"  scan existing in-project files or directories
 /jscpd changed               show unacknowledged new session duplication
@@ -276,10 +276,11 @@ ephemeral baselines, and loaded configuration are never restored: they are
 invalidated or cleaned up, and configuration is loaded again under the current
 trust decision.
 
-The bare `/jscpd` command remains reserved for an interactive overlay; its exact
-views and controls will be agreed in
-[the overlay interaction issue](https://github.com/revazi/pi-jscpd/issues/25)
-before that UI milestone is implemented.
+The bare `/jscpd` command remains reserved for an interactive overlay. Its
+combined overview, findings/detail views, controls, responsive bounds,
+cancellation rules, and non-TUI fallback are defined in the accepted
+[`/jscpd` overlay interaction contract](docs/overlay-interaction.md). Implementation
+is tracked in [issue #26](https://github.com/revazi/pi-jscpd/issues/26).
 
 ## Defaults
 
@@ -329,7 +330,8 @@ users do not receive duplicate findings.
 │   └── presentation.ts    bounded model and terminal summaries
 ├── test/                  package and command-contract tests
 ├── docs/
-│   └── automatic-checkpoint.md  accepted M4 lifecycle decision
+│   ├── automatic-checkpoint.md  accepted M4 lifecycle decision
+│   └── overlay-interaction.md    accepted bare-command overlay contract
 ├── biome.json             formatting and lint policy
 ├── LICENSE                MIT License
 ├── package.json           Pi package manifest
@@ -371,11 +373,9 @@ tracking are in place. Tests use deterministic fakes and do not download
 anything; a real installed v5 binary can be used for a local scan smoke. The
 automatic checkpoint process model, bounded scheduler, fail-open execution,
 quiet status feedback, and bounded actionable delta delivery are implemented.
-The bare `/jscpd` overlay is tracked separately in
-[issue #25](https://github.com/revazi/pi-jscpd/issues/25) so its interaction
-design can be agreed before implementation. Development is tracked in the
-[GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues); automatic hooks
-come only after the on-demand path is reliable.
+The bare `/jscpd` interaction contract is accepted; its responsive shell is
+tracked in [issue #26](https://github.com/revazi/pi-jscpd/issues/26). Development
+is tracked in the [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues).
 
 ## Contributing
 
