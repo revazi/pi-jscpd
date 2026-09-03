@@ -13,7 +13,7 @@ flow.
 
 ## Project status
 
-**Explicit scans, quiet automatic session-delta checks, the responsive bare-command overview, and shared actionable finding presentation are implemented.**
+**Explicit scans, quiet automatic session-delta checks, the responsive overview, actionable finding presentation, and ephemeral pre/post-refactor verification are implemented.**
 
 Automatic changed checks run after Pi's `agent_settled` event. The bounded
 scheduler tracks mutation generations, coalesces pending work, and lets explicit
@@ -294,6 +294,30 @@ shell provides combined overview, findings/detail views, controls, responsive
 bounds, cancellation, cleanup, and non-TUI fallback without automatic source
 changes.
 
+## Verification and intentional duplication
+
+Every successful explicit `/jscpd scan`, or `/jscpd changed` that performs a
+scan, records one ephemeral content-aware checkpoint for that scan kind and
+exact scope. After inspecting a
+finding, make any approved edits and run relevant project tests through Pi's
+ordinary workflow, then rerun the same command or use `r` in the overlay. The
+next result distinguishes duplicate blocks removed, remaining, and newly
+created; ambiguous identity comparisons are reported instead of guessed. Each
+successful comparison becomes the next checkpoint.
+
+Verification state is bounded to one project-scan scope and one changed-check
+scope. It is never persisted, does not affect jscpd's statistics, and resets on
+session, branch, tree, reload, or shutdown transitions. A changed target scope
+starts a fresh checkpoint rather than claiming unrelated blocks were removed.
+If content identities are incomplete, the scan result remains available but the
+verification comparison fails open.
+
+Intentional duplication is not a defect by definition. Keep it when appropriate,
+or update the repository's normal jscpd policy—such as `.jscpd.json` or its
+package-level jscpd settings—using jscpd's supported ignore/exclusion controls.
+Use the same policy for local and CI scans. The extension never writes that
+configuration, edits source, or runs project tests itself.
+
 ## Defaults
 
 - Advisory, never an automatic source edit.
@@ -339,6 +363,7 @@ users do not receive duplicate findings.
 │   ├── automatic.ts       fail-open automatic changed-check execution
 │   ├── scheduler.ts       coalesced automatic and explicit scan ownership
 │   ├── finding-presentation.ts  shared bounded finding details and guidance
+│   ├── verification.ts    ephemeral pre/post-refactor clone comparison
 │   ├── overlay.ts         responsive bare-command TUI and non-TUI fallback
 │   ├── session-state.ts   strict active-branch state snapshots and restoration
 │   └── presentation.ts    bounded model and terminal summaries
@@ -387,9 +412,10 @@ tracking are in place. Tests use deterministic fakes and do not download
 anything; a real installed v5 binary can be used for a local scan smoke. The
 automatic checkpoint process model, bounded scheduler, fail-open execution,
 quiet status feedback, and bounded actionable delta delivery are implemented.
-The bare `/jscpd` interaction contract, responsive shell, and consistent
-actionable finding presentation are implemented. Guided refactor preparation
-continues in the [GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues).
+The bare `/jscpd` interaction contract, responsive shell, actionable finding
+presentation, and pre/post-refactor verification workflow are implemented.
+Development continues in the
+[GitHub issue tracker](https://github.com/revazi/pi-jscpd/issues).
 
 ## Contributing
 

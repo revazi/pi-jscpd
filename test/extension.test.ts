@@ -25,6 +25,7 @@ import { jscpdArgumentHint } from "../src/registry.js";
 import { createJscpdScanScheduler } from "../src/scheduler.js";
 import { JSCPD_SESSION_STATE_TYPE, JSCPD_SESSION_STATE_VERSION } from "../src/session-state.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult, JscpdScanReport } from "../src/types.js";
+import type { JscpdVerificationService } from "../src/verification.js";
 
 const unavailableResult = {
   status: "unavailable",
@@ -247,6 +248,35 @@ describe("Pi extension registration", () => {
       "agent_settled",
       "session_shutdown",
     ]);
+  });
+
+  it("invalidates ephemeral verification checkpoints before a session switch", async () => {
+    const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
+    const reset = vi.fn();
+    const verification = {
+      scope: () => 0,
+      reset,
+      compareAndRemember: vi.fn(() => ({
+        state: "checkpoint" as const,
+        scope: "project" as const,
+        groups: 0,
+        message: "checkpoint",
+      })),
+    } satisfies JscpdVerificationService;
+    registerJscpdExtension(
+      {
+        registerTool: vi.fn(),
+        registerCommand: vi.fn(),
+        on: vi.fn((event: string, handler: (...args: unknown[]) => void | Promise<void>) =>
+          handlers.set(event, handler),
+        ),
+      } as unknown as ExtensionAPI,
+      { executor: createExecutor().executor, verificationService: verification },
+    );
+
+    await handlers.get("session_before_switch")?.();
+
+    expect(reset).toHaveBeenCalledOnce();
   });
 
   it("applies current trusted configuration to the registered scan executor", async () => {

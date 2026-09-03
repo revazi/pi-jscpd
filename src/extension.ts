@@ -49,6 +49,7 @@ import {
   type JscpdStatusService,
 } from "./status.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
+import { createJscpdVerificationService, type JscpdVerificationService } from "./verification.js";
 
 type JscpdToolDefinition = ToolDefinition<typeof jscpdRunParams, JscpdDispatchResult>;
 
@@ -65,6 +66,7 @@ export interface JscpdExtensionOptions {
   scheduler?: JscpdScanScheduler;
   automaticCheck?: JscpdAutomaticCheck;
   overlayLauncher?: JscpdOverlayLauncher;
+  verificationService?: JscpdVerificationService;
 }
 
 export function registerJscpdExtension(
@@ -77,6 +79,7 @@ export function registerJscpdExtension(
   let sessionMode: JscpdSessionModeService | undefined;
   let baselineService = options.baselineService;
   let automaticCheck = options.automaticCheck;
+  let verificationService = options.verificationService;
   let automaticAcknowledgements: JscpdAutomaticAcknowledgementTransaction | undefined;
   let baselineContext: JscpdBaselineStartContext | undefined;
   let shutdownPromise: Promise<void> | undefined;
@@ -88,12 +91,14 @@ export function registerJscpdExtension(
   const configService = options.configService ?? createJscpdConfigService();
   if (!executor) {
     capabilityService ??= createJscpdCapabilityService();
+    verificationService ??= createJscpdVerificationService();
     sessionMode = createJscpdSessionModeService();
     const scanExecutor = createJscpdScanExecutor(capabilityService, adapterService, {
       config: () => ({
         ...configService.current().config,
         enabled: sessionMode?.isEnabled() ?? true,
       }),
+      verification: verificationService,
     });
     statusService = createJscpdStatusService(capabilityService, configService, sessionMode);
     baselineService ??= createJscpdBaselineService(capabilityService, adapterService);
@@ -113,6 +118,7 @@ export function registerJscpdExtension(
         ...configService.current().config,
         enabled: sessionMode?.isEnabled() ?? true,
       }),
+      verification: verificationService,
     };
     const changedExecutor = createJscpdChangedExecutor(
       capabilityService,
@@ -164,6 +170,7 @@ export function registerJscpdExtension(
 
   pi.on("session_start", async (_event, ctx) => {
     scheduler.reset();
+    verificationService?.reset();
     baselineService?.invalidate();
     capabilityService?.invalidate();
     adapterService.invalidate();
@@ -196,6 +203,7 @@ export function registerJscpdExtension(
   });
   pi.on("session_tree", async (_event, ctx) => {
     scheduler.reset();
+    verificationService?.reset();
     baselineService?.invalidate();
     adapterService.invalidate();
     const config = configService.current().config;
@@ -214,6 +222,7 @@ export function registerJscpdExtension(
   });
   pi.on("session_before_switch", () => {
     scheduler.reset();
+    verificationService?.reset();
     baselineContext = undefined;
     baselineService?.invalidate();
     changedFiles.reset();
@@ -264,6 +273,7 @@ export function registerJscpdExtension(
   });
   pi.on("session_shutdown", () => {
     baselineContext = undefined;
+    verificationService?.reset();
     baselineService?.invalidate();
     shutdownPromise ??= Promise.resolve().then(async () => {
       await scheduler.dispose();

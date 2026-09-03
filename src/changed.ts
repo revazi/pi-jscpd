@@ -24,6 +24,8 @@ import type {
   JscpdExecutionResult,
   JscpdScanReport,
 } from "./types.js";
+import type { JscpdVerificationService } from "./verification.js";
+import { withJscpdVerification } from "./verification.js";
 
 export interface JscpdChangedExecutorOptions {
   readonly path?: string;
@@ -31,6 +33,8 @@ export interface JscpdChangedExecutorOptions {
   readonly stateChanged?: () => void;
   /** Prefer the most actionable changed-file clone groups before applying the display cap. */
   readonly prioritizeFindings?: boolean;
+  /** Ephemeral comparison state for explicit pre/post-refactor checks. */
+  readonly verification?: JscpdVerificationService;
 }
 
 /** Run and compare one full-project report, then acknowledge only findings actually surfaced. */
@@ -46,6 +50,7 @@ export function createJscpdChangedExecutor(
   return {
     execute(_invocation, context) {
       const scope = acknowledgements.scope();
+      const verificationScope = options.verification?.scope();
       const run = tail.then(() =>
         executeChanged(
           capabilityService,
@@ -56,6 +61,7 @@ export function createJscpdChangedExecutor(
           context,
           options,
           scope,
+          verificationScope,
         ),
       );
       tail = run.then(
@@ -81,6 +87,7 @@ async function executeChanged(
   context: Parameters<JscpdCommandExecutor["execute"]>[1],
   options: JscpdChangedExecutorOptions,
   scope: number,
+  verificationScope: number | undefined,
 ): Promise<JscpdExecutionResult> {
   const prepared = await prepareChangedCheck(
     baselineService,
@@ -109,6 +116,7 @@ async function executeChanged(
     options,
     prepared.config,
     scope,
+    verificationScope,
   );
 }
 
@@ -196,6 +204,7 @@ async function compareCurrentChanges(
   options: JscpdChangedExecutorOptions,
   config: JscpdConfig,
   scope: number,
+  verificationScope: number | undefined,
 ): Promise<JscpdExecutionResult> {
   const revision = acknowledgements.revision();
   const current = await indexJscpdCloneReport(report, cwd);
@@ -225,7 +234,14 @@ async function compareCurrentChanges(
     .slice(0, presented.findings.length)
     .map(({ acknowledgement }) => acknowledgement);
   if (acknowledgements.reconcile(revision, active, surfaced)) options.stateChanged?.();
-  return presented;
+  if (!options.verification || verificationScope === undefined) return presented;
+  const verification = options.verification.compareAndRemember(
+    "changed",
+    ".",
+    current,
+    verificationScope,
+  );
+  return withJscpdVerification(presented, verification);
 }
 
 async function safeCapabilityProbe(

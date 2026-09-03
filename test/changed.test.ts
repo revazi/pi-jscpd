@@ -10,6 +10,7 @@ import { createJscpdChangedFileTracker } from "../src/changed-files.js";
 import { indexJscpdCloneReport } from "../src/clone-identity.js";
 import type { JscpdRunRequest, JscpdRunResult, JscpdService } from "../src/jscpd.js";
 import type { JscpdClonePair, JscpdScanReport } from "../src/types.js";
+import { createJscpdVerificationService } from "../src/verification.js";
 
 let root: string;
 let project: string;
@@ -359,6 +360,43 @@ describe("/jscpd changed", () => {
       outcomes.push(result.status === "changed" ? result.outcome : result.status);
     }
     expect(outcomes).toEqual(["findings", "clean", "findings"]);
+  });
+
+  it("verifies removed and remaining groups even after the first changed finding is acknowledged", async () => {
+    const tracker = createJscpdChangedFileTracker();
+    await tracker.start(project, ["src/a.ts"]);
+    const scan = adapter([
+      {
+        status: "report",
+        value: report(clone("src/a.ts", "src/b.ts"), clone("src/a.ts", "src/c.ts", oldBlock)),
+      },
+      { status: "report", value: report(clone("src/a.ts", "src/b.ts")) },
+    ]);
+    const executor = createJscpdChangedExecutor(
+      capability(),
+      scan.service,
+      baseline(await acceptedBaseline()),
+      tracker,
+      createJscpdAcknowledgementTracker(),
+      {
+        config: () => ({ enabled: true, timeoutMs: 1_000, maxFindings: 10 }),
+        verification: createJscpdVerificationService(),
+      },
+    );
+
+    const first = await executor.execute({ command: "changed", args: [] }, { cwd: project });
+    const second = await executor.execute({ command: "changed", args: [] }, { cwd: project });
+
+    expect(first).toMatchObject({
+      status: "changed",
+      outcome: "findings",
+      verification: { state: "checkpoint", groups: 2 },
+    });
+    expect(second).toMatchObject({
+      status: "changed",
+      outcome: "clean",
+      verification: { state: "compared", removed: 1, remaining: 1, created: 0 },
+    });
   });
 
   it("fails open without changing acknowledgements for partial baselines, identities, and failed scans", async () => {

@@ -6,6 +6,7 @@ import {
   jscpdArgumentHint,
   jscpdCommandNames,
   jscpdCommandRegistry,
+  renderJscpdCommandHelp,
 } from "../src/registry.js";
 import type { JscpdCommandExecutor } from "../src/types.js";
 
@@ -83,6 +84,11 @@ describe("jscpd command registry", () => {
     ]);
     expect(getJscpdArgumentCompletions("scan ")).toBeNull();
     expect(getJscpdArgumentCompletions("unknown")).toBeNull();
+    expect(renderJscpdCommandHelp()).toContain(
+      "/jscpd — open the interactive overview (no implicit scan)",
+    );
+    expect(renderJscpdCommandHelp()).toContain("rerun the same scan or use r in the overlay");
+    expect(renderJscpdCommandHelp()).toContain("normal jscpd ignore/exclusion policy");
   });
 });
 
