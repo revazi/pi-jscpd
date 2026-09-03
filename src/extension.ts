@@ -26,6 +26,10 @@ import { createJscpdChangedFileTracker, type JscpdChangedFileTracker } from "./c
 import { createJscpdConfigService, type JscpdConfigService } from "./config.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
 import { dispatchJscpdCommand } from "./dispatch.js";
+import {
+  createJscpdFallowCoexistenceService,
+  type JscpdFallowCoexistenceService,
+} from "./fallow.js";
 import { createJscpdService, type JscpdService } from "./jscpd.js";
 import { createJscpdOverlayLauncher, type JscpdOverlayLauncher } from "./overlay.js";
 import { parseJscpdSlashArgs } from "./parser.js";
@@ -67,6 +71,7 @@ export interface JscpdExtensionOptions {
   automaticCheck?: JscpdAutomaticCheck;
   overlayLauncher?: JscpdOverlayLauncher;
   verificationService?: JscpdVerificationService;
+  fallowCoexistenceService?: JscpdFallowCoexistenceService;
 }
 
 export function registerJscpdExtension(
@@ -89,6 +94,8 @@ export function registerJscpdExtension(
   const scheduler = options.scheduler ?? createJscpdScanScheduler();
   const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService();
+  const fallowCoexistence =
+    options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService();
   if (!executor) {
     capabilityService ??= createJscpdCapabilityService();
     verificationService ??= createJscpdVerificationService();
@@ -100,7 +107,12 @@ export function registerJscpdExtension(
       }),
       verification: verificationService,
     });
-    statusService = createJscpdStatusService(capabilityService, configService, sessionMode);
+    statusService = createJscpdStatusService(
+      capabilityService,
+      configService,
+      sessionMode,
+      fallowCoexistence,
+    );
     baselineService ??= createJscpdBaselineService(capabilityService, adapterService);
     persistSessionState = () => {
       if (!sessionMode || !statusService) return;
@@ -170,13 +182,18 @@ export function registerJscpdExtension(
 
   pi.on("session_start", async (_event, ctx) => {
     scheduler.reset();
+    fallowCoexistence.reset();
     verificationService?.reset();
     baselineService?.invalidate();
     capabilityService?.invalidate();
     adapterService.invalidate();
-    const loaded = await configService.load({
+    const trusted = ctx.isProjectTrusted();
+    const loaded = await configService.load({ cwd: ctx.cwd, trusted });
+    await fallowCoexistence.evaluate({
       cwd: ctx.cwd,
-      trusted: ctx.isProjectTrusted(),
+      trusted,
+      policy: loaded.config.fallowCoexistence,
+      fallowToolAvailable: hasFallowTool(pi),
     });
     await restoreSessionState(
       ctx.sessionManager.getBranch(),
@@ -199,6 +216,8 @@ export function registerJscpdExtension(
       for (const diagnostic of loaded.diagnostics) {
         ctx.ui.notify(diagnostic.message, "warning");
       }
+      const overlapNotice = fallowCoexistence.takeNotice();
+      if (overlapNotice) ctx.ui.notify(overlapNotice, "info");
     }
   });
   pi.on("session_tree", async (_event, ctx) => {
@@ -207,6 +226,12 @@ export function registerJscpdExtension(
     baselineService?.invalidate();
     adapterService.invalidate();
     const config = configService.current().config;
+    await fallowCoexistence.evaluate({
+      cwd: ctx.cwd,
+      trusted: configService.current().trusted,
+      policy: config.fallowCoexistence,
+      fallowToolAvailable: hasFallowTool(pi),
+    });
     await restoreSessionState(
       ctx.sessionManager.getBranch(),
       ctx.cwd,
@@ -218,10 +243,15 @@ export function registerJscpdExtension(
     );
     baselineContext = createBaselineContext(ctx.cwd, config.timeoutMs, changedFiles, sessionMode);
     startBaselineQuietly(baselineService, baselineContext);
-    if (ctx.hasUI) safeSetStatus(ctx.ui, undefined);
+    if (ctx.hasUI) {
+      safeSetStatus(ctx.ui, undefined);
+      const overlapNotice = fallowCoexistence.takeNotice();
+      if (overlapNotice) ctx.ui.notify(overlapNotice, "info");
+    }
   });
   pi.on("session_before_switch", () => {
     scheduler.reset();
+    fallowCoexistence.reset();
     verificationService?.reset();
     baselineContext = undefined;
     baselineService?.invalidate();
@@ -234,7 +264,7 @@ export function registerJscpdExtension(
     scheduler.cancelAutomatic();
     const snapshot = scheduler.snapshot();
     if (ctx.hasUI && snapshot.changedGeneration > snapshot.attemptedGeneration) {
-      safeSetStatus(ctx.ui, "jscpd: changes pending");
+      safeSetStatus(ctx.ui, pendingAutomaticStatus(fallowCoexistence));
     }
   });
   pi.on("tool_call", async (event) => {
@@ -248,7 +278,7 @@ export function registerJscpdExtension(
       const path = await changedFiles.recordToolResultPath(event, ctx.cwd);
       if (path) {
         scheduler.markChanged();
-        if (ctx.hasUI) safeSetStatus(ctx.ui, "jscpd: changes pending");
+        if (ctx.hasUI) safeSetStatus(ctx.ui, pendingAutomaticStatus(fallowCoexistence));
         const acknowledgementChanged = acknowledgements.invalidatePaths([path]);
         baselineContext = baselineContext
           ? Object.freeze({ ...baselineContext, hasPriorChanges: true })
@@ -260,7 +290,13 @@ export function registerJscpdExtension(
     }
   });
   pi.on("agent_settled", (_event, ctx) => {
-    if (!automaticCheck || !ctx.isIdle() || ctx.hasPendingMessages()) return;
+    if (
+      !automaticCheck ||
+      !fallowCoexistence.automaticAllowed() ||
+      !ctx.isIdle() ||
+      ctx.hasPendingMessages()
+    )
+      return;
     requestAutomaticCheck(
       pi,
       ctx,
@@ -273,6 +309,7 @@ export function registerJscpdExtension(
   });
   pi.on("session_shutdown", () => {
     baselineContext = undefined;
+    fallowCoexistence.reset();
     verificationService?.reset();
     baselineService?.invalidate();
     shutdownPromise ??= Promise.resolve().then(async () => {
@@ -422,6 +459,21 @@ async function restoreSessionState(
   if (!sessionMode || !statusService) return;
   sessionMode.restore(configuredEnabled, restored?.modeOverride);
   statusService.restore(restored?.lastCheck);
+}
+
+function hasFallowTool(pi: ExtensionAPI): boolean {
+  try {
+    return pi.getAllTools().some(({ name }) => name === "fallow_run");
+  } catch {
+    return false;
+  }
+}
+
+function pendingAutomaticStatus(coexistence: JscpdFallowCoexistenceService): string {
+  if (coexistence.automaticAllowed()) return "jscpd: changes pending";
+  return coexistence.current().status === "detected"
+    ? "jscpd: on demand (Fallow overlap)"
+    : "jscpd: automatic checks on demand";
 }
 
 function isBuiltInMutationTool(pi: ExtensionAPI, toolName: string): boolean {

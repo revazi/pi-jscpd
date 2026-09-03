@@ -239,6 +239,13 @@ export interface JscpdStatusResult {
   readonly configDiagnostics: number;
   readonly capability: JscpdCapabilityResult;
   readonly lastCheck: JscpdLastCheck;
+  readonly fallowOverlap?:
+    | "absent"
+    | "detected"
+    | "ambiguous"
+    | "explicit-allow"
+    | "explicit-on-demand";
+  readonly fallowAutomatic?: "allowed" | "on-demand";
 }
 
 export interface JscpdControlResult {
