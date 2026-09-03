@@ -201,35 +201,35 @@ describe("jscpd overlay launcher", () => {
     );
   });
 
-  it.each([
-    "json",
-    "print",
-  ] as const)("writes one plain fallback to stderr in %s mode and fails open when it is closed", async (mode) => {
-    const service = executor();
-    const writes: string[] = [];
-    const launcher = createJscpdOverlayLauncher(service, {
-      writeFallback: (text) => {
-        writes.push(text);
-        if (mode === "json") throw new Error("closed");
-      },
-    });
-    const context = {
-      mode,
-      cwd: "/project",
-      signal: undefined,
-      ui: { custom: vi.fn(), notify: vi.fn() },
-    } as unknown as ExtensionCommandContext;
+  it.each(["json", "print"] as const)(
+    "writes one plain fallback to stderr in %s mode and fails open when it is closed",
+    async (mode) => {
+      const service = executor();
+      const writes: string[] = [];
+      const launcher = createJscpdOverlayLauncher(service, {
+        writeFallback: (text) => {
+          writes.push(text);
+          if (mode === "json") throw new Error("closed");
+        },
+      });
+      const context = {
+        mode,
+        cwd: "/project",
+        signal: undefined,
+        ui: { custom: vi.fn(), notify: vi.fn() },
+      } as unknown as ExtensionCommandContext;
 
-    await expect(launcher.open(context)).resolves.toBeUndefined();
+      await expect(launcher.open(context)).resolves.toBeUndefined();
 
-    expect(writes).toHaveLength(1);
-    expect(writes[0]).toContain("The /jscpd overlay requires Pi TUI mode.");
-    expect(service.execute).toHaveBeenCalledOnce();
-    expect(service.execute).toHaveBeenCalledWith(
-      { command: "status", args: [] },
-      { cwd: "/project", signal: undefined },
-    );
-  });
+      expect(writes).toHaveLength(1);
+      expect(writes[0]).toContain("The /jscpd overlay requires Pi TUI mode.");
+      expect(service.execute).toHaveBeenCalledOnce();
+      expect(service.execute).toHaveBeenCalledWith(
+        { command: "status", args: [] },
+        { cwd: "/project", signal: undefined },
+      );
+    },
+  );
 });
 
 describe("jscpd overlay component", () => {

@@ -131,16 +131,19 @@ describe("conservative Fallow overlap detection", () => {
     [".fallowrc.json", "{ malformed", "unreadable-signal"],
     [".fallowrc.jsonc", "{ /* comments */ }", "unreadable-signal"],
     ["fallow.toml", "[duplicates]\nenabled = false", "unreadable-signal"],
-  ] as const)("treats unsupported or non-duplication evidence in %s as ambiguous", async (name, contents, signal) => {
-    await writeFile(join(project, name), contents);
+  ] as const)(
+    "treats unsupported or non-duplication evidence in %s as ambiguous",
+    async (name, contents, signal) => {
+      await writeFile(join(project, name), contents);
 
-    const state = await evaluate();
+      const state = await evaluate();
 
-    expect(state.status).toBe("ambiguous");
-    expect(state.automaticAllowed).toBe(true);
-    expect(state.notice).toBeUndefined();
-    expect(state.signals).toContain(signal);
-  });
+      expect(state.status).toBe("ambiguous");
+      expect(state.automaticAllowed).toBe(true);
+      expect(state.notice).toBeUndefined();
+      expect(state.signals).toContain(signal);
+    },
+  );
 
   it("treats oversized signal files as ambiguous and never reads them as policy", async () => {
     await writeFile(join(project, ".fallowrc.json"), "x".repeat(64 * 1024 + 1));
