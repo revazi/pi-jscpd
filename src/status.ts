@@ -2,10 +2,13 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Context, Effect, Layer, MutableRef } from "effect";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService, JscpdConfigSource } from "./config.js";
-import { runEffectPromiseAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import {
+  type JscpdEffectRuntime,
+  type JscpdRuntimeRequirements,
+  JscpdTestEffectRuntime,
+} from "./effect/runtime-boundary.js";
 import type { JscpdProcess } from "./effect/services.js";
 import type { JscpdFallowCoexistenceService } from "./fallow.js";
-import { JscpdProcessLive } from "./process.js";
 import { renderJscpdCommandHelp } from "./registry.js";
 import { capabilityProbeEffect } from "./scan.js";
 import type {
@@ -18,7 +21,9 @@ import type {
 
 export interface JscpdStatusService {
   inspect(context: JscpdExecutionContext): Promise<JscpdStatusResult>;
-  inspectEffect?: (context: JscpdExecutionContext) => Effect.Effect<JscpdStatusResult>;
+  inspectEffect?: (
+    context: JscpdExecutionContext,
+  ) => Effect.Effect<JscpdStatusResult, never, JscpdProcess>;
   record(result: JscpdExecutionResult, expectedScope?: number): void;
   recordEffect?: (result: JscpdExecutionResult, expectedScope?: number) => Effect.Effect<void>;
   restore(lastCheck?: JscpdLastCheck): void;
@@ -148,6 +153,7 @@ export function createJscpdStatusAwareExecutor(
   sessionMode: JscpdSessionModeService,
   stateChanged: () => void = () => {},
   changedExecutor: JscpdCommandExecutor = scanExecutor,
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCommandExecutor {
   const executeEffect = (
     invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
@@ -163,8 +169,7 @@ export function createJscpdStatusAwareExecutor(
       stateChanged,
     );
   return {
-    execute: (invocation, context) =>
-      runEffectPromiseAtApplicationBoundary(executeEffect(invocation, context)),
+    execute: (invocation, context) => runtime.runPromise(executeEffect(invocation, context)),
     executeEffect,
   };
 }
@@ -174,9 +179,10 @@ export function createJscpdStatusService(
   configService: JscpdConfigService,
   sessionMode: JscpdSessionModeService,
   fallowCoexistence?: JscpdFallowCoexistenceService,
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdStatusService {
   const owner = new StatusOwner(capabilityService, configService, sessionMode, fallowCoexistence);
-  return statusServiceFor(owner);
+  return statusServiceFor(owner, runtime);
 }
 
 export function createJscpdStatusWorkflowLayer(
@@ -259,12 +265,10 @@ class StatusOwner {
   }
 }
 
-function statusServiceFor(owner: StatusOwner): JscpdStatusService {
-  const inspect = (context: JscpdExecutionContext) =>
-    owner.inspectEffect(context).pipe(Effect.provide(JscpdProcessLive));
+function statusServiceFor(owner: StatusOwner, runtime: JscpdEffectRuntime): JscpdStatusService {
   return {
-    inspect: (context) => runEffectPromiseAtApplicationBoundary(inspect(context)),
-    inspectEffect: inspect,
+    inspect: (context) => runtime.runPromise(owner.inspectEffect(context)),
+    inspectEffect: (context) => owner.inspectEffect(context),
     record: (result, expectedScope) => owner.record(result, expectedScope),
     recordEffect: (result, expectedScope) => Effect.sync(() => owner.record(result, expectedScope)),
     restore: (lastCheck) => owner.restore(lastCheck),
@@ -292,7 +296,7 @@ function statusAwareExecutionEffect(
   statusService: JscpdStatusService,
   sessionMode: JscpdSessionModeService,
   stateChanged: () => void,
-): Effect.Effect<JscpdExecutionResult> {
+): Effect.Effect<JscpdExecutionResult, never, JscpdRuntimeRequirements> {
   switch (invocation.command) {
     case "status":
       return statusInspectEffect(statusService, context);
@@ -338,7 +342,7 @@ function statusAwareExecutionEffect(
 function statusInspectEffect(
   status: JscpdStatusService,
   context: JscpdExecutionContext,
-): Effect.Effect<JscpdStatusResult> {
+): Effect.Effect<JscpdStatusResult, never, JscpdProcess> {
   return (
     status.inspectEffect?.(context) ??
     Effect.tryPromise({
@@ -354,7 +358,7 @@ function recordedExecutionEffect(
   context: Parameters<JscpdCommandExecutor["execute"]>[1],
   status: JscpdStatusService,
   stateChanged: () => void,
-): Effect.Effect<JscpdExecutionResult> {
+): Effect.Effect<JscpdExecutionResult, never, JscpdRuntimeRequirements> {
   return Effect.gen(function* () {
     const expectedScope = yield* statusScopeEffect(status);
     const result = yield* commandExecutionEffect(executor, invocation, context);
@@ -369,7 +373,7 @@ function commandExecutionEffect(
   executor: JscpdCommandExecutor,
   invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
   context: Parameters<JscpdCommandExecutor["execute"]>[1],
-): Effect.Effect<JscpdExecutionResult> {
+): Effect.Effect<JscpdExecutionResult, never, JscpdRuntimeRequirements> {
   if (executor.executeEffect) return executor.executeEffect(invocation, context);
   return Effect.tryPromise({
     try: () => executor.execute(invocation, context),

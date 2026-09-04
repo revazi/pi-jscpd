@@ -9,14 +9,12 @@ import {
   type JscpdIndexedCloneGroup,
 } from "./clone-identity.js";
 import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
 import type { JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReport, consumeJscpdV5JsonReportEffect } from "./jscpd-report.js";
 import { compareText, optionalCanonicalDirectoryEffect } from "./path-utils.js";
 import { presentJscpdChanged } from "./presentation.js";
-import { JscpdProcessLive } from "./process.js";
 import {
   adapterRunEffect,
   capabilityProbeEffect,
@@ -66,6 +64,7 @@ export function createJscpdChangedExecutor(
   changedFiles: JscpdChangedFileTracker,
   acknowledgements: JscpdAcknowledgementTracker,
   options: JscpdChangedExecutorOptions = {},
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCommandExecutor {
   const workflow = changedWorkflowFor(
     capabilityService,
@@ -75,18 +74,9 @@ export function createJscpdChangedExecutor(
     acknowledgements,
     options,
   );
-  const executeEffect = (
-    context: Parameters<JscpdCommandExecutor["execute"]>[1],
-  ): Effect.Effect<JscpdExecutionResult> =>
-    workflow
-      .execute(context)
-      .pipe(Effect.provide(JscpdProcessLive), Effect.provide(JscpdFileSystemLive));
   return {
-    execute: (_invocation, context) =>
-      runFileSystemEffectAtApplicationBoundary(
-        workflow.execute(context).pipe(Effect.provide(JscpdProcessLive)),
-      ),
-    executeEffect: (_invocation, context) => executeEffect(context),
+    execute: (_invocation, context) => runtime.runPromise(workflow.execute(context)),
+    executeEffect: (_invocation, context) => workflow.execute(context),
   };
 }
 

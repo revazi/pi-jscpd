@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import { Effect } from "effect";
-import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { runFileSystemEffectForTest } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
 import type { JscpdCloneOccurrence, JscpdClonePair, JscpdScanReport } from "./types.js";
@@ -64,7 +64,7 @@ export async function indexJscpdCloneReport(
   report: JscpdScanReport,
   cwd: string,
 ): Promise<JscpdCloneSnapshot> {
-  return runFileSystemEffectAtApplicationBoundary(indexJscpdCloneReportEffect(report, cwd));
+  return runFileSystemEffectForTest(indexJscpdCloneReportEffect(report, cwd));
 }
 
 export function indexJscpdCloneReportEffect(

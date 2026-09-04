@@ -5,13 +5,11 @@ import {
   type JscpdCapabilityService,
 } from "./capability.js";
 import { indexJscpdCloneReportEffect, type JscpdCloneSnapshot } from "./clone-identity.js";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runEffectPromiseAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReport, consumeJscpdV5JsonReportEffect } from "./jscpd-report.js";
 import { optionalCanonicalDirectoryEffect } from "./path-utils.js";
-import { JscpdProcessLive } from "./process.js";
 import {
   adapterRunEffect,
   capabilityProbeEffect,
@@ -59,6 +57,9 @@ export type JscpdBaselineState =
 export interface JscpdBaselineService {
   /** Replace current lifecycle state and schedule at most one capture for this generation. */
   start(context: JscpdBaselineStartContext): Promise<JscpdBaselineState>;
+  startEffect?: (
+    context: JscpdBaselineStartContext,
+  ) => Effect.Effect<JscpdBaselineState, never, JscpdFileSystem | JscpdProcess>;
   /** Await the current capture, if any. Never rejects. */
   wait(): Promise<JscpdBaselineState>;
   readonly waitEffect?: Effect.Effect<JscpdBaselineState>;
@@ -108,8 +109,9 @@ export function createJscpdBaselineService(
   capabilityService: JscpdCapabilityService,
   adapterService: JscpdService,
   options: JscpdBaselineOptions = {},
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdBaselineService {
-  return baselineServiceFor(new BaselineOwner(capabilityService, adapterService, options));
+  return baselineServiceFor(new BaselineOwner(capabilityService, adapterService, options), runtime);
 }
 
 export function createJscpdBaselineLayer(
@@ -241,13 +243,15 @@ function lifecycleCancelled(): JscpdBaselineState {
   return Object.freeze({ status: "cancelled", stage: "lifecycle" });
 }
 
-function baselineServiceFor(owner: BaselineOwner): JscpdBaselineService {
+function baselineServiceFor(
+  owner: BaselineOwner,
+  runtime: JscpdEffectRuntime,
+): JscpdBaselineService {
   const run = <A>(effect: Effect.Effect<A, never, JscpdFileSystem | JscpdProcess>) =>
-    runEffectPromiseAtApplicationBoundary(
-      effect.pipe(Effect.provide(JscpdProcessLive), Effect.provide(JscpdFileSystemLive)),
-    );
+    runtime.runPromise(effect);
   return {
     start: (context) => run(owner.startPreparedEffect(context)),
+    startEffect: (context) => owner.startPreparedEffect(context),
     wait: () => run(owner.waitEffect()),
     waitEffect: Effect.suspend(() => owner.waitEffect()),
     disable: () => owner.disable(),

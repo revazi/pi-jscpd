@@ -37,18 +37,18 @@ and disposal are composed as effects. The production executor calls
 `JscpdProcess` directly; injected compatibility executors remain a bounded test
 and adapter seam.
 
-## Temporary application bridge
+## Managed host boundary
 
-Application workflows now expose native effects, while the Pi/TUI host adapters
-still use temporary Promise facades. `src/effect/runtime-boundary.ts` is the only
-temporary production `Effect.run*` location. It does not create a private managed
-runtime; it executes short-lived effects on Effect's default runtime and bridges
-the existing Promise surface. The architecture checker allowlists this file and
-`src/extension.ts` only.
+Application workflows expose native effects, while compatibility Promise facades
+accept the extension-owned `JscpdEffectRuntime`. `src/effect/runtime-boundary.ts`
+is the only production/test adapter that calls `Effect.run*`; production creates
+one `ManagedRuntime` with process, filesystem, and clock layers. Lower process,
+analyzer, and capability modules never execute Effect directly.
 
-M7.7 removes the temporary bridge and routes these same effects through the one
-managed runtime/root scope owned by the extension instance. Lower process,
-analyzer, and capability modules never call `Effect.run*` themselves.
+Pi tools, commands, lifecycle handlers, automatic fibers, and overlay actions
+route through this runtime. Shutdown closes scheduler and analyzer resources
+before disposing its root layer scope. Isolated unit-level compatibility tests
+use the explicit test runner from the same boundary.
 
 ## Verification contract
 

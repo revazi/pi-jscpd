@@ -4,7 +4,7 @@ Issue [#66](https://github.com/revazi/pi-jscpd/issues/66) moves trusted
 configuration, path canonicalization, report-path normalization, clone source
 reads, and supported Fallow signal inspection behind the shared bounded
 filesystem service. This is the third release-blocking Effect migration slice;
-the managed extension runtime still waits for M7.7.
+M7.7 now supplies the managed extension runtime.
 
 ## Live filesystem layer
 
@@ -46,14 +46,13 @@ and continues to mark incomplete identities conservatively. Supported Fallow
 configuration and package signals remain capped at 64 KiB; unsupported JSONC or
 TOML signals stay ambiguous rather than being guessed.
 
-## Compatibility bridge
+## Compatibility boundary
 
-Existing Promise-facing application workflows call Effect-returning functions
-through `src/effect/runtime-boundary.ts` and `JscpdFileSystemLive`. There is no
-parallel legacy filesystem implementation in the migrated modules and no lower
-`Effect.run*` call. M7.6 will compose these services into application workflows,
-and M7.7 will replace the temporary bridge with the extension instance's single
-managed runtime and layer graph.
+Promise-facing compatibility helpers delegate to Effect-returning functions
+through the explicit test runner in `src/effect/runtime-boundary.ts`. There is no
+parallel legacy filesystem implementation and no lower `Effect.run*` call.
+Production application workflows use the extension instance's single managed
+runtime and `JscpdFileSystemLive` layer.
 
 ## Verification
 

@@ -3,8 +3,8 @@
 Issue [#69](https://github.com/revazi/pi-jscpd/issues/69) composes explicit scan,
 changed comparison, status/session controls, Fallow coexistence, and verification
 as Effect application programs. This is the sixth release-blocking migration
-slice; the Pi/TUI adapter still receives one managed runtime and final layer graph
-in M7.7.
+slice; M7.7 now supplies the Pi/TUI adapter's managed runtime and production
+layer graph.
 
 ## Application services
 
@@ -70,8 +70,9 @@ before the host receives its result.
 
 Promise facades call the same Effect workflow owner through
 `src/effect/runtime-boundary.ts`; they do not maintain a second implementation.
-M7.7 removes those facades from the production path when the extension constructs
-one managed runtime and supplies all layers.
+M7.7 keeps these facades only as host compatibility surfaces and supplies the
+same extension-owned managed runtime to each; native command composition does
+not invoke them internally.
 
 The architecture check now enforces that scan, changed, status, Fallow,
 baseline-capture, and verification workflow modules contain no async-function,

@@ -1,6 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Data, Effect } from "effect";
-import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { runFileSystemEffectForTest } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import {
   canonicalDirectoryEffect,
@@ -110,7 +110,7 @@ export async function consumeJscpdV5JsonReport(
   bytes: Uint8Array,
   cwd: string,
 ): Promise<JscpdReportDecision<JscpdScanReport>> {
-  return runFileSystemEffectAtApplicationBoundary(consumeJscpdV5JsonReportEffect(bytes, cwd));
+  return runFileSystemEffectForTest(consumeJscpdV5JsonReportEffect(bytes, cwd));
 }
 
 export function consumeJscpdV5JsonReportEffect(

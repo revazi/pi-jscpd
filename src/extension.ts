@@ -31,6 +31,11 @@ import { createJscpdConfigService, type JscpdConfigService } from "./config.js";
 import { type jscpdRunParams, jscpdToolContract } from "./contract.js";
 import { dispatchJscpdCommand } from "./dispatch.js";
 import {
+  createJscpdManagedRuntime,
+  type JscpdEffectRuntime,
+  JscpdTestEffectRuntime,
+} from "./effect/runtime-boundary.js";
+import {
   createJscpdFallowCoexistenceService,
   type JscpdFallowCoexistenceService,
 } from "./fallow.js";
@@ -66,6 +71,8 @@ type JscpdSlashCommandDefinition = Omit<RegisteredCommand, "name" | "sourceInfo"
 };
 
 export interface JscpdExtensionOptions {
+  /** Isolated host seam for runtime lifecycle tests; production creates one managed runtime. */
+  runtime?: JscpdEffectRuntime;
   executor?: JscpdCommandExecutor;
   capabilityService?: JscpdCapabilityService;
   adapterService?: JscpdService;
@@ -82,6 +89,7 @@ export function registerJscpdExtension(
   pi: ExtensionAPI,
   options: JscpdExtensionOptions = {},
 ): void {
+  const runtime = options.runtime ?? createJscpdManagedRuntime();
   let capabilityService = options.capabilityService;
   let executor = options.executor;
   let statusService: JscpdStatusService | undefined;
@@ -93,31 +101,37 @@ export function registerJscpdExtension(
   let baselineContext: JscpdBaselineStartContext | undefined;
   let shutdownPromise: Promise<void> | undefined;
   let persistSessionState = () => {};
-  const changedFiles = createJscpdChangedFileTracker();
+  const changedFiles = createJscpdChangedFileTracker(runtime);
   const acknowledgements = createJscpdAcknowledgementTracker();
-  const scheduler = options.scheduler ?? createJscpdScanScheduler();
-  const adapterService = options.adapterService ?? createJscpdService();
-  const configService = options.configService ?? createJscpdConfigService();
+  const scheduler = options.scheduler ?? createJscpdScanScheduler(runtime);
+  const adapterService = options.adapterService ?? createJscpdService({}, runtime);
+  const configService = options.configService ?? createJscpdConfigService(runtime);
   const fallowCoexistence =
-    options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService();
+    options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService(runtime);
   if (!executor) {
-    capabilityService ??= createJscpdCapabilityService();
+    capabilityService ??= createJscpdCapabilityService(undefined, runtime);
     verificationService ??= createJscpdVerificationService();
     sessionMode = createJscpdSessionModeService();
-    const scanExecutor = createJscpdScanExecutor(capabilityService, adapterService, {
-      config: () => ({
-        ...configService.current().config,
-        enabled: sessionMode?.isEnabled() ?? true,
-      }),
-      verification: verificationService,
-    });
+    const scanExecutor = createJscpdScanExecutor(
+      capabilityService,
+      adapterService,
+      {
+        config: () => ({
+          ...configService.current().config,
+          enabled: sessionMode?.isEnabled() ?? true,
+        }),
+        verification: verificationService,
+      },
+      runtime,
+    );
     statusService = createJscpdStatusService(
       capabilityService,
       configService,
       sessionMode,
       fallowCoexistence,
+      runtime,
     );
-    baselineService ??= createJscpdBaselineService(capabilityService, adapterService);
+    baselineService ??= createJscpdBaselineService(capabilityService, adapterService, {}, runtime);
     persistSessionState = () => {
       if (!sessionMode || !statusService) return;
       try {
@@ -143,6 +157,7 @@ export function registerJscpdExtension(
       changedFiles,
       acknowledgements,
       changedOptions,
+      runtime,
     );
     automaticAcknowledgements = createJscpdAutomaticAcknowledgementTransaction(acknowledgements);
     automaticCheck ??= createJscpdAutomaticCheck(
@@ -162,8 +177,10 @@ export function registerJscpdExtension(
           },
           prioritizeFindings: true,
         },
+        runtime,
       ),
       { beforeRun: automaticAcknowledgements.discard },
+      runtime,
     );
     executor = createJscpdStatusAwareExecutor(
       scanExecutor,
@@ -174,15 +191,19 @@ export function registerJscpdExtension(
         synchronizeBaselineMode(baselineService, baselineContext, sessionMode);
       },
       changedExecutor,
+      runtime,
     );
   }
-  executor = createJscpdScheduledExecutor(executor, scheduler);
+  executor = createJscpdScheduledExecutor(executor, scheduler, runtime);
   const overlayLauncher =
     options.overlayLauncher ??
     createJscpdOverlayLauncher(executor, { changedFileCount: () => changedFiles.files().length });
 
-  pi.registerTool(createJscpdToolDefinition(executor));
-  pi.registerCommand("jscpd", createJscpdSlashCommandDefinition(executor, overlayLauncher));
+  pi.registerTool(createJscpdToolDefinition(executor, runtime));
+  pi.registerCommand(
+    "jscpd",
+    createJscpdSlashCommandDefinition(executor, overlayLauncher, runtime),
+  );
 
   pi.on("session_start", async (_event, ctx) => {
     scheduler.reset();
@@ -317,9 +338,13 @@ export function registerJscpdExtension(
     verificationService?.reset();
     baselineService?.invalidate();
     shutdownPromise ??= Promise.resolve().then(async () => {
-      await scheduler.dispose();
-      capabilityService?.dispose();
-      await adapterService.dispose();
+      try {
+        await scheduler.dispose();
+        capabilityService?.dispose();
+        await adapterService.dispose();
+      } finally {
+        await runtime.dispose();
+      }
     });
     return shutdownPromise;
   });
@@ -539,7 +564,10 @@ function isBuiltInMutationTool(pi: ExtensionAPI, toolName: string): boolean {
   }
 }
 
-export function createJscpdToolDefinition(executor: JscpdCommandExecutor): JscpdToolDefinition {
+export function createJscpdToolDefinition(
+  executor: JscpdCommandExecutor,
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+): JscpdToolDefinition {
   return {
     ...jscpdToolContract,
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
@@ -548,6 +576,7 @@ export function createJscpdToolDefinition(executor: JscpdCommandExecutor): Jscpd
         params.args,
         { cwd: ctx.cwd, signal: signal ?? ctx.signal },
         executor,
+        runtime,
       );
       return {
         content: [{ type: "text", text: result.message }],
@@ -560,6 +589,7 @@ export function createJscpdToolDefinition(executor: JscpdCommandExecutor): Jscpd
 export function createJscpdSlashCommandDefinition(
   executor: JscpdCommandExecutor,
   overlayLauncher: JscpdOverlayLauncher = createJscpdOverlayLauncher(executor),
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdSlashCommandDefinition {
   return {
     description: "Open the jscpd overview or run an explicit subcommand.",
@@ -588,6 +618,7 @@ export function createJscpdSlashCommandDefinition(
         parsed.invocation.args,
         { cwd: ctx.cwd, signal: ctx.signal },
         executor,
+        runtime,
       );
       ctx.ui.notify(terminalResultMessage(result), resultNotificationLevel(result));
     },

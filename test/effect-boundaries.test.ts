@@ -6,6 +6,7 @@ const {
   MIGRATED_CONCURRENCY_BOUNDARIES,
   MIGRATED_FILESYSTEM_BOUNDARIES,
   findEffectRuntimeCalls,
+  findManagedRuntimeCreations,
   findNodeFileSystemImports,
   findPromiseWorkflowConstructs,
   findUnmanagedAsyncConstructs,
@@ -127,6 +128,23 @@ describe("Effect runtime architecture boundary", () => {
     expect(MIGRATED_CONCURRENCY_BOUNDARIES).toEqual(["src/automatic.ts", "src/scheduler.ts"]);
   });
 
+  it("detects managed runtime construction without matching comments or strings", () => {
+    const source = `
+      import { ManagedRuntime } from "effect";
+      const runtime = ManagedRuntime.make(Live);
+      const text = "ManagedRuntime.make(Fake)";
+      // ManagedRuntime.make(Commented)
+    `;
+
+    expect(findManagedRuntimeCreations(source, "src/effect/runtime-boundary.ts")).toEqual([
+      {
+        path: "src/effect/runtime-boundary.ts",
+        line: 3,
+        name: "ManagedRuntime.make",
+      },
+    ]);
+  });
+
   it("detects async and Promise-chain orchestration in migrated application modules", () => {
     const source = `
       async function workflow() { return await operation(); }
@@ -154,10 +172,7 @@ describe("Effect runtime architecture boundary", () => {
     ]);
   });
 
-  it("keeps runtime execution at the temporary application bridge and Pi adapter", () => {
-    expect(APPROVED_EFFECT_RUNTIME_BOUNDARIES).toEqual([
-      "src/effect/runtime-boundary.ts",
-      "src/extension.ts",
-    ]);
+  it("keeps runtime execution in the explicit managed Pi/test adapter", () => {
+    expect(APPROVED_EFFECT_RUNTIME_BOUNDARIES).toEqual(["src/effect/runtime-boundary.ts"]);
   });
 });

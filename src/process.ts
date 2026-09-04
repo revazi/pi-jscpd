@@ -9,7 +9,7 @@ import {
   JscpdOperationTimedOut,
   JscpdProcessFailure,
 } from "./effect/errors.js";
-import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import type { JscpdEffectRuntime } from "./effect/runtime-contract.js";
 import {
   JscpdProcess,
   type JscpdProcessRequest,
@@ -63,11 +63,12 @@ export const JscpdProcessLive = Layer.succeed(JscpdProcess, {
 });
 
 /**
- * Temporary Promise facade for existing application callers. The process implementation itself is
- * Effect-native; M7.7 replaces this bridge with the extension instance's managed runtime.
+ * Promise facade for isolated compatibility callers. Production receives the extension instance's
+ * managed runtime; the process implementation itself remains Effect-native.
  */
 export async function runBoundedProcess(
   request: BoundedProcessRequest,
+  runtime: JscpdEffectRuntime,
 ): Promise<BoundedProcessResult> {
   const processRequest: JscpdProcessRequest = {
     stage: request.stage ?? "scan",
@@ -80,8 +81,8 @@ export async function runBoundedProcess(
     terminationGraceMs: request.terminationGraceMs,
     forceSettleMs: request.forceSettleMs,
   };
-  const program = runBoundedProcessEffect(processRequest).pipe(Effect.provide(JscpdProcessLive));
-  const exit = await runEffectExitAtApplicationBoundary(program, request.signal);
+  const program = runBoundedProcessEffect(processRequest);
+  const exit = await runtime.runPromiseExit(program, request.signal);
   if (Exit.isSuccess(exit)) return exit.value;
   return Cause.isInterruptedOnly(exit.cause) || request.signal.aborted
     ? { status: "cancelled" }

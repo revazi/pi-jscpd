@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Context, Effect, Layer, MutableRef } from "effect";
-import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { compareText, hasControlCharacters, isPathInside } from "./path-utils.js";
 
@@ -21,12 +21,20 @@ export interface JscpdMutationToolResult {
 export interface JscpdChangedFileTracker {
   /** Bind the tracker to one project and restore only its active-branch snapshot. */
   start(cwd: string, restored?: readonly string[]): Promise<void>;
+  startEffect?: (
+    cwd: string,
+    restored?: readonly string[],
+  ) => Effect.Effect<void, never, JscpdFileSystem>;
   /** Invalidate pending path work and clear all in-memory session state. */
   reset(): void;
   /** Record one verified built-in tool result. Returns true only for a newly tracked path. */
   recordToolResult(event: JscpdMutationToolResult, cwd: string): Promise<boolean>;
   /** Record and return the canonical path even when it was already tracked. */
   recordToolResultPath(event: JscpdMutationToolResult, cwd: string): Promise<string | undefined>;
+  recordToolResultPathEffect?: (
+    event: JscpdMutationToolResult,
+    cwd: string,
+  ) => Effect.Effect<string | undefined, never, JscpdFileSystem>;
   /** Deterministically sorted canonical project-relative paths. */
   files(): readonly string[];
   readonly filesEffect?: Effect.Effect<readonly string[]>;
@@ -73,8 +81,10 @@ export const JscpdChangedFiles = Context.GenericTag<JscpdChangedFilesEffectServi
  * Track a bounded, append-only set of files attributed to successful built-in edit/write results.
  * Tool provenance must be verified by the caller; arbitrary result text and shell output are ignored.
  */
-export function createJscpdChangedFileTracker(): JscpdChangedFileTracker {
-  return changedFileTrackerFor(new ChangedFileOwner());
+export function createJscpdChangedFileTracker(
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+): JscpdChangedFileTracker {
+  return changedFileTrackerFor(new ChangedFileOwner(), runtime);
 }
 
 export function createJscpdChangedFilesLayer() {
@@ -168,16 +178,21 @@ class ChangedFileOwner {
   }
 }
 
-function changedFileTrackerFor(owner: ChangedFileOwner): JscpdChangedFileTracker {
-  const run = <A>(effect: Effect.Effect<A, never, JscpdFileSystem>) =>
-    runFileSystemEffectAtApplicationBoundary(effect);
+function changedFileTrackerFor(
+  owner: ChangedFileOwner,
+  runtime: JscpdEffectRuntime,
+): JscpdChangedFileTracker {
+  const run = <A>(effect: Effect.Effect<A, never, JscpdFileSystem>) => runtime.runPromise(effect);
   return {
     start: (cwd, restored) => run(owner.startPreparedEffect(cwd, restored)),
+    startEffect: (cwd, restored) => owner.startPreparedEffect(cwd, restored),
     reset: () => owner.reset(),
     recordToolResult: (event, cwd) =>
       run(owner.recordEffect(event, cwd)).then((result) => result?.added ?? false),
     recordToolResultPath: (event, cwd) =>
       run(owner.recordEffect(event, cwd)).then((result) => result?.path),
+    recordToolResultPathEffect: (event, cwd) =>
+      owner.recordEffect(event, cwd).pipe(Effect.map((result) => result?.path)),
     files: () => owner.files(),
     filesEffect: Effect.sync(() => owner.files()),
   };

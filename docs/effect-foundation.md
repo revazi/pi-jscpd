@@ -6,9 +6,9 @@ only. M7.2 builds on these contracts for process and analyzer resources, M7.3
 provides the bounded filesystem layer used by configuration and external data
 boundaries, M7.4 moves lifecycle-bound domain state to Effect-owned services,
 M7.5 moves scheduling and automatic delivery to scoped fibers and Effect
-transactions, and M7.6 composes the application workflows. Pi and TUI adapters
-retain the final characterized migration boundary. The single managed extension
-runtime still waits for M7.7.
+transactions, M7.6 composes the application workflows, and M7.7 routes Pi/TUI
+host work through one managed extension runtime. The final legacy-removal and
+conformance audit remains.
 
 ## Reviewed dependency
 
@@ -49,7 +49,8 @@ port. M7.6 adds scan, changed, status/session-mode, and Fallow application tags.
 See the [filesystem and decoding boundary](effect-filesystem.md),
 [Effect-owned domain state](effect-domain-state.md),
 [Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md),
-and [Effect-composed application workflows](effect-application-workflows.md).
+[Effect-composed application workflows](effect-application-workflows.md), and
+the [Managed Effect runtime and Pi boundary](effect-managed-runtime.md).
 
 ## Stable expected-error taxonomy
 
@@ -102,11 +103,11 @@ contains them with the existing fail-open result.
 
 `npm run architecture:check` uses the TypeScript syntax tree to find `Effect.run*`
 calls through named imports, aliases, namespace imports, property access, and
-element access while ignoring comments and strings. It scans `src` only. M7.2
-adds `src/effect/runtime-boundary.ts` as the single temporary Promise bridge for
-existing application callers; `src/extension.ts` remains the final Pi adapter
-boundary. M7.7 removes the temporary bridge when it constructs the managed
-extension runtime.
+element access while ignoring comments and strings. It scans `src` only. M7.7
+makes `src/effect/runtime-boundary.ts` the sole production/test execution adapter,
+asserts exactly one `ManagedRuntime.make` factory, and removes `src/extension.ts`
+from the direct-runtime allowlist. Production facades receive that managed
+runtime; isolated compatibility tests receive the explicit test runner.
 
 Tests and package-certification probes are isolated test boundaries and may run
 or import Effect. Future migration slices should extend detection only when a new
