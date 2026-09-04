@@ -7,6 +7,7 @@ import {
   handleJscpdAutomaticPiResultEffect,
   JscpdAutomaticChecking,
 } from "../src/automatic.js";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
   createJscpdScanSchedulerLayer,
   type JscpdAutomaticScanContext,
@@ -160,7 +161,7 @@ describe("Effect automatic checking and delivery", () => {
       }),
     );
 
-    const disposition = await Effect.runPromise(
+    const disposition = await JscpdTestEffectRuntime.runPromise(
       program.pipe(Effect.provide(createJscpdAutomaticCheckLayer({ execute }))),
     );
 

@@ -10,6 +10,7 @@ import { createJscpdChangedWorkflowLayer, JscpdChangedWorkflow } from "../src/ch
 import type { JscpdChangedFileTracker } from "../src/changed-files.js";
 import type { JscpdConfigService } from "../src/config.js";
 import { JscpdFileSystemFailure } from "../src/effect/errors.js";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
   type JscpdFileSystem,
   JscpdFileSystem as JscpdFileSystemTag,
@@ -453,7 +454,7 @@ describe("Effect application workflows", () => {
       return { result, lastCheck: status.lastCheck() };
     });
 
-    const result = await Effect.runPromise(program);
+    const result = await JscpdTestEffectRuntime.runPromise(program);
 
     expect(result.result).toMatchObject({ status: "failed", reason: "scan-timed-out" });
     expect(result.lastCheck).toEqual({ state: "clean" });
@@ -557,7 +558,7 @@ describe("Effect application workflows", () => {
     const status = createJscpdStatusService(capability(), statusConfig, mode);
     const executor = createJscpdStatusAwareExecutor({ execute, executeEffect }, status, mode);
 
-    const result = await Effect.runPromise(
+    const result = await JscpdTestEffectRuntime.runPromise(
       executor.executeEffect?.({ command: "scan", args: [] }, { cwd: project }) ?? Effect.never,
     );
 

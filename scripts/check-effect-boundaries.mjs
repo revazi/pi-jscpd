@@ -7,11 +7,8 @@ import ts from "typescript";
 const root = resolve(import.meta.dirname, "..");
 const sourceRoot = join(root, "src");
 
-/** Approved host bridges; the temporary bridge is removed when M7.7 owns the managed runtime. */
-export const APPROVED_EFFECT_RUNTIME_BOUNDARIES = Object.freeze([
-  "src/effect/runtime-boundary.ts",
-  "src/extension.ts",
-]);
+/** Explicit managed Pi/test runtime adapter; no lower module may execute Effect directly. */
+export const APPROVED_EFFECT_RUNTIME_BOUNDARIES = Object.freeze(["src/effect/runtime-boundary.ts"]);
 
 export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
   "src/changed-files.ts",
@@ -57,11 +54,13 @@ export function checkEffectBoundaries() {
   const concurrencyViolations = [];
   const applicationViolations = [];
   let runtimeCalls = 0;
+  let managedRuntimeCreations = 0;
   for (const absolutePath of typescriptFiles(sourceRoot)) {
     const path = relative(root, absolutePath).replaceAll("\\", "/");
     const sourceText = readFileSync(absolutePath, "utf8");
     const calls = findEffectRuntimeCalls(sourceText, path);
     runtimeCalls += calls.length;
+    managedRuntimeCreations += findManagedRuntimeCreations(sourceText, path).length;
     if (!APPROVED_EFFECT_RUNTIME_BOUNDARIES.includes(path)) violations.push(...calls);
     if (
       MIGRATED_FILESYSTEM_BOUNDARIES.includes(path) &&
@@ -82,6 +81,11 @@ export function checkEffectBoundaries() {
     `Effect runtime calls are allowed only in ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}:\n${violations
       .map(({ path, line, name }) => `- ${path}:${line} ${name}`)
       .join("\n")}`,
+  );
+  assert.equal(
+    managedRuntimeCreations,
+    1,
+    "Source must contain exactly one ManagedRuntime.make production factory.",
   );
   assert.deepEqual(
     filesystemViolations,
@@ -105,8 +109,21 @@ export function checkEffectBoundaries() {
       .join("\n")}`,
   );
   console.log(
-    `Effect boundary check passed: ${runtimeCalls} runtime calls in src; approved boundaries: ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer; ${MIGRATED_CONCURRENCY_BOUNDARIES.length} migrated concurrency modules contain no unmanaged Promise/timer creation; ${MIGRATED_APPLICATION_BOUNDARIES.length} application modules contain no async/Promise-chain orchestration.`,
+    `Effect boundary check passed: ${runtimeCalls} direct test-runtime calls and ${managedRuntimeCreations} managed-runtime factory in ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer; ${MIGRATED_CONCURRENCY_BOUNDARIES.length} migrated concurrency modules contain no unmanaged Promise/timer creation; ${MIGRATED_APPLICATION_BOUNDARIES.length} application modules contain no async/Promise-chain orchestration.`,
   );
+}
+
+export function findManagedRuntimeCreations(sourceText, path = "fixture.ts") {
+  return findNamedSyntax(sourceText, path, (node) => {
+    if (!ts.isCallExpression(node)) return undefined;
+    const member = memberParts(node.expression);
+    return member &&
+      member.name === "make" &&
+      ts.isIdentifier(member.receiver) &&
+      member.receiver.text === "ManagedRuntime"
+      ? "ManagedRuntime.make"
+      : undefined;
+  });
 }
 
 export function findPromiseWorkflowConstructs(sourceText, path = "fixture.ts") {

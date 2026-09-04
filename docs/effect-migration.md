@@ -203,8 +203,8 @@ rendering remain ordinary TypeScript. See the
 
 Trust gates, no-follow checks, canonical containment, strict schemas, atomic
 configuration rejection, source-fragment omission, and byte limits remain
-unchanged. Remaining Promise callers cross the same temporary application bridge
-until their ordered workflow or Pi-boundary slice removes it.
+unchanged. Remaining compatibility Promise callers delegate to the same effects
+through the managed host runtime or explicit isolated-test runner.
 
 ### Step 4 — Stateful domain services ([#67](https://github.com/revazi/pi-jscpd/issues/67))
 
@@ -241,10 +241,13 @@ and pure presentation/comparison functions are unchanged. See
 
 ### Step 7 — Pi and TUI boundary ([#70](https://github.com/revazi/pi-jscpd/issues/70))
 
-Create the production layer graph and one managed runtime in the extension.
-Route commands, tools, lifecycle handlers, automatic fibers, and overlay actions
-through it. Keep Pi TUI component mechanics imperative where required, but do
-not let the overlay create a second runtime.
+Implemented on the unreleased branch: each extension instance owns one managed
+runtime and production process/filesystem/clock layer graph. Commands, tools,
+lifecycle work, automatic fibers, and effectful overlay actions use that runtime;
+Pi cancellation interrupts native command fibers, and idempotent shutdown awaits
+owned finalizers before disposing the runtime scope. Imperative Pi registration
+and TUI rendering remain callback-driven. See
+[Managed Effect runtime and Pi boundary](effect-managed-runtime.md).
 
 ### Step 8 — Legacy removal and conformance ([#71](https://github.com/revazi/pi-jscpd/issues/71))
 

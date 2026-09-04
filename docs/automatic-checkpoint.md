@@ -220,8 +220,8 @@ lifecycle scope leaves the generation retryable without acknowledging it.
 M7.5 replaces the scheduler's mutable Promise/microtask owner with scoped Effect
 fibers, composes automatic checks directly through the scheduler's default Effect
 path, and moves acknowledgement staging plus Pi delivery ordering to Effect. The
-temporary compatibility facade delegates to the same owner until M7.7 supplies
-the extension root scope. See
+compatibility facade delegates to the same owner through the managed runtime M7.7
+supplies; M7.8 removes obsolete facade paths. See
 [Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md).
 
 Focused tests cover coalescing, scheduler freshness, clean and failure status,

@@ -67,13 +67,14 @@ pure comparison functions.
 Snapshot encoding, version 1/2 migration, strict version 3 decoding, and bounded
 validation remain plain deterministic TypeScript. The new
 `persistJscpdSessionStateEffect` sends an already-bounded snapshot through
-`JscpdPiPort`, preserving typed `JscpdPersistenceFailure`. The Pi adapter will
-adopt that port when M7.7 constructs the managed runtime; no global or filesystem
-persistence was added.
+`JscpdPiPort`, preserving typed `JscpdPersistenceFailure`. The managed runtime
+keeps this narrow port available for final host-adapter conformance; no global or
+filesystem persistence was added.
 
 ## Compatibility bridge and tests
 
-Promise-facing callers temporarily execute the Effect programs through
+Promise-facing compatibility callers submit the same Effect programs through
+the supplied `JscpdEffectRuntime`; isolated tests use the explicit runner in
 `src/effect/runtime-boundary.ts`. Synchronous acknowledgement and verification
 calls use the same `MutableRef` owners directly, so no duplicate mutable closure
 or Promise implementation remains. M7.5 consumes these acknowledgement owners

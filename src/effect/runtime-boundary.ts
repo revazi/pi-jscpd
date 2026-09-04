@@ -1,49 +1,68 @@
 import {
   Cause,
   Effect,
-  type Exit as EffectExit,
   type Scope as EffectScope,
   Exit,
+  Layer,
+  ManagedRuntime,
   Scope,
 } from "effect";
+import { JscpdProcessLive } from "../process.js";
+import { JscpdClockLive } from "./clock.js";
 import { JscpdFileSystemLive } from "./filesystem.js";
+import type { JscpdEffectRuntime, JscpdRuntimeRequirements } from "./runtime-contract.js";
 import type { JscpdFileSystem } from "./services.js";
 
-/** Temporary non-throwing bridge for interruption and typed-failure inspection. */
-export function runEffectExitAtApplicationBoundary<A, E>(
-  effect: Effect.Effect<A, E>,
-  signal?: AbortSignal,
-): Promise<EffectExit.Exit<A, E>> {
-  return Effect.runPromiseExit(effect, signal ? { signal } : undefined);
+export type { JscpdEffectRuntime, JscpdRuntimeRequirements } from "./runtime-contract.js";
+
+const JscpdRuntimeLive = Layer.mergeAll(JscpdClockLive, JscpdFileSystemLive, JscpdProcessLive);
+
+/** Create the sole managed production runtime for one extension instance. */
+export function createJscpdManagedRuntime(): JscpdEffectRuntime {
+  const runtime = ManagedRuntime.make(JscpdRuntimeLive);
+  return {
+    runPromise: (effect, signal) => runtime.runPromise(effect, signal ? { signal } : undefined),
+    runPromiseExit: (effect, signal) =>
+      runtime.runPromiseExit(effect, signal ? { signal } : undefined),
+    runSync: (effect) => runtime.runSync(effect),
+    dispose: () => runtime.dispose(),
+  } as JscpdEffectRuntime;
 }
 
-/** Temporary Promise bridge for migrated application services. */
-export function runEffectPromiseAtApplicationBoundary<A, E>(
-  effect: Effect.Effect<A, E>,
-  signal?: AbortSignal,
-): Promise<A> {
-  return Effect.runPromise(effect, signal ? { signal } : undefined);
+/** Isolated compatibility runner used only by direct unit-level service factories. */
+export const JscpdTestEffectRuntime: JscpdEffectRuntime = {
+  runPromise: (effect, signal) =>
+    Effect.runPromise(testProgram(effect), signal ? { signal } : undefined),
+  runPromiseExit: (effect, signal) =>
+    Effect.runPromiseExit(testProgram(effect), signal ? { signal } : undefined),
+  runSync: (effect) => Effect.runSync(testProgram(effect)),
+  dispose: () => Promise.resolve(),
+};
+
+function testProgram<A, E, R extends JscpdRuntimeRequirements>(
+  effect: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E> {
+  return effect.pipe(Effect.provide(JscpdRuntimeLive)) as Effect.Effect<A, E>;
 }
 
-/** Temporary synchronous bridge for compatibility facades over one Effect-owned owner. */
-export function runEffectSyncAtApplicationBoundary<A, E>(effect: Effect.Effect<A, E>): A {
-  return Effect.runSync(effect);
+export function makeEffectScope(runtime: JscpdEffectRuntime): EffectScope.CloseableScope {
+  return runtime.runSync(Scope.make());
 }
 
-/** Temporary scope for compatibility-owned fibers until M7.7 supplies the extension root scope. */
-export function makeEffectScopeAtApplicationBoundary(): EffectScope.CloseableScope {
-  return runEffectSyncAtApplicationBoundary(Scope.make());
-}
-
-/** Temporary bridge for Promise callers of filesystem-dependent Effect services. */
-export async function runFileSystemEffectAtApplicationBoundary<A, E>(
+/** Isolated compatibility adapter retained for deterministic lower-service tests. */
+export function runFileSystemEffectForTest<A, E>(
   effect: Effect.Effect<A, E, JscpdFileSystem>,
   signal?: AbortSignal,
 ): Promise<A> {
-  const exit = await runEffectExitAtApplicationBoundary(
-    effect.pipe(Effect.provide(JscpdFileSystemLive)),
-    signal,
-  );
+  return runFileSystemEffect(JscpdTestEffectRuntime, effect, signal);
+}
+
+async function runFileSystemEffect<A, E>(
+  runtime: JscpdEffectRuntime,
+  effect: Effect.Effect<A, E, JscpdFileSystem>,
+  signal?: AbortSignal,
+): Promise<A> {
+  const exit = await runtime.runPromiseExit(effect, signal);
   if (Exit.isSuccess(exit)) return exit.value;
   throw Cause.squash(exit.cause);
 }

@@ -1,7 +1,6 @@
 import { join } from "node:path";
 import { Context, Effect, Layer, MutableRef } from "effect";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
 
@@ -39,7 +38,7 @@ export interface JscpdFallowCoexistenceService {
   evaluate(context: JscpdFallowCoexistenceContext): Promise<JscpdFallowCoexistenceState>;
   evaluateEffect?: (
     context: JscpdFallowCoexistenceContext,
-  ) => Effect.Effect<JscpdFallowCoexistenceState>;
+  ) => Effect.Effect<JscpdFallowCoexistenceState, never, JscpdFileSystem>;
   current(): JscpdFallowCoexistenceState;
   automaticAllowed(): boolean;
   takeNotice(): string | undefined;
@@ -67,12 +66,13 @@ interface ProjectSignals {
   readonly unreadable: boolean;
 }
 
-export function createJscpdFallowCoexistenceService(): JscpdFallowCoexistenceService {
+export function createJscpdFallowCoexistenceService(
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+): JscpdFallowCoexistenceService {
   const owner = new FallowWorkflowOwner();
   return {
-    evaluate: (context) => runFileSystemEffectAtApplicationBoundary(owner.evaluateEffect(context)),
-    evaluateEffect: (context) =>
-      owner.evaluateEffect(context).pipe(Effect.provide(JscpdFileSystemLive)),
+    evaluate: (context) => runtime.runPromise(owner.evaluateEffect(context)),
+    evaluateEffect: (context) => owner.evaluateEffect(context),
     current: () => owner.current(),
     automaticAllowed: () => owner.current().automaticAllowed,
     takeNotice: () => owner.takeNotice(),
@@ -154,8 +154,9 @@ class FallowWorkflowOwner {
 
 export function evaluateJscpdFallowCoexistence(
   context: JscpdFallowCoexistenceContext,
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): Promise<JscpdFallowCoexistenceState> {
-  return runFileSystemEffectAtApplicationBoundary(evaluateJscpdFallowCoexistenceEffect(context));
+  return runtime.runPromise(evaluateJscpdFallowCoexistenceEffect(context));
 }
 
 export function evaluateJscpdFallowCoexistenceEffect(

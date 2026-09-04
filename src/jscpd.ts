@@ -4,14 +4,12 @@ import { chmod, lstat, mkdtemp, open, realpath, rm, stat } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { Cause, Context, Effect, Exit, Layer } from "effect";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
 import { isJscpdReportErrorCode, JSCPD_STRUCTURED_REPORT_FILE_NAME } from "./jscpd-report.js";
 import {
   type BoundedProcessResult,
   createProcessEnvironmentWithPath,
-  JscpdProcessLive,
   runBoundedProcessEffect,
 } from "./process.js";
 import type { JscpdReportDecision, JscpdReportErrorCode } from "./types.js";
@@ -113,6 +111,7 @@ export interface JscpdService {
   ) => Effect.Effect<JscpdRunResult<T>, never, JscpdProcess | JscpdFileSystem>;
   invalidate(): void;
   dispose(): Promise<void>;
+  disposeEffect?(): Effect.Effect<void>;
 }
 
 export interface JscpdServiceOptions {
@@ -168,8 +167,11 @@ type ConsumptionResult<T> =
   | { status: "failed" }
   | { status: "timed-out" };
 
-export function createJscpdService(options: JscpdServiceOptions = {}): JscpdService {
-  return new DefaultJscpdService(resolveServiceOptions(options));
+export function createJscpdService(
+  options: JscpdServiceOptions = {},
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+): JscpdService {
+  return new DefaultJscpdService(resolveServiceOptions(options), runtime);
 }
 
 /** Scoped Effect service used by later application slices without a Promise facade. */
@@ -185,13 +187,18 @@ export function createJscpdLayer(options: JscpdServiceOptions = {}) {
 
 class DefaultJscpdService implements JscpdService {
   readonly #options: ResolvedServiceOptions;
+  readonly #runtime: JscpdEffectRuntime;
   readonly #semaphore = Effect.unsafeMakeSemaphore(1);
   readonly #jobs = new Set<EffectJob>();
   #disposed = false;
   #disposePromise: Promise<void> | undefined;
 
-  constructor(options: ResolvedServiceOptions) {
+  constructor(
+    options: ResolvedServiceOptions,
+    runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+  ) {
     this.#options = options;
+    this.#runtime = runtime;
   }
 
   run<T>(request: JscpdRunRequest<T>): Promise<JscpdRunResult<T>> {
@@ -203,15 +210,14 @@ class DefaultJscpdService implements JscpdService {
 
     const job = this.#createJob(request as JscpdRunRequest<unknown>);
     this.#jobs.add(job);
-    const program = this.#runJobEffect(job).pipe(
-      Effect.provide(JscpdProcessLive),
-      Effect.provide(JscpdFileSystemLive),
-    );
-    return runEffectExitAtApplicationBoundary(program).then((exit) =>
-      Exit.isSuccess(exit)
-        ? (exit.value as JscpdRunResult<T>)
-        : ({ status: "failed", reason: "internal-error" } as JscpdRunResult<T>),
-    );
+    const program = this.#runJobEffect(job);
+    return this.#runtime
+      .runPromiseExit(program)
+      .then((exit) =>
+        Exit.isSuccess(exit)
+          ? (exit.value as JscpdRunResult<T>)
+          : ({ status: "failed", reason: "internal-error" } as JscpdRunResult<T>),
+      );
   }
 
   runEffect<T>(
@@ -270,9 +276,9 @@ class DefaultJscpdService implements JscpdService {
 
   dispose(): Promise<void> {
     if (!this.#disposePromise) {
-      this.#disposePromise = runEffectExitAtApplicationBoundary(this.disposeEffect()).then(
-        () => undefined,
-      );
+      this.#disposePromise = this.#runtime
+        .runPromiseExit(this.disposeEffect())
+        .then(() => undefined);
     }
     return this.#disposePromise;
   }

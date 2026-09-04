@@ -1,10 +1,9 @@
 import { delimiter, dirname, join, parse, resolve } from "node:path";
 import { Context, Effect, Exit, Layer } from "effect";
-import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import type { JscpdProcess } from "./effect/services.js";
 import {
   createProcessEnvironmentWithPath,
-  JscpdProcessLive,
   runBoundedProcess,
   runBoundedProcessEffect,
 } from "./process.js";
@@ -177,8 +176,9 @@ export function createNodeProbeExecutor(): JscpdProbeExecutor {
 
 export function createJscpdCapabilityService(
   executor: JscpdProbeExecutor = createNodeProbeExecutor(),
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCapabilityService {
-  return new DefaultJscpdCapabilityService(executor);
+  return new DefaultJscpdCapabilityService(executor, runtime);
 }
 
 /** Scoped capability layer whose cache and active probes belong to one service instance. */
@@ -196,14 +196,16 @@ export function createJscpdCapabilityLayer(
 
 class DefaultJscpdCapabilityService implements JscpdCapabilityService {
   readonly #executor: JscpdProbeExecutor;
+  readonly #runtime: JscpdEffectRuntime;
   readonly #activeControllers = new Set<AbortController>();
   #cache: CachedCapability | undefined;
   #resolutionKey: string | undefined;
   #generation = 0;
   #disposed = false;
 
-  constructor(executor: JscpdProbeExecutor) {
+  constructor(executor: JscpdProbeExecutor, runtime: JscpdEffectRuntime = JscpdTestEffectRuntime) {
     this.#executor = executor;
+    this.#runtime = runtime;
   }
 
   async probe(request: JscpdCapabilityRequest): Promise<JscpdCapabilityResult> {
@@ -213,10 +215,8 @@ class DefaultJscpdCapabilityService implements JscpdCapabilityService {
     const cached = this.#cachedResult(context.key);
     if (cached) return cached;
 
-    const program = this.#probeUncachedEffect(context, request.signal).pipe(
-      Effect.provide(JscpdProcessLive),
-    );
-    const exit = await runEffectExitAtApplicationBoundary(program);
+    const program = this.#probeUncachedEffect(context, request.signal);
+    const exit = await this.#runtime.runPromiseExit(program);
     return Exit.isSuccess(exit)
       ? exit.value
       : { status: "failed", executable: "jscpd", reason: "execution-error" };
@@ -562,16 +562,19 @@ function executeNodeProbeEffect(
 async function executeNodeProbe(
   request: JscpdProbeExecutionRequest,
 ): Promise<JscpdProbeExecutionResult> {
-  const result = await runBoundedProcess({
-    stage: "probe",
-    executable: request.executable,
-    args: request.args,
-    cwd: request.cwd,
-    env: createProcessEnvironmentWithPath(request.path),
-    signal: request.signal,
-    timeoutMs: request.timeoutMs,
-    maxOutputBytes: request.maxOutputBytes,
-  });
+  const result = await runBoundedProcess(
+    {
+      stage: "probe",
+      executable: request.executable,
+      args: request.args,
+      cwd: request.cwd,
+      env: createProcessEnvironmentWithPath(request.path),
+      signal: request.signal,
+      timeoutMs: request.timeoutMs,
+      maxOutputBytes: request.maxOutputBytes,
+    },
+    JscpdTestEffectRuntime,
+  );
 
   return probeExecutionResult(result);
 }

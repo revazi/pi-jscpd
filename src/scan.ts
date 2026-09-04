@@ -8,8 +8,7 @@ import {
 } from "./capability.js";
 import { indexJscpdCloneReportEffect } from "./clone-identity.js";
 import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem, type JscpdProcess } from "./effect/services.js";
 import type {
   JscpdRunFailureReason,
@@ -24,7 +23,6 @@ import {
 } from "./jscpd-report.js";
 import { isPathInside, optionalCanonicalDirectoryEffect } from "./path-utils.js";
 import { presentJscpdScan } from "./presentation.js";
-import { JscpdProcessLive } from "./process.js";
 import type {
   JscpdCommandExecutor,
   JscpdExecutionResult,
@@ -76,17 +74,12 @@ export function createJscpdScanExecutor(
   capabilityService: JscpdCapabilityService,
   service: JscpdService,
   options: JscpdScanExecutorOptions = {},
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCommandExecutor {
   const workflow = scanWorkflowFor(capabilityService, service, options);
   return {
-    execute: (invocation, context) =>
-      runFileSystemEffectAtApplicationBoundary(
-        workflow.execute(invocation, context).pipe(Effect.provide(JscpdProcessLive)),
-      ),
-    executeEffect: (invocation, context) =>
-      workflow
-        .execute(invocation, context)
-        .pipe(Effect.provide(JscpdProcessLive), Effect.provide(JscpdFileSystemLive)),
+    execute: (invocation, context) => runtime.runPromise(workflow.execute(invocation, context)),
+    executeEffect: (invocation, context) => workflow.execute(invocation, context),
   };
 }
 

@@ -32,6 +32,9 @@ until publication is approved.
 - Effect-composed scan, changed, status/session-control, Fallow coexistence,
   report-decoding, and verification workflows with one compatibility boundary
   and unchanged bounded public results.
+- One managed Effect runtime and production process/filesystem/clock layer graph
+  per extension instance, with native Pi cancellation, effectful dispatch,
+  idempotent finalizer-aware shutdown, and no nested command/overlay runtimes.
 - Strict normalized jscpd JSON report validation and scope-safe explicit scans.
 - Trusted extension configuration, session controls, branch-local state, and
   changed-file attribution.

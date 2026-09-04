@@ -3,7 +3,7 @@
 Issue [#68](https://github.com/revazi/pi-jscpd/issues/68) moves dirty-generation
 scheduling, automatic changed checks, interruption, and delivery transactions to
 Effect. This is the fifth release-blocking migration slice; M7.6 composes the
-application workflows, while the single managed extension runtime remains M7.7.
+application workflows, and M7.7 supplies the single managed extension runtime.
 
 ## Scheduler ownership
 
@@ -31,10 +31,10 @@ a quiet terminal attempt, matching the prior fail-open behavior. Explicit scans
 interrupt scheduler-owned automatic work before entering the existing serialized
 jscpd adapter; they do not share automatic cancellation ownership.
 
-The temporary Promise-compatible scheduler facade creates an owned Effect scope
-through `src/effect/runtime-boundary.ts`. The production layer instead receives
-the extension scope. M7.7 removes the compatibility scope when the extension
-constructs its one managed runtime and root layer graph.
+The Promise-compatible scheduler facade creates its owned Effect scope through
+the supplied host runtime. Production passes the extension's single managed
+runtime, while isolated tests use the explicit test runner. The final cleanup
+slice removes obsolete facade ownership.
 
 ## Automatic check composition
 

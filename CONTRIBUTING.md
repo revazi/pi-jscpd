@@ -73,7 +73,9 @@ so jscpd remains this project's single duplication authority.
   use scoped fibers, preserve explicit-work priority and retry eligibility, and
   commit acknowledgements only after successful quiet Pi delivery. Application
   workflows must compose existing service effects, keep public result mapping at
-  one boundary, and leave deterministic comparison/presentation code pure.
+  one boundary, and leave deterministic comparison/presentation code pure. Only
+  `src/effect/runtime-boundary.ts` may execute Effect; production work must use
+  the single runtime passed from extension composition.
 - Remove the superseded internal Promise path in the same slice; temporary
   adapters are allowed only at documented outer boundaries.
 - Do not combine a migration slice with unrelated public behavior changes.

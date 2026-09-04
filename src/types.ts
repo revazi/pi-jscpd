@@ -280,7 +280,11 @@ export interface JscpdCommandExecutor {
   executeEffect?: (
     invocation: JscpdCommandInvocation,
     context: JscpdExecutionContext,
-  ) => import("effect").Effect.Effect<JscpdExecutionResult>;
+  ) => import("effect").Effect.Effect<
+    JscpdExecutionResult,
+    never,
+    import("./effect/runtime-boundary.js").JscpdRuntimeRequirements
+  >;
 }
 
 export type JscpdInputErrorCode =

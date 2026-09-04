@@ -1,8 +1,9 @@
 import { Cause, Context, Effect, Layer, MutableRef } from "effect";
 import type { JscpdAcknowledgedFinding, JscpdAcknowledgementTracker } from "./acknowledgements.js";
 import {
-  runEffectPromiseAtApplicationBoundary,
-  runEffectSyncAtApplicationBoundary,
+  type JscpdEffectRuntime,
+  type JscpdRuntimeRequirements,
+  JscpdTestEffectRuntime,
 } from "./effect/runtime-boundary.js";
 import { JscpdPiPort } from "./effect/services.js";
 import type { JscpdAutomaticScanDisposition } from "./scheduler.js";
@@ -32,10 +33,10 @@ export type JscpdAutomaticResultHandler = (
 
 export interface JscpdAutomaticCheck {
   run(context: JscpdAutomaticCheckContext): Promise<JscpdAutomaticScanDisposition>;
-  /** Temporary direct Effect path used by the migrated scheduler before M7.7. */
+  /** Native path used by the managed scheduler and host runtime. */
   readonly runEffect?: (
-    context: JscpdAutomaticCheckEffectContext<never, unknown>,
-  ) => Effect.Effect<JscpdAutomaticScanDisposition>;
+    context: JscpdAutomaticCheckEffectContext<JscpdRuntimeRequirements, unknown>,
+  ) => Effect.Effect<JscpdAutomaticScanDisposition, never, JscpdRuntimeRequirements>;
 }
 
 export interface JscpdAutomaticCheckOptions {
@@ -63,7 +64,7 @@ export type JscpdAutomaticResultEffectHandler<R = never, E = never> = (
 interface JscpdAutomaticCheckEffectService {
   readonly run: <R, E>(
     context: JscpdAutomaticCheckEffectContext<R, E>,
-  ) => Effect.Effect<JscpdAutomaticScanDisposition, never, R>;
+  ) => Effect.Effect<JscpdAutomaticScanDisposition, never, R | JscpdRuntimeRequirements>;
 }
 
 export const JscpdAutomaticChecking = Context.GenericTag<JscpdAutomaticCheckEffectService>(
@@ -175,8 +176,9 @@ export function createJscpdAutomaticAcknowledgementTransaction(
 export function handleJscpdAutomaticResult(
   result: JscpdExecutionResult,
   actions: JscpdAutomaticResultActions,
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdAutomaticScanDisposition {
-  return runEffectSyncAtApplicationBoundary(
+  return runtime.runSync(
     handleJscpdAutomaticResultEffect(result, createJscpdAutomaticResultEffectActions(actions)),
   );
 }
@@ -268,11 +270,11 @@ export function compactJscpdAutomaticStatus(result: JscpdExecutionResult): strin
 export function createJscpdAutomaticCheck(
   executor: JscpdCommandExecutor,
   options: JscpdAutomaticCheckOptions = {},
+  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdAutomaticCheck {
   const service = createAutomaticCheckEffectService(executor, automaticEffectOptions(options));
   return {
-    run: (context) =>
-      runEffectPromiseAtApplicationBoundary(service.run(automaticEffectContext(context))),
+    run: (context) => runtime.runPromise(service.run(automaticEffectContext(context))),
     runEffect: (context) => service.run(context),
   };
 }
@@ -316,7 +318,7 @@ function createAutomaticCheckEffectService(
 function executeAutomaticChangedEffect<R, E>(
   executor: JscpdCommandExecutor,
   context: JscpdAutomaticCheckEffectContext<R, E>,
-): Effect.Effect<JscpdExecutionResult> {
+): Effect.Effect<JscpdExecutionResult, never, JscpdRuntimeRequirements> {
   if (executor.executeEffect) {
     return executor.executeEffect(
       { command: "changed", args: [] },
