@@ -33,6 +33,13 @@ until publication is approved.
   documentation-link validation, repository-hygiene guards, and a future release,
   rollback, and post-release policy.
 
+### Changed
+
+- Postponed the first release and any `0.1.0` proposal until the ordered Effect
+  runtime migration, legacy-removal audit, documentation pass, and exact-tarball
+  recertification are complete. Migration completion remains separate from
+  publication approval.
+
 ### Security
 
 - Project paths, child output, reports, temporary directories, cancellation,

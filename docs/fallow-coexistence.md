@@ -1,7 +1,12 @@
 # Fallow coexistence policy
 
-Status: implemented for M6.1  
+Status: implemented behavior contract; Effect migration pending
+
 Applies to: automatic `pi-jscpd` changed checks only
+
+The [Effect migration](effect-migration.md) may change service composition and
+filesystem execution, but it must not change these detection signals or
+coexistence outcomes without a separate product decision.
 
 ## Purpose
 

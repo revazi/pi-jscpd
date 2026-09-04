@@ -14,6 +14,12 @@ remove the private-package guard, create a tag or GitHub release, configure npm
 trusted publishing, or publish the package. CI success, package certification,
 CODEOWNERS review, or this document is not publication approval.
 
+The first release and any `0.1.0` proposal are additionally blocked by the
+ordered [Effect migration](effect-migration.md) and
+[tracking epic #63](https://github.com/revazi/pi-jscpd/issues/63). Every migration,
+legacy-removal, documentation, and recertification issue must close first. That
+completion remains necessary but not sufficient publication authority.
+
 ## Current non-publishing gate
 
 Run the complete local gate from a clean supported checkout:
@@ -28,6 +34,9 @@ compatibility, strict types, Biome, the network-free test suite, the exact
 installed tarball, and the package dry run. The separate manual readiness
 workflow repeats that gate on Node 22.19.0 and 24.12.0 for a supplied
 40-character commit that must resolve to `origin/main`.
+
+These checks certify the current commit only. Until #63 and issues #64–#72 are
+closed, passing them must not be described as first-release readiness.
 
 The manifest declares future publication intent with:
 
@@ -77,7 +86,8 @@ Published versions will follow Semantic Versioning. Version selection is a
 maintainer decision based on the public contract, not an automatic consequence
 of merged commits.
 
-For a future approved release pull request:
+Only after every Effect migration issue closes and a separate maintainer review
+accepts the final architecture, a future approved release pull request may:
 
 1. Select one stable `MAJOR.MINOR.PATCH` version; prerelease versions require a
    separately documented channel and dist-tag policy.
@@ -96,8 +106,8 @@ No automation in the current repository performs these edits.
 
 ## Future publication activation
 
-Publication requires a separate, explicitly approved change. That change must
-be reviewed before it can:
+Publication requires completed Effect migration/recertification **and** a
+separate, explicitly approved change. That change must be reviewed before it can:
 
 - remove `"private": true`;
 - add any job with npm registry authentication or GitHub OIDC permission;
@@ -148,10 +158,11 @@ credentials:
    candidate;
 4. supported Pi discovers `/jscpd` and `jscpd_run` without warnings in the
    representative RPC, JSON, print, and TUI-compatible paths;
-5. missing-jscpd behavior remains dormant and fail open;
-6. a controlled installed-jscpd v5 smoke confirms one real scan where available;
-   and
-7. shutdown leaves no child process or temporary report directory.
+5. the package-owned jscpd route works and damaged-install behavior remains
+   dormant and fail open;
+6. a controlled package-owned jscpd v5 smoke confirms one real scan;
+7. Effect interruption closes active fibers and the root scope; and
+8. shutdown leaves no child process or temporary report directory.
 
 Record only bounded pass/fail evidence, public versions, and artifact digests.
 Never retain source fragments, local paths, credentials, or environment dumps.

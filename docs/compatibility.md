@@ -13,10 +13,11 @@ returned no existing package when this name was selected, but a lookup does not
 reserve a name.
 
 The package remains at version `0.0.0` with `"private": true`. It must not be
-published or treated as reserved until separate release approval removes that
-guard and the maintainer controls the npm name. The current manual readiness
-workflow has no publication permission or credentials. The source remains MIT
-licensed regardless of publication state; see the
+published or treated as reserved until the release-blocking
+[Effect migration](effect-migration.md) is complete and separate release approval
+removes that guard after the maintainer controls the npm name. The current manual
+readiness workflow has no publication permission or credentials. The source
+remains MIT licensed regardless of publication state; see the
 [release preparation policy](release.md).
 
 ## Supported and tested matrix
@@ -29,6 +30,12 @@ licensed regardless of publication state; see the
 | `@earendil-works/pi-tui` | `>=0.84.4 <0.85.0` | `0.84.4` | Required by the interactive overlay. |
 | `typebox` | `>=1.3.7 <2` | `1.3.7` | Required by the agent-tool schema. |
 | `jscpd` | Compatible v5 | `5.1.2` | Exact runtime dependency and fallback analyzer. |
+
+Effect is not yet a declared dependency. Foundation issue
+[#64](https://github.com/revazi/pi-jscpd/issues/64) must select, exact-pin, and
+certify one reviewed Effect 3.x version before implementation migration starts.
+The final matrix will list that exact fixture; no open range or unreviewed upgrade
+is implied by this planning document.
 
 The Pi and TypeBox packages remain peer dependencies so the extension uses the
 host Pi installation instead of bundling a second runtime. Development
@@ -91,16 +98,17 @@ deliberately excluded from the publishable file allowlist.
 
 ## Updating compatibility
 
-A support-range change must:
+A support-range or Effect-runtime change must:
 
-1. update `engines`, peer ranges, and exact development fixtures together;
+1. update `engines`, peer ranges, exact development fixtures, and the exact
+   reviewed Effect dependency as applicable;
 2. run `npm install` so the lockfile records those fixtures;
 3. pass `npm run check` at the minimum supported Node version and the current
    supported Node LTS fixture;
 4. run `npm run pack:certify` to smoke-test the exact tarball, extension loading,
    representative command/tool/UI behavior, and shutdown cleanup with the
    candidate Pi version; and
-5. update this matrix and release notes; and
+5. update this matrix, Effect architecture checks, and release notes; and
 6. run the non-publishing `npm run release:check` gate documented in
    [the release policy](release.md).
 

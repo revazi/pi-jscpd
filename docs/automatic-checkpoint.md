@@ -1,7 +1,12 @@
 # Automatic advisory checkpoint decision
 
-Status: **accepted for M4 implementation**  
-Scope: lifecycle and process model only; automatic scans are not implemented by this decision.
+Status: **implemented behavior contract; Effect migration pending**
+
+Scope: lifecycle and process model
+
+The release-blocking [Effect migration](effect-migration.md) must preserve this
+trigger, generation, quiet-delivery, cancellation, and shutdown contract while
+moving scheduler/background ownership to scoped fibers.
 
 ## Decision
 
