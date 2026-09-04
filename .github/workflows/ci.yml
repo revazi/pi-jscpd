@@ -48,6 +48,9 @@ jobs:
       - name: Check repository hygiene
         run: npm run repo:hygiene
 
+      - name: Check Effect runtime boundaries
+        run: npm run architecture:check
+
       - name: Check formatting and lint rules
         run: npm run lint
 

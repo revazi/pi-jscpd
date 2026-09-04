@@ -1,6 +1,6 @@
 # Effect migration guide
 
-Status: **planned, release-blocking**
+Status: **in progress, release-blocking**
 
 Parent issue: [#63](https://github.com/revazi/pi-jscpd/issues/63)
 
@@ -158,6 +158,12 @@ Each issue is independently reviewable and must leave `main` green. Do not begin
 a dependent issue before its prerequisites are stable.
 
 ### Step 1 — Foundation and characterization ([#64](https://github.com/revazi/pi-jscpd/issues/64))
+
+Implemented on the unreleased branch: exact Effect `3.22.1`, declarative service
+and expected-error contracts, deterministic test layers, behavior
+characterization, package certification, and the initial runtime-boundary gate.
+See the [foundation contract](effect-foundation.md). No production workflow or
+managed runtime is introduced by this step.
 
 1. Review and exact-pin one Effect 3.x version.
 2. Add compatibility, lockfile, dependency-policy, and package checks.

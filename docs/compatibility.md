@@ -29,21 +29,24 @@ remains MIT licensed regardless of publication state; see the
 | `@earendil-works/pi-ai` | `>=0.84.4 <0.85.0` | `0.84.4` | Kept on the same tested Pi release line. |
 | `@earendil-works/pi-tui` | `>=0.84.4 <0.85.0` | `0.84.4` | Required by the interactive overlay. |
 | `typebox` | `>=1.3.7 <2` | `1.3.7` | Required by the agent-tool schema. |
+| `effect` | Exact `3.22.1` | `3.22.1` | Reviewed MIT runtime foundation; no managed production runtime exists yet. |
 | `jscpd` | Compatible v5 | `5.1.2` | Exact runtime dependency and fallback analyzer. |
 
-Effect is not yet a declared dependency. Foundation issue
-[#64](https://github.com/revazi/pi-jscpd/issues/64) must select, exact-pin, and
-certify one reviewed Effect 3.x version before implementation migration starts.
-The final matrix will list that exact fixture; no open range or unreviewed upgrade
-is implied by this planning document.
+Effect `3.22.1` was the npm registry's current stable 3.x release when foundation
+issue [#64](https://github.com/revazi/pi-jscpd/issues/64) selected it. Installed
+package metadata confirms its MIT license, and the lockfile preserves the
+reviewed registry integrity. See the [foundation contract](effect-foundation.md)
+for dependency evidence, service/error contracts, and runtime-boundary policy.
+No open range or automatic upgrade is implied.
 
 The Pi and TypeBox packages remain peer dependencies so the extension uses the
 host Pi installation instead of bundling a second runtime. Development
-dependencies pin the exact tested fixtures. jscpd is a normal, exact runtime
-dependency so installing `pi-jscpd` also installs the analyzer without a later
-network request. `npm run compatibility:check` verifies the active Node version,
-peer ranges, aligned Pi fixture versions, installed fixture versions, and the
-pinned jscpd runtime before type checking and tests.
+dependencies pin the exact tested fixtures. Effect and jscpd are normal, exact
+runtime dependencies; installing `pi-jscpd` provides the reviewed composition
+foundation and analyzer without a later network request.
+`npm run compatibility:check` verifies the active Node version, peer ranges,
+aligned Pi fixture versions, installed fixture versions, locked Effect metadata
+and integrity, and the pinned jscpd runtime before type checking and tests.
 
 The supported ranges cover the Node 22 and 24 LTS lines, not the intervening
 non-LTS Node 23 line. They are a contract, not a claim that every patch
@@ -62,13 +65,15 @@ through npm just as a user installation would; runtime checks remain offline. It
   and public-document allowlist, including regular-file modes and unsafe/private
   path rejection;
 - installs that exact tarball with lifecycle scripts disabled in a restrictive
-  disposable location and verifies the exact jscpd dependency;
+  disposable location and verifies exact, importable Effect `3.22.1` plus jscpd
+  `5.1.2` dependencies;
 - uses the locked Pi `0.84.4` CLI with isolated home, agent, session, and
   temporary directories and all resource discovery disabled except the explicit
   installed package;
 - verifies `/jscpd` discovery and provider-free help/status behavior through RPC,
-  exercises the registered `jscpd_run` contract and installed overlay component,
-  proves the installed artifact resolves and probes bundled jscpd `5.1.2`, and
+  exercises the registered `jscpd_run` contract, declarative Effect foundation,
+  and installed overlay component, proves the installed artifact resolves and
+  probes bundled jscpd `5.1.2`, and
   checks JSON, print, and non-TUI fallback paths; and
 - separately places a deterministic fake jscpd v5 executable on the disposable
   `PATH`, then stops Pi during an active scan and asserts that the process tree

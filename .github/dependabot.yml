@@ -6,6 +6,8 @@ updates:
       interval: monthly
     open-pull-requests-limit: 5
     versioning-strategy: increase-if-necessary
+    # Effect is intentionally excluded: its exact pin changes only in a focused
+    # architecture and supported-Node compatibility review.
     allow:
       - dependency-name: "@earendil-works/pi-*"
       - dependency-name: "@biomejs/biome"

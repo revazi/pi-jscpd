@@ -22,8 +22,10 @@ languages, and statistics.
 pi install npm:pi-jscpd
 ```
 
-The package includes a pinned jscpd v5 runtime dependency—there is no separate
-analyzer installation and no runtime download. If your project already installs
+The package includes pinned jscpd `5.1.2` and Effect `3.22.1` runtime
+dependencies—there is no separate analyzer installation and no runtime download.
+Effect currently supplies declarative migration contracts only; no production
+workflow has moved in the foundation slice. If your project already installs
 a compatible jscpd locally, or `jscpd`/`cpd` is available on `PATH`, the
 extension uses that installation first and keeps the bundled version as a
 fallback.
@@ -168,6 +170,7 @@ and limitations.
 | Node.js | `>=22.19.0 <23` or `>=24 <25` |
 | Pi packages | `>=0.84.4 <0.85.0` |
 | TypeBox | `>=1.3.7 <2` |
+| Effect | Exact reviewed `3.22.1` runtime foundation |
 | jscpd | Bundled `5.1.2`; compatible project-local or `PATH` v5 installations are preferred |
 
 See the [compatibility policy](docs/compatibility.md) for the exact tested
@@ -184,12 +187,14 @@ npm run check
 npm run pack:certify
 ```
 
+`npm run check` includes the Effect runtime-boundary architecture gate.
 `npm run release:check` runs the complete non-publishing readiness gate. Tests
-are network-free and use deterministic fake jscpd executables.
+are network-free and use deterministic fake jscpd executables and Effect layers.
 
 Useful documentation:
 
 - [Effect migration guide and release gate](docs/effect-migration.md)
+- [Effect foundation contracts and reviewed dependency](docs/effect-foundation.md)
 - [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
 - [`/jscpd` overlay contract](docs/overlay-interaction.md)
 - [Fallow coexistence](docs/fallow-coexistence.md)
