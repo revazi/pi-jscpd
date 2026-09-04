@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createJscpdConfigService, DEFAULT_JSCPD_CONFIG } from "../src/config.js";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 
 let root: string;
 let projectDirectory: string;
@@ -32,7 +33,9 @@ describe("trusted extension configuration", () => {
   it("uses immutable zero-config defaults when trusted files are missing", async () => {
     const service = createJscpdConfigService();
 
-    const result = await service.load({ cwd: projectDirectory, trusted: true });
+    const result = await JscpdTestEffectRuntime.runPromise(
+      service.loadEffect({ cwd: projectDirectory, trusted: true }),
+    );
 
     expect(result).toEqual({
       config: {
@@ -63,7 +66,9 @@ describe("trusted extension configuration", () => {
     });
     const service = createJscpdConfigService();
 
-    const result = await service.load({ cwd: projectDirectory, trusted: true });
+    const result = await JscpdTestEffectRuntime.runPromise(
+      service.loadEffect({ cwd: projectDirectory, trusted: true }),
+    );
 
     expect(result).toEqual({
       config: {
@@ -82,7 +87,9 @@ describe("trusted extension configuration", () => {
     await writeConfig("jscpd-guardrail.json", "{ malformed private body");
     const service = createJscpdConfigService();
 
-    const result = await service.load({ cwd: projectDirectory, trusted: false });
+    const result = await JscpdTestEffectRuntime.runPromise(
+      service.loadEffect({ cwd: projectDirectory, trusted: false }),
+    );
 
     expect(result).toEqual({
       config: DEFAULT_JSCPD_CONFIG,
@@ -103,7 +110,9 @@ describe("trusted extension configuration", () => {
     await writeConfig("jscpd-guardrail.local.json", { maxFindings: 4 });
     const service = createJscpdConfigService();
 
-    const result = await service.load({ cwd: projectDirectory, trusted: true });
+    const result = await JscpdTestEffectRuntime.runPromise(
+      service.loadEffect({ cwd: projectDirectory, trusted: true }),
+    );
 
     expect(result.config).toEqual({
       enabled: true,
@@ -123,7 +132,9 @@ describe("trusted extension configuration", () => {
     });
     const service = createJscpdConfigService();
 
-    const result = await service.load({ cwd: projectDirectory, trusted: true });
+    const result = await JscpdTestEffectRuntime.runPromise(
+      service.loadEffect({ cwd: projectDirectory, trusted: true }),
+    );
 
     expect(result.diagnostics.map(({ code }) => code)).toEqual(["file-too-large", "unknown-field"]);
     expect(result.diagnostics[1]?.message.length).toBeLessThan(300);
@@ -135,7 +146,9 @@ describe("trusted extension configuration", () => {
     await symlink(outside, join(configDirectory, "jscpd-guardrail.json"));
     const service = createJscpdConfigService();
 
-    const result = await service.load({ cwd: projectDirectory, trusted: true });
+    const result = await JscpdTestEffectRuntime.runPromise(
+      service.loadEffect({ cwd: projectDirectory, trusted: true }),
+    );
 
     expect(result.sources).toEqual(["defaults"]);
     expect(result.diagnostics).toEqual([
@@ -147,7 +160,9 @@ describe("trusted extension configuration", () => {
   it("reports an unavailable trusted project without exposing its path", async () => {
     const service = createJscpdConfigService();
 
-    const result = await service.load({ cwd: join(root, "missing"), trusted: true });
+    const result = await JscpdTestEffectRuntime.runPromise(
+      service.loadEffect({ cwd: join(root, "missing"), trusted: true }),
+    );
 
     expect(result.diagnostics).toEqual([
       expect.objectContaining({ source: "project", code: "invalid-project" }),

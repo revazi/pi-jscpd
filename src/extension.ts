@@ -105,9 +105,9 @@ export function registerJscpdExtension(
   const acknowledgements = createJscpdAcknowledgementTracker();
   const scheduler = options.scheduler ?? createJscpdScanScheduler(runtime);
   const adapterService = options.adapterService ?? createJscpdService();
-  const configService = options.configService ?? createJscpdConfigService(runtime);
+  const configService = options.configService ?? createJscpdConfigService();
   const fallowCoexistence =
-    options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService(runtime);
+    options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService();
   if (!executor) {
     capabilityService ??= createJscpdCapabilityService(undefined, runtime);
     verificationService ??= createJscpdVerificationService();
@@ -213,13 +213,15 @@ export function registerJscpdExtension(
     capabilityService?.invalidate();
     adapterService.invalidate();
     const trusted = ctx.isProjectTrusted();
-    const loaded = await configService.load({ cwd: ctx.cwd, trusted });
-    await fallowCoexistence.evaluate({
-      cwd: ctx.cwd,
-      trusted,
-      policy: loaded.config.fallowCoexistence,
-      fallowToolAvailable: hasFallowTool(pi),
-    });
+    const loaded = await runtime.runPromise(configService.loadEffect({ cwd: ctx.cwd, trusted }));
+    await runtime.runPromise(
+      fallowCoexistence.evaluateEffect({
+        cwd: ctx.cwd,
+        trusted,
+        policy: loaded.config.fallowCoexistence,
+        fallowToolAvailable: hasFallowTool(pi),
+      }),
+    );
     await restoreSessionState(
       ctx.sessionManager.getBranch(),
       ctx.cwd,
@@ -251,12 +253,14 @@ export function registerJscpdExtension(
     baselineService?.invalidate();
     adapterService.invalidate();
     const config = configService.current().config;
-    await fallowCoexistence.evaluate({
-      cwd: ctx.cwd,
-      trusted: configService.current().trusted,
-      policy: config.fallowCoexistence,
-      fallowToolAvailable: hasFallowTool(pi),
-    });
+    await runtime.runPromise(
+      fallowCoexistence.evaluateEffect({
+        cwd: ctx.cwd,
+        trusted: configService.current().trusted,
+        policy: config.fallowCoexistence,
+        fallowToolAvailable: hasFallowTool(pi),
+      }),
+    );
     await restoreSessionState(
       ctx.sessionManager.getBranch(),
       ctx.cwd,

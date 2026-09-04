@@ -1,6 +1,8 @@
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService } from "../src/config.js";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import { createJscpdFallowCoexistenceService } from "../src/fallow.js";
 import {
   createJscpdSessionModeService,
@@ -26,9 +28,7 @@ function configService(overrides: Partial<JscpdConfigLoadResult> = {}): JscpdCon
     ...overrides,
   };
   return {
-    async load() {
-      return result;
-    },
+    loadEffect: () => Effect.succeed(result),
     current() {
       return result;
     },
@@ -109,12 +109,14 @@ describe("bounded jscpd status", () => {
 
   it("reports explicit Fallow coexistence and automatic on-demand state", async () => {
     const coexistence = createJscpdFallowCoexistenceService();
-    await coexistence.evaluate({
-      cwd: "/not-inspected",
-      trusted: true,
-      policy: "on-demand",
-      fallowToolAvailable: true,
-    });
+    await JscpdTestEffectRuntime.runPromise(
+      coexistence.evaluateEffect({
+        cwd: "/not-inspected",
+        trusted: true,
+        policy: "on-demand",
+        fallowToolAvailable: true,
+      }),
+    );
     const service = createJscpdStatusService(
       capabilityService(available).service,
       configService(),

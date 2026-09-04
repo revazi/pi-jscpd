@@ -1,6 +1,5 @@
 import { join } from "node:path";
 import { Context, Effect, Layer, MutableRef } from "effect";
-import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
 
@@ -35,8 +34,7 @@ export interface JscpdFallowCoexistenceContext {
 }
 
 export interface JscpdFallowCoexistenceService {
-  evaluate(context: JscpdFallowCoexistenceContext): Promise<JscpdFallowCoexistenceState>;
-  evaluateEffect?: (
+  evaluateEffect: (
     context: JscpdFallowCoexistenceContext,
   ) => Effect.Effect<JscpdFallowCoexistenceState, never, JscpdFileSystem>;
   current(): JscpdFallowCoexistenceState;
@@ -66,12 +64,9 @@ interface ProjectSignals {
   readonly unreadable: boolean;
 }
 
-export function createJscpdFallowCoexistenceService(
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
-): JscpdFallowCoexistenceService {
+export function createJscpdFallowCoexistenceService(): JscpdFallowCoexistenceService {
   const owner = new FallowWorkflowOwner();
   return {
-    evaluate: (context) => runtime.runPromise(owner.evaluateEffect(context)),
     evaluateEffect: (context) => owner.evaluateEffect(context),
     current: () => owner.current(),
     automaticAllowed: () => owner.current().automaticAllowed,
@@ -150,13 +145,6 @@ class FallowWorkflowOwner {
     MutableRef.set(this.#state, { ...current, value });
     return value;
   }
-}
-
-export function evaluateJscpdFallowCoexistence(
-  context: JscpdFallowCoexistenceContext,
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
-): Promise<JscpdFallowCoexistenceState> {
-  return runtime.runPromise(evaluateJscpdFallowCoexistenceEffect(context));
 }
 
 export function evaluateJscpdFallowCoexistenceEffect(

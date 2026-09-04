@@ -2,9 +2,11 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
   createJscpdFallowCoexistenceService,
-  evaluateJscpdFallowCoexistence,
+  evaluateJscpdFallowCoexistenceEffect,
+  type JscpdFallowCoexistenceContext,
 } from "../src/fallow.js";
 
 let root: string;
@@ -20,16 +22,16 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-async function evaluate(
-  overrides: Partial<Parameters<typeof evaluateJscpdFallowCoexistence>[0]> = {},
-) {
-  return evaluateJscpdFallowCoexistence({
-    cwd: project,
-    trusted: true,
-    policy: "auto",
-    fallowToolAvailable: false,
-    ...overrides,
-  });
+async function evaluate(overrides: Partial<JscpdFallowCoexistenceContext> = {}) {
+  return JscpdTestEffectRuntime.runPromise(
+    evaluateJscpdFallowCoexistenceEffect({
+      cwd: project,
+      trusted: true,
+      policy: "auto",
+      fallowToolAvailable: false,
+      ...overrides,
+    }),
+  );
 }
 
 describe("conservative Fallow overlap detection", () => {
@@ -49,12 +51,14 @@ describe("conservative Fallow overlap detection", () => {
       JSON.stringify({ devDependencies: { "pi-fallow": "0.5" } }),
     );
     const service = createJscpdFallowCoexistenceService();
-    const state = await service.evaluate({
-      cwd: project,
-      trusted: true,
-      policy: "auto",
-      fallowToolAvailable: true,
-    });
+    const state = await JscpdTestEffectRuntime.runPromise(
+      service.evaluateEffect({
+        cwd: project,
+        trusted: true,
+        policy: "auto",
+        fallowToolAvailable: true,
+      }),
+    );
 
     expect(state).toMatchObject({
       status: "detected",

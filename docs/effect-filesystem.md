@@ -48,11 +48,11 @@ TOML signals stay ambiguous rather than being guessed.
 
 ## Compatibility boundary
 
-Promise-facing compatibility helpers delegate to Effect-returning functions
-through the explicit test runner in `src/effect/runtime-boundary.ts`. There is no
-parallel legacy filesystem implementation and no lower `Effect.run*` call.
-Production application workflows use the extension instance's single managed
-runtime and `JscpdFileSystemLive` layer.
+Configuration and Fallow-coexistence services expose only their Effect-native
+filesystem operations. There is no parallel legacy filesystem implementation or
+lower `Effect.run*` call. Production Pi lifecycle adapters submit those effects
+to the extension instance's single managed runtime and `JscpdFileSystemLive`
+layer; isolated tests use the explicit test runner.
 
 ## Verification
 
