@@ -1,5 +1,13 @@
 import { delimiter, dirname, join, parse, resolve } from "node:path";
-import { createProcessEnvironmentWithPath, runBoundedProcess } from "./process.js";
+import { Context, Effect, Exit, Layer } from "effect";
+import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import type { JscpdProcess } from "./effect/services.js";
+import {
+  createProcessEnvironmentWithPath,
+  JscpdProcessLive,
+  runBoundedProcess,
+  runBoundedProcessEffect,
+} from "./process.js";
 
 export const JSCPD_SUPPORTED_MAJOR = 5;
 export const JSCPD_VERSION_TIMEOUT_MS = 2_000;
@@ -79,6 +87,10 @@ export interface JscpdProbeExecutionRequest {
 
 export interface JscpdProbeExecutor {
   run(request: JscpdProbeExecutionRequest): Promise<JscpdProbeExecutionResult>;
+  /** Effect-native production route; injected compatibility executors may provide only run. */
+  runEffect?: (
+    request: JscpdProbeExecutionRequest,
+  ) => Effect.Effect<JscpdProbeExecutionResult, never, JscpdProcess>;
 }
 
 export interface JscpdCapabilityRequest {
@@ -87,6 +99,16 @@ export interface JscpdCapabilityRequest {
   /** Overrides PATH resolution and is primarily useful for deterministic hosts and tests. */
   path?: string;
 }
+
+interface JscpdCapabilityEffectService {
+  probe(request: JscpdCapabilityRequest): Effect.Effect<JscpdCapabilityResult, never, JscpdProcess>;
+  invalidate(): Effect.Effect<void>;
+  dispose(): Effect.Effect<void>;
+}
+
+export const JscpdCapability = Context.GenericTag<JscpdCapabilityEffectService>(
+  "pi-jscpd/effect/JscpdCapability",
+);
 
 export interface JscpdCapabilityService {
   probe(request: JscpdCapabilityRequest): Promise<JscpdCapabilityResult>;
@@ -146,13 +168,26 @@ export function parseJscpdVersion(output: string): ParsedVersion | undefined {
 }
 
 export function createNodeProbeExecutor(): JscpdProbeExecutor {
-  return { run: executeNodeProbe };
+  return { run: executeNodeProbe, runEffect: executeNodeProbeEffect };
 }
 
 export function createJscpdCapabilityService(
   executor: JscpdProbeExecutor = createNodeProbeExecutor(),
 ): JscpdCapabilityService {
   return new DefaultJscpdCapabilityService(executor);
+}
+
+/** Scoped capability layer whose cache and active probes belong to one service instance. */
+export function createJscpdCapabilityLayer(
+  executor: JscpdProbeExecutor = createNodeProbeExecutor(),
+) {
+  return Layer.scoped(
+    JscpdCapability,
+    Effect.acquireRelease(
+      Effect.sync(() => new DefaultJscpdCapabilityService(executor)),
+      (owner) => owner.disposeEffect(),
+    ).pipe(Effect.map(capabilityEffectServiceFor)),
+  );
 }
 
 class DefaultJscpdCapabilityService implements JscpdCapabilityService {
@@ -168,37 +203,57 @@ class DefaultJscpdCapabilityService implements JscpdCapabilityService {
   }
 
   async probe(request: JscpdCapabilityRequest): Promise<JscpdCapabilityResult> {
-    if (this.#disposed) {
-      return serviceDisposedResult();
-    }
-
+    if (this.#disposed) return serviceDisposedResult();
     const context = createCapabilityProbeContext(request);
     this.#selectResolutionKey(context.key);
     const cached = this.#cachedResult(context.key);
-    return cached ?? this.#probeUncached(context, request.signal);
+    if (cached) return cached;
+
+    const program = this.#probeUncachedEffect(context, request.signal).pipe(
+      Effect.provide(JscpdProcessLive),
+    );
+    const exit = await runEffectExitAtApplicationBoundary(program);
+    return Exit.isSuccess(exit)
+      ? exit.value
+      : { status: "failed", executable: "jscpd", reason: "execution-error" };
   }
 
-  async #probeUncached(
+  probeEffect(
+    request: JscpdCapabilityRequest,
+  ): Effect.Effect<JscpdCapabilityResult, never, JscpdProcess> {
+    return Effect.suspend(() => {
+      if (this.#disposed) return Effect.succeed(serviceDisposedResult());
+      const context = createCapabilityProbeContext(request);
+      this.#selectResolutionKey(context.key);
+      const cached = this.#cachedResult(context.key);
+      return cached ? Effect.succeed(cached) : this.#probeUncachedEffect(context, request.signal);
+    });
+  }
+
+  #probeUncachedEffect(
     context: CapabilityProbeContext,
     requestSignal: AbortSignal | undefined,
-  ): Promise<JscpdCapabilityResult> {
+  ): Effect.Effect<JscpdCapabilityResult, never, JscpdProcess> {
     const generation = this.#generation;
     const linkedAbort = createLinkedAbortController(requestSignal);
     this.#activeControllers.add(linkedAbort.controller);
-
-    try {
-      const result = await probeExecutables(this.#executor, {
-        cwd: context.cwd,
-        path: context.path,
-        executionPath: context.executionPath,
-        signal: linkedAbort.controller.signal,
-      });
-      this.#cacheResult(context.key, generation, result);
-      return result;
-    } finally {
-      linkedAbort.detach();
-      this.#activeControllers.delete(linkedAbort.controller);
-    }
+    const probe = probeExecutablesEffect(this.#executor, {
+      cwd: context.cwd,
+      path: context.path,
+      executionPath: context.executionPath,
+      signal: linkedAbort.controller.signal,
+    }).pipe(
+      Effect.tap((result) => Effect.sync(() => this.#cacheResult(context.key, generation, result))),
+    );
+    return Effect.acquireUseRelease(
+      Effect.succeed(linkedAbort),
+      () => Effect.raceFirst(probe, awaitProbeCancellation(linkedAbort.controller.signal)),
+      () =>
+        Effect.sync(() => {
+          linkedAbort.detach();
+          this.#activeControllers.delete(linkedAbort.controller);
+        }),
+    );
   }
 
   #cachedResult(key: string): JscpdCapabilityResult | undefined {
@@ -223,12 +278,18 @@ class DefaultJscpdCapabilityService implements JscpdCapabilityService {
     this.#cache = undefined;
   }
 
+  invalidateEffect(): Effect.Effect<void> {
+    return Effect.sync(() => this.invalidate());
+  }
+
   dispose(): void {
-    if (this.#disposed) {
-      return;
-    }
+    if (this.#disposed) return;
     this.#disposed = true;
     this.invalidate();
+  }
+
+  disposeEffect(): Effect.Effect<void> {
+    return Effect.sync(() => this.dispose());
   }
 
   #selectResolutionKey(key: string): void {
@@ -243,56 +304,78 @@ class DefaultJscpdCapabilityService implements JscpdCapabilityService {
   }
 
   #abortActiveProbes(): void {
-    for (const controller of this.#activeControllers) {
-      controller.abort();
-    }
+    for (const controller of this.#activeControllers) controller.abort();
     this.#activeControllers.clear();
   }
 }
 
-async function probeExecutables(
-  executor: JscpdProbeExecutor,
-  context: VersionProbeContext,
-): Promise<JscpdCapabilityResult> {
-  let externalFailure: JscpdCapabilityResult | undefined;
-  for (const executable of EXECUTABLES) {
-    const execution = await runVersionProbe(executor, executable, context, context.path);
-    if (execution.status === "missing") {
-      continue;
-    }
-    const capability = capabilityFromStartedProbe(executable, execution, "project-or-path");
-    if (capability.status === "available" || capability.status === "cancelled") {
-      return capability;
-    }
-    externalFailure = capability;
-    break;
-  }
-
-  const bundled = await runVersionProbe(executor, "jscpd", context, context.executionPath);
-  return bundled.status === "missing"
-    ? (externalFailure ?? { status: "missing", checked: EXECUTABLES })
-    : capabilityFromStartedProbe("jscpd", bundled, "bundled");
+function capabilityEffectServiceFor(
+  owner: DefaultJscpdCapabilityService,
+): JscpdCapabilityEffectService {
+  return {
+    probe: (request) => owner.probeEffect(request),
+    invalidate: () => owner.invalidateEffect(),
+    dispose: () => owner.disposeEffect(),
+  };
 }
 
-async function runVersionProbe(
+function awaitProbeCancellation(signal: AbortSignal): Effect.Effect<JscpdCapabilityResult> {
+  if (signal.aborted) return Effect.succeed({ status: "cancelled", executable: "jscpd" });
+  return Effect.async((resume) => {
+    const cancel = () => resume(Effect.succeed({ status: "cancelled", executable: "jscpd" }));
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted) cancel();
+    return Effect.sync(() => signal.removeEventListener("abort", cancel));
+  });
+}
+
+function probeExecutablesEffect(
+  executor: JscpdProbeExecutor,
+  context: VersionProbeContext,
+): Effect.Effect<JscpdCapabilityResult, never, JscpdProcess> {
+  return Effect.gen(function* () {
+    let externalFailure: JscpdCapabilityResult | undefined;
+    for (const executable of EXECUTABLES) {
+      const execution = yield* runVersionProbeEffect(executor, executable, context, context.path);
+      if (execution.status === "missing") continue;
+      const capability = capabilityFromStartedProbe(executable, execution, "project-or-path");
+      if (capability.status === "available" || capability.status === "cancelled") return capability;
+      externalFailure = capability;
+      break;
+    }
+
+    const bundled = yield* runVersionProbeEffect(executor, "jscpd", context, context.executionPath);
+    return bundled.status === "missing"
+      ? (externalFailure ?? { status: "missing", checked: EXECUTABLES })
+      : capabilityFromStartedProbe("jscpd", bundled, "bundled");
+  });
+}
+
+function runVersionProbeEffect(
   executor: JscpdProbeExecutor,
   executable: JscpdExecutable,
   context: VersionProbeContext,
   path: string,
-): Promise<JscpdProbeExecutionResult> {
-  try {
-    return await executor.run({
-      executable,
-      args: VERSION_ARGUMENTS,
-      cwd: context.cwd,
-      path,
-      signal: context.signal,
-      timeoutMs: JSCPD_VERSION_TIMEOUT_MS,
-      maxOutputBytes: JSCPD_VERSION_MAX_OUTPUT_BYTES,
-    });
-  } catch {
-    return { status: "failed" };
-  }
+): Effect.Effect<JscpdProbeExecutionResult, never, JscpdProcess> {
+  const request = {
+    executable,
+    args: VERSION_ARGUMENTS,
+    cwd: context.cwd,
+    path,
+    signal: context.signal,
+    timeoutMs: JSCPD_VERSION_TIMEOUT_MS,
+    maxOutputBytes: JSCPD_VERSION_MAX_OUTPUT_BYTES,
+  } satisfies JscpdProbeExecutionRequest;
+  if (executor.runEffect) return executor.runEffect(request);
+  return Effect.tryPromise({
+    try: (signal) => {
+      const linkedAbort = createLinkedAbortController(context.signal, signal);
+      return executor
+        .run({ ...request, signal: linkedAbort.controller.signal })
+        .finally(linkedAbort.detach);
+    },
+    catch: () => undefined,
+  }).pipe(Effect.match({ onFailure: () => ({ status: "failed" }), onSuccess: (result) => result }));
 }
 
 function capabilityFromStartedProbe(
@@ -419,19 +502,21 @@ function joinPathEntries(entries: readonly string[]): string {
   return entries.filter((entry) => entry.length > 0).join(delimiter);
 }
 
-function createLinkedAbortController(signal: AbortSignal | undefined): LinkedAbortController {
+function createLinkedAbortController(
+  ...signals: readonly (AbortSignal | undefined)[]
+): LinkedAbortController {
   const controller = new AbortController();
   const abort = () => controller.abort();
-
-  if (signal?.aborted) {
-    controller.abort();
-  } else {
-    signal?.addEventListener("abort", abort, { once: true });
+  for (const signal of signals) {
+    if (signal?.aborted) controller.abort();
+    else signal?.addEventListener("abort", abort, { once: true });
   }
 
   return {
     controller,
-    detach: () => signal?.removeEventListener("abort", abort),
+    detach: () => {
+      for (const signal of signals) signal?.removeEventListener("abort", abort);
+    },
   };
 }
 
@@ -456,10 +541,25 @@ function normalizeExitCode(exitCode: number): number {
   return Number.isSafeInteger(exitCode) ? exitCode : 1;
 }
 
+function executeNodeProbeEffect(
+  request: JscpdProbeExecutionRequest,
+): Effect.Effect<JscpdProbeExecutionResult, never, JscpdProcess> {
+  return runBoundedProcessEffect({
+    stage: "probe",
+    executable: request.executable,
+    args: request.args,
+    cwd: request.cwd,
+    environment: createProcessEnvironmentWithPath(request.path),
+    timeoutMs: request.timeoutMs,
+    maxOutputBytes: request.maxOutputBytes,
+  }).pipe(Effect.map(probeExecutionResult));
+}
+
 async function executeNodeProbe(
   request: JscpdProbeExecutionRequest,
 ): Promise<JscpdProbeExecutionResult> {
   const result = await runBoundedProcess({
+    stage: "probe",
     executable: request.executable,
     args: request.args,
     cwd: request.cwd,
@@ -469,6 +569,12 @@ async function executeNodeProbe(
     maxOutputBytes: request.maxOutputBytes,
   });
 
+  return probeExecutionResult(result);
+}
+
+function probeExecutionResult(
+  result: Awaited<ReturnType<typeof runBoundedProcess>>,
+): JscpdProbeExecutionResult {
   switch (result.status) {
     case "completed":
       return {

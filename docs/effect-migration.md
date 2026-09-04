@@ -177,6 +177,12 @@ Exit with no production behavior change.
 
 ### Step 2 — Process and analyzer resources ([#65](https://github.com/revazi/pi-jscpd/issues/65))
 
+Implemented on the unreleased branch: scoped process and report-workspace
+acquisition, interruption-safe process-tree finalization, Effect semaphore
+serialization, scoped jscpd/capability layers, generation-safe probing, and one
+explicit temporary application runtime bridge. See
+[Effect-owned resources](effect-resources.md).
+
 Migrate `process.ts`, `jscpd.ts`, and `capability.ts`. Convert process ownership,
 timeout/interruption, output bounds, temporary report workspaces, adapter
 serialization, route probing, and capability caching. Remove the superseded

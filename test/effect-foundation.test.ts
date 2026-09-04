@@ -48,6 +48,7 @@ describe("Effect migration foundation", () => {
       const clockService = yield* JscpdClock;
       const piService = yield* JscpdPiPort;
       const result = yield* processService.run({
+        stage: "probe",
         executable: "jscpd",
         args: ["--version"],
         cwd: "/project",
@@ -105,6 +106,7 @@ describe("Effect migration foundation", () => {
     ]);
     const program = Effect.flatMap(JscpdProcess, (service) =>
       service.run({
+        stage: "scan",
         executable: "jscpd",
         args: [],
         cwd: "/project",

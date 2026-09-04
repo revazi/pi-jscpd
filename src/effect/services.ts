@@ -2,6 +2,7 @@ import { Context, type Effect } from "effect";
 import type {
   JscpdDeliveryFailure,
   JscpdFileSystemFailure,
+  JscpdInvalidInput,
   JscpdLimitExceeded,
   JscpdOperationCancelled,
   JscpdOperationTimedOut,
@@ -11,12 +12,15 @@ import type {
 } from "./errors.js";
 
 export interface JscpdProcessRequest {
+  readonly stage: "probe" | "scan";
   readonly executable: string;
   readonly args: readonly string[];
   readonly cwd: string;
-  readonly environment?: Readonly<Record<string, string>>;
+  readonly environment?: Readonly<Record<string, string | undefined>>;
   readonly timeoutMs: number;
   readonly maxOutputBytes: number;
+  readonly terminationGraceMs?: number;
+  readonly forceSettleMs?: number;
 }
 
 export interface JscpdProcessResult {
@@ -27,6 +31,7 @@ export interface JscpdProcessResult {
 
 export type JscpdProcessRunError =
   | JscpdProcessFailure
+  | JscpdInvalidInput
   | JscpdOperationCancelled
   | JscpdOperationTimedOut
   | JscpdLimitExceeded;

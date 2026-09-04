@@ -3,8 +3,16 @@ import type { FileHandle } from "node:fs/promises";
 import { chmod, lstat, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { Context, Effect, Exit, Layer } from "effect";
+import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import type { JscpdProcess } from "./effect/services.js";
 import { isJscpdReportErrorCode, JSCPD_STRUCTURED_REPORT_FILE_NAME } from "./jscpd-report.js";
-import { createProcessEnvironmentWithPath, runBoundedProcess } from "./process.js";
+import {
+  type BoundedProcessResult,
+  createProcessEnvironmentWithPath,
+  JscpdProcessLive,
+  runBoundedProcessEffect,
+} from "./process.js";
 import type { JscpdReportDecision, JscpdReportErrorCode } from "./types.js";
 
 export type { JscpdReportDecision } from "./types.js";
@@ -13,6 +21,7 @@ const JSCPD_EXECUTION_TIMEOUT_MS = 30_000;
 const JSCPD_MAX_OUTPUT_BYTES = 64 * 1_024;
 const JSCPD_MAX_REPORT_BYTES = 16 * 1_024 * 1_024;
 const JSCPD_REPORT_CONSUMPTION_TIMEOUT_MS = 2_000;
+const JSCPD_WORKSPACE_CLEANUP_TIMEOUT_MS = 2_000;
 
 const TEMPORARY_PREFIX = "pi-jscpd-";
 const MAX_ARGUMENT_COUNT = 256;
@@ -26,7 +35,6 @@ const MAX_CONFIGURED_REPORT_BYTES = 64 * 1024 * 1024;
 const MAX_CONFIGURED_CONSUMPTION_TIMEOUT_MS = 30_000;
 
 type JobTermination = "cancelled" | "invalidated" | "disposed";
-type JobPhase = "queued" | "active" | "done";
 
 export interface JscpdReportTarget {
   readonly directory: string;
@@ -82,6 +90,14 @@ export type JscpdRunResult<T> =
       reportError?: JscpdReportErrorCode;
     };
 
+interface JscpdEffectService {
+  run<T>(request: JscpdRunRequest<T>): Effect.Effect<JscpdRunResult<T>, never, JscpdProcess>;
+  invalidate(): Effect.Effect<void>;
+  dispose(): Effect.Effect<void>;
+}
+
+export const JscpdAdapter = Context.GenericTag<JscpdEffectService>("pi-jscpd/effect/JscpdAdapter");
+
 export interface JscpdService {
   run<T>(request: JscpdRunRequest<T>): Promise<JscpdRunResult<T>>;
   invalidate(): void;
@@ -95,6 +111,10 @@ export interface JscpdServiceOptions {
   reportConsumptionTimeoutMs?: number;
   /** Primarily for deterministic tests; no directory is created until run is called. */
   temporaryRoot?: string;
+  /** Deterministic cleanup seam; production uses the bounded recursive remover. */
+  removeWorkspace?: (directory: string) => Promise<boolean>;
+  /** Primarily for deterministic cleanup-timeout tests. */
+  workspaceCleanupTimeoutMs?: number;
 }
 
 interface ResolvedServiceOptions {
@@ -103,15 +123,15 @@ interface ResolvedServiceOptions {
   maxReportBytes: number;
   reportConsumptionTimeoutMs: number;
   temporaryRoot: string;
+  removeWorkspace: (directory: string) => Promise<boolean>;
+  workspaceCleanupTimeoutMs: number;
 }
 
-interface PendingJob {
-  request: JscpdRunRequest<unknown>;
-  resolve: (result: JscpdRunResult<unknown>) => void;
-  phase: JobPhase;
-  termination?: JobTermination;
-  controller?: AbortController;
+interface EffectJob {
+  readonly request: JscpdRunRequest<unknown>;
+  readonly controller: AbortController;
   detachCallerAbort: () => void;
+  termination?: JobTermination;
 }
 
 interface ReportWorkspace extends JscpdReportTarget {}
@@ -141,277 +161,276 @@ export function createJscpdService(options: JscpdServiceOptions = {}): JscpdServ
   return new DefaultJscpdService(resolveServiceOptions(options));
 }
 
+/** Scoped Effect service used by later application slices without a Promise facade. */
+export function createJscpdLayer(options: JscpdServiceOptions = {}) {
+  return Layer.scoped(
+    JscpdAdapter,
+    Effect.acquireRelease(
+      Effect.sync(() => new DefaultJscpdService(resolveServiceOptions(options))),
+      (owner) => owner.disposeEffect(),
+    ).pipe(Effect.map(effectServiceFor)),
+  );
+}
+
 class DefaultJscpdService implements JscpdService {
   readonly #options: ResolvedServiceOptions;
-  readonly #queue: PendingJob[] = [];
-  #active: PendingJob | undefined;
+  readonly #semaphore = Effect.unsafeMakeSemaphore(1);
+  readonly #jobs = new Set<EffectJob>();
   #disposed = false;
   #disposePromise: Promise<void> | undefined;
-  #resolveDisposed: (() => void) | undefined;
 
   constructor(options: ResolvedServiceOptions) {
     this.#options = options;
   }
 
   run<T>(request: JscpdRunRequest<T>): Promise<JscpdRunResult<T>> {
-    if (this.#disposed) {
-      return Promise.resolve(serviceDisposedResult());
-    }
+    if (this.#disposed) return Promise.resolve(serviceDisposedResult());
     if (!isValidRunRequest(request)) {
       return Promise.resolve({ status: "failed", reason: "invalid-request" });
     }
-    if (request.signal?.aborted) {
-      return Promise.resolve({ status: "cancelled" });
-    }
+    if (request.signal?.aborted) return Promise.resolve({ status: "cancelled" });
 
-    return new Promise<JscpdRunResult<T>>((resolveJob) => {
-      const job = this.#createPendingJob(
-        request as JscpdRunRequest<unknown>,
-        resolveJob as (result: JscpdRunResult<unknown>) => void,
-      );
-      this.#queue.push(job);
-      this.#startNext();
+    const job = this.#createJob(request as JscpdRunRequest<unknown>);
+    this.#jobs.add(job);
+    const program = this.#runJobEffect(job).pipe(Effect.provide(JscpdProcessLive));
+    return runEffectExitAtApplicationBoundary(program).then((exit) =>
+      Exit.isSuccess(exit)
+        ? (exit.value as JscpdRunResult<T>)
+        : ({ status: "failed", reason: "internal-error" } as JscpdRunResult<T>),
+    );
+  }
+
+  runEffect<T>(request: JscpdRunRequest<T>): Effect.Effect<JscpdRunResult<T>, never, JscpdProcess> {
+    return Effect.suspend(() => {
+      if (this.#disposed) return Effect.succeed(serviceDisposedResult());
+      if (!isValidRunRequest(request)) {
+        return Effect.succeed({ status: "failed", reason: "invalid-request" } as const);
+      }
+      if (request.signal?.aborted) return Effect.succeed({ status: "cancelled" } as const);
+
+      const job = this.#createJob(request as JscpdRunRequest<unknown>);
+      this.#jobs.add(job);
+      return this.#runJobEffect(job) as Effect.Effect<JscpdRunResult<T>, never, JscpdProcess>;
     });
+  }
+
+  #runJobEffect(job: EffectJob): Effect.Effect<JscpdRunResult<unknown>, never, JscpdProcess> {
+    return Effect.acquireUseRelease(
+      Effect.succeed(job),
+      () =>
+        Effect.raceFirst(
+          this.#semaphore.withPermits(1)(
+            Effect.suspend(() => {
+              const lifecycleResult = lifecycleResultFor(job);
+              return lifecycleResult ? Effect.succeed(lifecycleResult) : this.#executeEffect(job);
+            }),
+          ),
+          awaitJobTermination(job),
+        ),
+      () =>
+        Effect.sync(() => {
+          job.detachCallerAbort();
+          this.#jobs.delete(job);
+        }),
+    );
   }
 
   invalidate(): void {
-    if (this.#disposed) {
-      return;
-    }
-    this.#terminateQueued("invalidated");
-    this.#terminateActive("invalidated");
+    if (this.#disposed) return;
+    for (const job of this.#jobs) this.#terminateJob(job, "invalidated");
+  }
+
+  invalidateEffect(): Effect.Effect<void> {
+    return Effect.sync(() => this.invalidate());
   }
 
   dispose(): Promise<void> {
-    if (this.#disposePromise) {
-      return this.#disposePromise;
+    if (!this.#disposePromise) {
+      this.#disposePromise = runEffectExitAtApplicationBoundary(this.disposeEffect()).then(
+        () => undefined,
+      );
     }
-
-    this.#disposed = true;
-    this.#disposePromise = new Promise((resolveDispose) => {
-      this.#resolveDisposed = resolveDispose;
-    });
-    this.#terminateQueued("disposed");
-    this.#terminateActive("disposed");
-    this.#resolveDisposeIfIdle();
     return this.#disposePromise;
   }
 
-  #createPendingJob(
-    request: JscpdRunRequest<unknown>,
-    resolveJob: (result: JscpdRunResult<unknown>) => void,
-  ): PendingJob {
-    const job: PendingJob = {
+  disposeEffect(): Effect.Effect<void> {
+    return Effect.suspend(() => {
+      if (!this.#disposed) {
+        this.#disposed = true;
+        for (const job of this.#jobs) this.#terminateJob(job, "disposed");
+      }
+      return this.#semaphore.withPermits(1)(Effect.void);
+    });
+  }
+
+  #createJob(request: JscpdRunRequest<unknown>): EffectJob {
+    const controller = new AbortController();
+    const job: EffectJob = {
       request,
-      resolve: resolveJob,
-      phase: "queued",
+      controller,
       detachCallerAbort: () => undefined,
     };
-    const cancel = () => this.#cancelJob(job);
+    const cancel = () => this.#terminateJob(job, "cancelled");
     request.signal?.addEventListener("abort", cancel, { once: true });
     job.detachCallerAbort = () => request.signal?.removeEventListener("abort", cancel);
+    if (request.signal?.aborted) cancel();
     return job;
   }
 
-  #cancelJob(job: PendingJob): void {
-    if (job.phase === "done") {
-      return;
-    }
-    if (job.phase === "queued") {
-      this.#removeQueuedJob(job);
-      this.#finishQueuedJob(job, { status: "cancelled" });
-      this.#startNext();
-      return;
-    }
-    this.#terminateJob(job, "cancelled");
-  }
-
-  #startNext(): void {
-    if (this.#active || this.#disposed) {
-      this.#resolveDisposeIfIdle();
-      return;
-    }
-
-    const job = this.#queue.shift();
-    if (!job) {
-      return;
-    }
-
-    job.phase = "active";
-    job.controller = new AbortController();
-    this.#active = job;
-    void this.#execute(job).then(
-      (result) => this.#finishActiveJob(job, result),
-      () => this.#finishActiveJob(job, { status: "failed", reason: "internal-error" }),
-    );
-  }
-
-  async #execute(job: PendingJob): Promise<JscpdRunResult<unknown>> {
-    const workspaceResult = await createReportWorkspace(
-      job.request.cwd,
-      this.#options.temporaryRoot,
-    );
-    if (!workspaceResult.ok) {
-      return { status: "failed", reason: workspaceResult.reason };
-    }
-
-    let result: JscpdRunResult<unknown>;
-    try {
-      result = await this.#executeInWorkspace(job, workspaceResult.workspace);
-    } catch {
-      result = { status: "failed", reason: "internal-error" };
-    }
-
-    const cleaned = await removeReportWorkspace(workspaceResult.workspace.directory);
-    return cleaned ? result : { status: "failed", reason: "cleanup-failed" };
-  }
-
-  async #executeInWorkspace(
-    job: PendingJob,
-    workspace: ReportWorkspace,
-  ): Promise<JscpdRunResult<unknown>> {
-    const lifecycleResult = lifecycleResultFor(job);
-    if (lifecycleResult) {
-      return lifecycleResult;
-    }
-
-    const args = createValidatedArguments(job.request, workspace);
-    if (!args) {
-      return { status: "failed", reason: "argument-construction" };
-    }
-
-    const timeoutMs = requestTimeoutMs(job.request.timeoutMs, this.#options.timeoutMs);
-    const processResult = await runBoundedProcess({
-      executable: job.request.executable,
-      args,
-      cwd: job.request.cwd,
-      env: createProcessEnvironmentWithPath(job.request.path ?? process.env.PATH ?? ""),
-      signal: requiredController(job).signal,
-      timeoutMs,
-      maxOutputBytes: this.#options.maxOutputBytes,
-    });
-    const afterProcessLifecycle = lifecycleResultFor(job);
-    if (afterProcessLifecycle) {
-      return afterProcessLifecycle;
-    }
-
-    const processFailure = processFailureResult(
-      processResult,
-      timeoutMs,
-      job.request.reportExitCodes,
-    );
-    if (processFailure) {
-      return processFailure;
-    }
-    const reportExitCode = deferredReportExitCode(processResult);
-
-    const report = await readBoundedReport(workspace.reportPath, this.#options.maxReportBytes);
-    if (report.status !== "bytes") {
-      return reportReadResult(report, reportExitCode);
-    }
-
-    const consumed = await this.#consumeReport(job, report.bytes);
-    return validateReportExit(consumed, reportExitCode);
-  }
-
-  async #consumeReport(job: PendingJob, report: Buffer): Promise<JscpdRunResult<unknown>> {
-    const consumption = await consumeReportBounded(
-      job.request.consumeReport,
-      report,
-      requiredController(job).signal,
-      this.#options.reportConsumptionTimeoutMs,
-    );
-    const lifecycleResult = lifecycleResultFor(job);
-    if (lifecycleResult) {
-      return lifecycleResult;
-    }
-
-    switch (consumption.status) {
-      case "completed":
-        return completedConsumptionResult(consumption.decision);
-      case "cancelled":
-        return { status: "cancelled" };
-      case "failed":
-        return { status: "failed", reason: "consumer-failed" };
-      case "timed-out":
-        return { status: "failed", reason: "consumer-timed-out" };
-    }
-  }
-
-  #finishActiveJob(job: PendingJob, result: JscpdRunResult<unknown>): void {
-    if (this.#active !== job || job.phase !== "active") {
-      return;
-    }
-
-    const lifecycleResult = lifecycleResultFor(job);
-    job.phase = "done";
-    job.detachCallerAbort();
-    this.#active = undefined;
-    job.resolve(lifecycleResult ?? result);
-    this.#startNext();
-    this.#resolveDisposeIfIdle();
-  }
-
-  #terminateQueued(termination: Exclude<JobTermination, "cancelled">): void {
-    for (const job of this.#queue.splice(0)) {
-      job.termination = termination;
-      this.#finishQueuedJob(job, lifecycleResultFor(job) ?? serviceDisposedResult());
-    }
-  }
-
-  #terminateActive(termination: Exclude<JobTermination, "cancelled">): void {
-    if (this.#active) {
-      this.#terminateJob(this.#active, termination);
-    }
-  }
-
-  #terminateJob(job: PendingJob, termination: JobTermination): void {
-    if (job.termination || job.phase === "done") {
-      return;
-    }
+  #terminateJob(job: EffectJob, termination: JobTermination): void {
+    if (job.termination) return;
     job.termination = termination;
-    job.controller?.abort();
+    job.controller.abort();
   }
 
-  #removeQueuedJob(job: PendingJob): void {
-    const index = this.#queue.indexOf(job);
-    if (index >= 0) {
-      this.#queue.splice(index, 1);
-    }
+  #executeEffect(job: EffectJob): Effect.Effect<JscpdRunResult<unknown>, never, JscpdProcess> {
+    let cleanupFailed = false;
+    return Effect.acquireUseRelease(
+      Effect.tryPromise({
+        try: () => createReportWorkspace(job.request.cwd, this.#options.temporaryRoot),
+        catch: () => undefined,
+      }).pipe(
+        Effect.match({
+          onFailure: () => ({ ok: false as const, reason: "temporary-directory" as const }),
+          onSuccess: (workspace) => workspace,
+        }),
+      ),
+      (workspaceResult) =>
+        workspaceResult.ok
+          ? this.#executeInWorkspaceEffect(job, workspaceResult.workspace)
+          : Effect.succeed<JscpdRunResult<unknown>>({
+              status: "failed",
+              reason: workspaceResult.reason,
+            }),
+      (workspaceResult) => {
+        if (!workspaceResult.ok) return Effect.void;
+        return removeWorkspaceEffect(
+          this.#options.removeWorkspace,
+          workspaceResult.workspace.directory,
+          this.#options.workspaceCleanupTimeoutMs,
+        ).pipe(
+          Effect.tap((cleaned) =>
+            Effect.sync(() => {
+              cleanupFailed = !cleaned;
+            }),
+          ),
+        );
+      },
+    ).pipe(
+      Effect.map((result) =>
+        cleanupFailed ? { status: "failed", reason: "cleanup-failed" } : result,
+      ),
+    );
   }
 
-  #finishQueuedJob(job: PendingJob, result: JscpdRunResult<unknown>): void {
-    job.phase = "done";
-    job.detachCallerAbort();
-    job.resolve(result);
-  }
+  #executeInWorkspaceEffect(
+    job: EffectJob,
+    workspace: ReportWorkspace,
+  ): Effect.Effect<JscpdRunResult<unknown>, never, JscpdProcess> {
+    return Effect.gen(this, function* () {
+      const lifecycleResult = lifecycleResultFor(job);
+      if (lifecycleResult) return lifecycleResult;
 
-  #resolveDisposeIfIdle(): void {
-    if (this.#disposed && !this.#active && this.#queue.length === 0) {
-      this.#resolveDisposed?.();
-      this.#resolveDisposed = undefined;
-    }
+      const args = createValidatedArguments(job.request, workspace);
+      if (!args) return { status: "failed", reason: "argument-construction" } as const;
+
+      const timeoutMs = requestTimeoutMs(job.request.timeoutMs, this.#options.timeoutMs);
+      const processResult = yield* runBoundedProcessEffect({
+        stage: "scan",
+        executable: job.request.executable,
+        args,
+        cwd: job.request.cwd,
+        environment: createProcessEnvironmentWithPath(job.request.path ?? process.env.PATH ?? ""),
+        timeoutMs,
+        maxOutputBytes: this.#options.maxOutputBytes,
+      });
+      const afterProcessLifecycle = lifecycleResultFor(job);
+      if (afterProcessLifecycle) return afterProcessLifecycle;
+
+      const processFailure = processFailureResult(
+        processResult,
+        timeoutMs,
+        job.request.reportExitCodes,
+      );
+      if (processFailure) return processFailure;
+      const reportExitCode = deferredReportExitCode(processResult);
+
+      const report = yield* Effect.tryPromise({
+        try: () => readBoundedReport(workspace.reportPath, this.#options.maxReportBytes),
+        catch: () => ({ status: "failed" as const, reason: "report-read-failed" as const }),
+      }).pipe(
+        Effect.match({
+          onFailure: (failure) => failure,
+          onSuccess: (result) => result,
+        }),
+      );
+      if (report.status !== "bytes") return reportReadResult(report, reportExitCode);
+
+      const consumed = yield* consumeReportEffect(
+        job.request.consumeReport,
+        report.bytes,
+        this.#options.reportConsumptionTimeoutMs,
+      );
+      const afterConsumptionLifecycle = lifecycleResultFor(job);
+      if (afterConsumptionLifecycle) return afterConsumptionLifecycle;
+      return validateReportExit(consumptionResult(consumed), reportExitCode);
+    });
   }
+}
+
+function effectServiceFor(owner: DefaultJscpdService): JscpdEffectService {
+  return {
+    run: (request) => owner.runEffect(request),
+    invalidate: () => owner.invalidateEffect(),
+    dispose: () => owner.disposeEffect(),
+  };
+}
+
+function awaitJobTermination(job: EffectJob): Effect.Effect<JscpdRunResult<never>> {
+  const current = lifecycleResultFor(job);
+  if (current) return Effect.succeed(current);
+  return Effect.async((resume) => {
+    const terminated = () =>
+      resume(Effect.succeed(lifecycleResultFor(job) ?? serviceDisposedResult()));
+    job.controller.signal.addEventListener("abort", terminated, { once: true });
+    if (job.controller.signal.aborted) terminated();
+    return Effect.sync(() => job.controller.signal.removeEventListener("abort", terminated));
+  });
 }
 
 function resolveServiceOptions(options: JscpdServiceOptions): ResolvedServiceOptions {
   const resolved = {
-    timeoutMs: options.timeoutMs ?? JSCPD_EXECUTION_TIMEOUT_MS,
-    maxOutputBytes: options.maxOutputBytes ?? JSCPD_MAX_OUTPUT_BYTES,
-    maxReportBytes: options.maxReportBytes ?? JSCPD_MAX_REPORT_BYTES,
-    reportConsumptionTimeoutMs:
-      options.reportConsumptionTimeoutMs ?? JSCPD_REPORT_CONSUMPTION_TIMEOUT_MS,
-    temporaryRoot: options.temporaryRoot ?? tmpdir(),
+    timeoutMs: withDefault(options.timeoutMs, JSCPD_EXECUTION_TIMEOUT_MS),
+    maxOutputBytes: withDefault(options.maxOutputBytes, JSCPD_MAX_OUTPUT_BYTES),
+    maxReportBytes: withDefault(options.maxReportBytes, JSCPD_MAX_REPORT_BYTES),
+    reportConsumptionTimeoutMs: withDefault(
+      options.reportConsumptionTimeoutMs,
+      JSCPD_REPORT_CONSUMPTION_TIMEOUT_MS,
+    ),
+    temporaryRoot: withDefault(options.temporaryRoot, tmpdir()),
+    removeWorkspace: withDefault(options.removeWorkspace, removeReportWorkspace),
+    workspaceCleanupTimeoutMs: withDefault(
+      options.workspaceCleanupTimeoutMs,
+      JSCPD_WORKSPACE_CLEANUP_TIMEOUT_MS,
+    ),
   };
 
   assertBoundedOption(resolved.timeoutMs, MAX_CONFIGURED_TIMEOUT_MS);
   assertBoundedOption(resolved.maxOutputBytes, MAX_CONFIGURED_OUTPUT_BYTES);
   assertBoundedOption(resolved.maxReportBytes, MAX_CONFIGURED_REPORT_BYTES);
   assertBoundedOption(resolved.reportConsumptionTimeoutMs, MAX_CONFIGURED_CONSUMPTION_TIMEOUT_MS);
-  if (!isSafeAbsolutePath(resolved.temporaryRoot)) {
+  assertBoundedOption(resolved.workspaceCleanupTimeoutMs, MAX_CONFIGURED_CONSUMPTION_TIMEOUT_MS);
+  if (
+    !isSafeAbsolutePath(resolved.temporaryRoot) ||
+    typeof resolved.removeWorkspace !== "function"
+  ) {
     throwInvalidServiceOptions();
   }
   return resolved;
+}
+
+function withDefault<T>(value: T | undefined, fallback: T): T {
+  return value === undefined ? fallback : value;
 }
 
 function assertBoundedOption(value: number, maximum: number): void {
@@ -490,6 +509,27 @@ async function createReportWorkspace(cwd: string, temporaryRoot: string): Promis
     const cleaned = !directory || (await removeReportWorkspace(directory));
     return { ok: false, reason: cleaned ? "temporary-directory" : "cleanup-failed" };
   }
+}
+
+function removeWorkspaceEffect(
+  removeWorkspace: (directory: string) => Promise<boolean>,
+  directory: string,
+  timeoutMs: number,
+): Effect.Effect<boolean> {
+  const cleanup = Effect.tryPromise({
+    try: () => removeWorkspace(directory),
+    catch: () => undefined,
+  }).pipe(
+    Effect.match({ onFailure: () => false, onSuccess: (cleaned) => cleaned }),
+    Effect.interruptible,
+  );
+  return cleanup.pipe(
+    Effect.timeoutTo({
+      duration: timeoutMs,
+      onSuccess: (cleaned) => cleaned,
+      onTimeout: () => false,
+    }),
+  );
 }
 
 async function removeReportWorkspace(directory: string): Promise<boolean> {
@@ -574,39 +614,40 @@ async function readReportChunks(
   return { status: "failed", reason: "report-too-large" };
 }
 
-async function consumeReportBounded<T>(
+function consumeReportEffect<T>(
   consumer: JscpdRunRequest<T>["consumeReport"],
   report: Buffer,
-  signal: AbortSignal,
   timeoutMs: number,
-): Promise<ConsumptionResult<T>> {
-  if (signal.aborted) {
-    return { status: "cancelled" };
-  }
-
-  let timeoutTimer: NodeJS.Timeout | undefined;
-  let detachAbort: () => void = () => undefined;
-  const timeout = new Promise<ConsumptionResult<T>>((resolveTimeout) => {
-    timeoutTimer = setTimeout(() => resolveTimeout({ status: "timed-out" }), timeoutMs);
-  });
-  const cancelled = new Promise<ConsumptionResult<T>>((resolveCancelled) => {
-    const cancel = () => resolveCancelled({ status: "cancelled" });
-    signal.addEventListener("abort", cancel, { once: true });
-    detachAbort = () => signal.removeEventListener("abort", cancel);
-  });
-  const consumed: Promise<ConsumptionResult<T>> = Promise.resolve()
-    .then(() => consumer(report))
-    .then(
-      (decision): ConsumptionResult<T> =>
+): Effect.Effect<ConsumptionResult<T>> {
+  const consumed = Effect.tryPromise({
+    try: () => Promise.resolve().then(() => consumer(report)),
+    catch: () => undefined,
+  }).pipe(
+    Effect.match({
+      onFailure: (): ConsumptionResult<T> => ({ status: "failed" }),
+      onSuccess: (decision): ConsumptionResult<T> =>
         isReportDecision(decision) ? { status: "completed", decision } : { status: "failed" },
-      (): ConsumptionResult<T> => ({ status: "failed" }),
-    );
+    }),
+  );
+  return consumed.pipe(
+    Effect.timeoutTo({
+      duration: timeoutMs,
+      onSuccess: (result) => result,
+      onTimeout: (): ConsumptionResult<T> => ({ status: "timed-out" }),
+    }),
+  );
+}
 
-  try {
-    return await Promise.race([consumed, timeout, cancelled]);
-  } finally {
-    clearTimeout(timeoutTimer);
-    detachAbort();
+function consumptionResult<T>(consumption: ConsumptionResult<T>): JscpdRunResult<T> {
+  switch (consumption.status) {
+    case "completed":
+      return completedConsumptionResult(consumption.decision);
+    case "cancelled":
+      return { status: "cancelled" };
+    case "failed":
+      return { status: "failed", reason: "consumer-failed" };
+    case "timed-out":
+      return { status: "failed", reason: "consumer-timed-out" };
   }
 }
 
@@ -649,7 +690,7 @@ function validateReportExit<T>(
 }
 
 function processFailureResult(
-  result: Awaited<ReturnType<typeof runBoundedProcess>>,
+  result: BoundedProcessResult,
   timeoutMs: number,
   reportExitCodes: readonly number[] | undefined,
 ): JscpdRunResult<never> | undefined {
@@ -680,15 +721,13 @@ function completedProcessFailure(
   return { status: "failed", reason: "nonzero-exit", exitCode: normalizeExitCode(exitCode) };
 }
 
-function deferredReportExitCode(
-  result: Awaited<ReturnType<typeof runBoundedProcess>>,
-): number | undefined {
+function deferredReportExitCode(result: BoundedProcessResult): number | undefined {
   return result.status === "completed" && result.exitCode !== 0
     ? normalizeExitCode(result.exitCode)
     : undefined;
 }
 
-function lifecycleResultFor(job: PendingJob): JscpdRunResult<never> | undefined {
+function lifecycleResultFor(job: EffectJob): JscpdRunResult<never> | undefined {
   switch (job.termination) {
     case "cancelled":
       return { status: "cancelled" };
@@ -703,13 +742,6 @@ function lifecycleResultFor(job: PendingJob): JscpdRunResult<never> | undefined 
 
 function serviceDisposedResult(): JscpdRunResult<never> {
   return { status: "failed", reason: "service-disposed" };
-}
-
-function requiredController(job: PendingJob): AbortController {
-  if (!job.controller) {
-    throw new Error("Internal active job invariant failed.");
-  }
-  return job.controller;
 }
 
 function isReportDecision<T>(value: JscpdReportDecision<T>): value is JscpdReportDecision<T> {

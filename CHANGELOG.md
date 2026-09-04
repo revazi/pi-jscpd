@@ -17,6 +17,9 @@ until publication is approved.
 - Exact Effect `3.22.1` runtime foundation with declarative process, filesystem,
   clock, and Pi service tags, stable typed expected failures, bounded public
   mapping intent, deterministic test layers, and an AST runtime-boundary gate.
+- Effect-owned bounded child processes, process-tree escalation, serialized jscpd
+  execution, temporary report workspaces, capability probing/caching, scoped
+  service layers, and one explicitly temporary Promise application bridge.
 - Strict normalized jscpd JSON report validation and scope-safe explicit scans.
 - Trusted extension configuration, session controls, branch-local state, and
   changed-file attribution.

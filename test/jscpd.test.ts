@@ -11,14 +11,18 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { Cause, Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createJscpdLayer,
   createJscpdService,
+  JscpdAdapter,
   type JscpdReportDecision,
   type JscpdRunRequest,
   type JscpdService,
 } from "../src/jscpd.js";
 import { consumeJscpdV5JsonReport } from "../src/jscpd-report.js";
+import { JscpdProcessLive } from "../src/process.js";
 
 const FAKE_EXECUTABLE_SOURCE = String.raw`
 import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
@@ -152,6 +156,42 @@ async function waitForStart(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 80));
 }
 
+describe("Effect jscpd adapter layer", () => {
+  it("provides serialized report execution through a scoped service", async () => {
+    const program = Effect.flatMap(JscpdAdapter, (adapter) =>
+      adapter.run(request("report", { extraArgs: ["effect artifact"] })),
+    ).pipe(
+      Effect.provide(createJscpdLayer({ temporaryRoot, timeoutMs: 1_000 })),
+      Effect.provide(JscpdProcessLive),
+    );
+
+    await expect(Effect.runPromise(program)).resolves.toEqual({
+      status: "report",
+      value: "effect artifact",
+    });
+    await expectTemporaryRootClean();
+  });
+
+  it("releases its process and report workspace when the calling fiber is interrupted", async () => {
+    const started = join(fixtureRoot, "effect-started");
+    const controller = new AbortController();
+    const program = Effect.flatMap(JscpdAdapter, (adapter) =>
+      adapter.run(request("hang", { extraArgs: [started] })),
+    ).pipe(
+      Effect.provide(createJscpdLayer({ temporaryRoot, timeoutMs: 5_000 })),
+      Effect.provide(JscpdProcessLive),
+    );
+    const running = Effect.runPromiseExit(program, { signal: controller.signal });
+    await vi.waitFor(() => expect(readFile(started)).resolves.toBeDefined());
+
+    controller.abort();
+    const exit = await running;
+
+    expect(Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)).toBe(true);
+    await expectTemporaryRootClean();
+  });
+});
+
 describe("jscpd temporary report adapter", () => {
   it("consumes a bounded artifact before removing its restrictive out-of-tree workspace", async () => {
     const service = createService();
@@ -228,6 +268,29 @@ describe("jscpd temporary report adapter", () => {
     expect(missing).toEqual({ status: "failed", reason: "spawn-failed" });
     expect(JSON.stringify([nonzero, missing])).not.toContain("private");
     await expectTemporaryRootClean();
+  });
+
+  it("reports cleanup uncertainty instead of returning an otherwise valid result", async () => {
+    const removeWorkspace = vi.fn(async () => false);
+    const service = createService({ removeWorkspace });
+
+    await expect(service.run(request("report"))).resolves.toEqual({
+      status: "failed",
+      reason: "cleanup-failed",
+    });
+    expect(removeWorkspace).toHaveBeenCalledOnce();
+  });
+
+  it("bounds a stalled workspace finalizer and reports cleanup uncertainty", async () => {
+    const service = createService({
+      removeWorkspace: () => new Promise(() => undefined),
+      workspaceCleanupTimeoutMs: 20,
+    });
+
+    await expect(service.run(request("report"))).resolves.toEqual({
+      status: "failed",
+      reason: "cleanup-failed",
+    });
   });
 
   it("bounds execution time and honors a validated per-run timeout", async () => {

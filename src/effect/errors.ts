@@ -28,7 +28,7 @@ export class JscpdAnalyzerUnavailable extends Data.TaggedError("JscpdAnalyzerUna
 
 export class JscpdProcessFailure extends Data.TaggedError("JscpdProcessFailure")<{
   readonly stage: "probe" | "scan";
-  readonly reason: "spawn" | "exit" | "termination";
+  readonly reason: "not-found" | "spawn" | "exit" | "termination";
 }> {}
 
 export class JscpdFileSystemFailure extends Data.TaggedError("JscpdFileSystemFailure")<{
@@ -49,7 +49,7 @@ export class JscpdLimitExceeded extends Data.TaggedError("JscpdLimitExceeded")<{
 }> {}
 
 export class JscpdInvalidInput extends Data.TaggedError("JscpdInvalidInput")<{
-  readonly subject: "configuration" | "path" | "report";
+  readonly subject: "configuration" | "path" | "process-request" | "report";
   readonly reason: "unsafe" | "unsupported" | "malformed" | "incompatible" | "invalid";
 }> {}
 
@@ -220,7 +220,10 @@ function mapInvalidInput(error: JscpdInvalidInput): PublicResultMapping {
       "Invalid jscpd guardrail configuration was ignored.",
     );
   }
-  return error.subject === "path" ? mapInvalidPath(error) : mapInvalidReport(error);
+  if (error.subject === "path") return mapInvalidPath(error);
+  return error.subject === "process-request"
+    ? publicResult("failed", "process-failed", "The bounded process request was invalid.")
+    : mapInvalidReport(error);
 }
 
 function mapInvalidPath(error: JscpdInvalidInput): PublicResultMapping {
