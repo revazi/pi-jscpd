@@ -125,13 +125,15 @@ class ChangedFileOwner {
     never,
     JscpdFileSystem
   > {
-    const state = MutableRef.get(this.#state);
-    const rawPath = successfulMutationPath(event);
-    const snapshot = activeTrackerSnapshot(state.generation, state.roots);
-    if (!rawPath || !snapshot) return Effect.succeed(undefined);
-    return canonicalChangedFileEffect(rawPath, cwd, snapshot.roots).pipe(
-      Effect.map((projectPath) => this.#commitMutation(snapshot, projectPath)),
-    );
+    return Effect.suspend(() => {
+      const state = MutableRef.get(this.#state);
+      const rawPath = successfulMutationPath(event);
+      const snapshot = activeTrackerSnapshot(state.generation, state.roots);
+      if (!rawPath || !snapshot) return Effect.succeed(undefined);
+      return canonicalChangedFileEffect(rawPath, cwd, snapshot.roots).pipe(
+        Effect.map((projectPath) => this.#commitMutation(snapshot, projectPath)),
+      );
+    });
   }
 
   files(): readonly string[] {

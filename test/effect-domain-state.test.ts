@@ -132,6 +132,27 @@ describe("Effect domain state services", () => {
     expect(result.files).toEqual(["a.ts", "b.ts"]);
   });
 
+  it("reads changed-file ownership when the Effect executes rather than when composed", async () => {
+    const filesystem = createJscpdFileSystemTestLayer([
+      { path: project, kind: "directory" },
+      { path: `${project}/a.ts`, bytes: new Uint8Array([1]) },
+    ]);
+    const layers = Layer.merge(createJscpdChangedFilesLayer(), filesystem.layer);
+    const program = Effect.gen(function* () {
+      const changed = yield* JscpdChangedFiles;
+      const recordAfterStart = changed.recordToolResult(mutation("a.ts"), project);
+      yield* changed.start(project);
+      return {
+        added: yield* recordAfterStart,
+        files: yield* changed.files,
+      };
+    });
+
+    const result = await Effect.runPromise(program.pipe(Effect.provide(layers)));
+
+    expect(result).toEqual({ added: true, files: ["a.ts"] });
+  });
+
   it("completes active baseline waiters as lifecycle-cancelled on invalidation", async () => {
     const capability = availableCapabilityService();
     const run = vi.fn(
