@@ -1,9 +1,5 @@
 import { Cause, Effect } from "effect";
-import {
-  type JscpdEffectRuntime,
-  type JscpdRuntimeRequirements,
-  JscpdTestEffectRuntime,
-} from "./effect/runtime-boundary.js";
+import type { JscpdEffectRuntime, JscpdRuntimeRequirements } from "./effect/runtime-boundary.js";
 import { parseJscpdCommand } from "./parser.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult, JscpdExecutionContext } from "./types.js";
 
@@ -24,17 +20,11 @@ function dispatchJscpdCommandEffect(
         message: parsed.error.message,
       });
     }
-    const executed: Effect.Effect<JscpdDispatchResult, never, JscpdRuntimeRequirements> =
-      executor.executeEffect
-        ? interruptOnSignal(
-            executor.executeEffect(parsed.invocation, context),
-            context.signal,
-            parsed.invocation.command,
-          )
-        : Effect.tryPromise({
-            try: () => executor.execute(parsed.invocation, context),
-            catch: () => executionFailedResult(),
-          }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+    const executed = interruptOnSignal(
+      Effect.suspend(() => executor.executeEffect(parsed.invocation, context)),
+      context.signal,
+      parsed.invocation.command,
+    );
     return executed.pipe(Effect.catchAllCause(() => Effect.succeed(executionFailedResult())));
   });
 }
@@ -44,7 +34,7 @@ export function dispatchJscpdCommand(
   args: unknown,
   context: JscpdExecutionContext,
   executor: JscpdCommandExecutor,
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+  runtime: JscpdEffectRuntime,
 ): Promise<JscpdDispatchResult> {
   return runtime.runPromise(dispatchJscpdCommandEffect(command, args, context, executor));
 }

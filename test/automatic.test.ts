@@ -4,11 +4,14 @@ import {
   boundedJscpdAutomaticFindingLimit,
   compactJscpdAutomaticStatus,
   createJscpdAutomaticAcknowledgementTransaction,
-  createJscpdAutomaticCheck,
-  handleJscpdAutomaticResult,
   type JscpdAutomaticResultActions,
 } from "../src/automatic.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
+import {
+  createAutomaticCheckTestDriver as createJscpdAutomaticCheck,
+  handleAutomaticResultForTest as handleJscpdAutomaticResult,
+} from "./support/automatic.js";
+import { commandFromPromise, type TestCommandExecute } from "./support/command.js";
 
 const cleanResult = {
   status: "changed",
@@ -44,8 +47,8 @@ const findingsResult = {
 } as const satisfies JscpdExecutionResult;
 
 function executor(result: JscpdExecutionResult = cleanResult) {
-  const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => result);
-  return { service: { execute } satisfies JscpdCommandExecutor, execute };
+  const execute = vi.fn<TestCommandExecute>(async () => result);
+  return { service: commandFromPromise(execute) satisfies JscpdCommandExecutor, execute };
 }
 
 function delivery(
@@ -195,11 +198,11 @@ describe("automatic changed check", () => {
   });
 
   it("normalizes unexpected executor errors as a quiet terminal failure", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => {
+    const execute = vi.fn<TestCommandExecute>(async () => {
       throw new Error("private failure");
     });
     const onResult = vi.fn();
-    const check = createJscpdAutomaticCheck({ execute }, { onResult });
+    const check = createJscpdAutomaticCheck(commandFromPromise(execute), { onResult });
 
     await expect(
       check.run({ cwd: "/project", signal: new AbortController().signal }),
@@ -235,12 +238,12 @@ describe("automatic changed check", () => {
 
   it("discards a result when lifecycle cancellation wins during execution", async () => {
     const controller = new AbortController();
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => {
+    const execute = vi.fn<TestCommandExecute>(async () => {
       controller.abort();
       return cleanResult;
     });
     const onResult = vi.fn();
-    const check = createJscpdAutomaticCheck({ execute }, { onResult });
+    const check = createJscpdAutomaticCheck(commandFromPromise(execute), { onResult });
 
     await expect(check.run({ cwd: "/project", signal: controller.signal })).resolves.toBe(
       "deferred",

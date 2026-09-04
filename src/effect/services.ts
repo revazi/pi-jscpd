@@ -11,6 +11,9 @@ import type {
   JscpdWorkspaceFailure,
 } from "./errors.js";
 
+/** Infrastructure required by application programs, independent of their host runner. */
+export type JscpdWorkflowRequirements = JscpdClock | JscpdFileSystem | JscpdProcess;
+
 export interface JscpdProcessRequest {
   readonly stage: "probe" | "scan";
   readonly executable: string;

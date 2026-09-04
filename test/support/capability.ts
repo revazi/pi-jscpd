@@ -10,7 +10,7 @@ import {
   type JscpdProbeExecutionResult,
   type JscpdProbeExecutor,
 } from "../../src/capability.js";
-import { JscpdTestEffectRuntime } from "../../src/effect/runtime-boundary.js";
+import { JscpdTestEffectRuntime } from "./runtime.js";
 
 export type TestCapabilityProbe = (
   request: JscpdCapabilityRequest,

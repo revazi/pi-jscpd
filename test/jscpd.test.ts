@@ -14,7 +14,6 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { Cause, Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JscpdFileSystemLive } from "../src/effect/filesystem.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
   createJscpdLayer,
   createJscpdService,
@@ -25,6 +24,7 @@ import {
 } from "../src/jscpd.js";
 import { consumeJscpdV5JsonReportEffect } from "../src/jscpd-report.js";
 import { JscpdProcessLive } from "../src/process.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 const FAKE_EXECUTABLE_SOURCE = String.raw`
 import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";

@@ -2,7 +2,7 @@ import {
   createJscpdChangedFileTracker as createTracker,
   type JscpdMutationToolResult,
 } from "../../src/changed-files.js";
-import { JscpdTestEffectRuntime } from "../../src/effect/runtime-boundary.js";
+import { JscpdTestEffectRuntime } from "./runtime.js";
 
 /** Test-boundary runner for the existing attribution characterization cases. */
 export function createChangedFilesTestDriver() {

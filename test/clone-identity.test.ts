@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { compareJscpdCloneSnapshots, indexJscpdCloneReportEffect } from "../src/clone-identity.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import type { JscpdCloneOccurrence, JscpdClonePair, JscpdScanReport } from "../src/types.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 let root: string;
 let project: string;

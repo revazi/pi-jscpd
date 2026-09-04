@@ -1,11 +1,6 @@
 import { Cause, Context, Deferred, Effect, Exit, Fiber, Layer, MutableRef, Scope } from "effect";
 import { JscpdClockLive, jscpdClockLive } from "./effect/clock.js";
-import {
-  type JscpdEffectRuntime,
-  type JscpdRuntimeRequirements,
-  JscpdTestEffectRuntime,
-  makeEffectScope,
-} from "./effect/runtime-boundary.js";
+import type { JscpdWorkflowRequirements as JscpdRuntimeRequirements } from "./effect/services.js";
 import { type JscpdClock, JscpdClock as JscpdClockTag } from "./effect/services.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult } from "./types.js";
 
@@ -17,10 +12,6 @@ export interface JscpdAutomaticScanContext {
 }
 
 export type JscpdAutomaticScanDisposition = "attempted" | "deferred";
-
-export type JscpdAutomaticScanTask = (
-  context: JscpdAutomaticScanContext,
-) => Promise<JscpdAutomaticScanDisposition>;
 
 export type JscpdAutomaticScanEffectTask<R = never, E = never> = (
   context: JscpdAutomaticScanContext,
@@ -38,34 +29,17 @@ export interface JscpdScanSchedulerSnapshot {
 }
 
 export interface JscpdScanScheduler {
-  /** Advance the latest attributable mutation generation. */
-  markChanged(): number;
-  readonly markChangedEffect?: Effect.Effect<number>;
-  /** Coalesce one request; a deferred disposition leaves its generation retryable. */
-  requestAutomatic(task: JscpdAutomaticScanTask): boolean;
-  /** Compatibility submission facade over the managed scheduler effect. */
-  requestAutomaticEffect?(
-    task: JscpdAutomaticScanEffectTask<JscpdRuntimeRequirements, unknown>,
-  ): boolean;
-  scheduleAutomaticEffect?: (
-    task: JscpdAutomaticScanEffectTask<JscpdRuntimeRequirements, unknown>,
-  ) => Effect.Effect<boolean, never, JscpdRuntimeRequirements>;
-  /** Explicit work supersedes only scheduler-owned automatic work. */
-  runExplicit<T>(task: () => Promise<T>): Promise<JscpdExplicitRunResult<T>>;
-  runExplicitEffect?: <T>(
-    task: Effect.Effect<T, never, JscpdRuntimeRequirements>,
-  ) => Effect.Effect<JscpdExplicitRunResult<T>, never, JscpdRuntimeRequirements>;
-  /** Abort and discard pending automatic work without consuming its generation. */
-  cancelAutomatic(): void;
-  readonly cancelAutomaticEffect?: Effect.Effect<void>;
-  /** Start a fresh active-branch scope while keeping the scheduler reusable. */
-  reset(): void;
-  readonly resetEffect?: Effect.Effect<void>;
-  /** Prevent future work, interrupt automatic ownership, and await its settlement. */
-  dispose(): Promise<void>;
-  readonly disposeEffect?: Effect.Effect<void>;
-  snapshot(): JscpdScanSchedulerSnapshot;
-  readonly snapshotEffect?: Effect.Effect<JscpdScanSchedulerSnapshot>;
+  readonly markChangedEffect: Effect.Effect<number>;
+  readonly scheduleAutomaticEffect: <R, E>(
+    task: JscpdAutomaticScanEffectTask<R, E>,
+  ) => Effect.Effect<boolean, never, R>;
+  readonly runExplicitEffect: <T, E, R>(
+    task: Effect.Effect<T, E, R>,
+  ) => Effect.Effect<JscpdExplicitRunResult<T>, E, R>;
+  readonly cancelAutomaticEffect: Effect.Effect<void>;
+  readonly resetEffect: Effect.Effect<void>;
+  readonly disposeEffect: Effect.Effect<void>;
+  readonly snapshotEffect: Effect.Effect<JscpdScanSchedulerSnapshot>;
 }
 
 interface JscpdScanSchedulerEffectService {
@@ -120,43 +94,17 @@ const INITIAL_SCHEDULER_STATE: SchedulerState = Object.freeze({
  * jscpd adapter. The queue is bounded to one active and one latest-generation pending request.
  */
 export function createJscpdScanScheduler(
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+  scope: Scope.CloseableScope,
+  clock: JscpdClock = jscpdClockLive,
 ): JscpdScanScheduler {
-  const scope = makeEffectScope(runtime);
-  const owner = new ScanSchedulerOwner(scope, jscpdClockLive);
-  const service = scanSchedulerEffectServiceFor(owner);
-  let disposePromise: Promise<void> | undefined;
+  const service = scanSchedulerEffectServiceFor(new ScanSchedulerOwner(scope, clock));
   return {
-    markChanged: () => runtime.runSync(service.markChanged),
     markChangedEffect: service.markChanged,
-    requestAutomatic: (task) =>
-      runtime.runSync(
-        service.requestAutomatic((context) => automaticPromiseTaskEffect(task, context)),
-      ),
-    requestAutomaticEffect: (task) => runtime.runSync(service.requestAutomatic(task)),
-    scheduleAutomaticEffect: (task) => service.requestAutomatic(task),
-    runExplicit: (task) =>
-      runtime.runPromise(
-        service.runExplicit(
-          Effect.tryPromise({
-            try: task,
-            catch: (error) => error,
-          }),
-        ),
-      ),
-    runExplicitEffect: (task) => service.runExplicit(task),
-    cancelAutomatic: () => runtime.runSync(service.cancelAutomatic),
+    scheduleAutomaticEffect: service.requestAutomatic,
+    runExplicitEffect: service.runExplicit,
     cancelAutomaticEffect: service.cancelAutomatic,
-    reset: () => runtime.runSync(service.reset),
     resetEffect: service.reset,
-    dispose: () => {
-      disposePromise ??= runtime.runPromise(
-        service.dispose.pipe(Effect.zipRight(Scope.close(scope, Exit.void))),
-      );
-      return disposePromise;
-    },
     disposeEffect: service.dispose.pipe(Effect.zipRight(Scope.close(scope, Exit.void))),
-    snapshot: () => runtime.runSync(service.snapshot),
     snapshotEffect: service.snapshot,
   };
 }
@@ -446,16 +394,6 @@ function scanSchedulerEffectServiceFor(owner: ScanSchedulerOwner): JscpdScanSche
   };
 }
 
-function automaticPromiseTaskEffect(
-  task: JscpdAutomaticScanTask,
-  context: JscpdAutomaticScanContext,
-): Effect.Effect<JscpdAutomaticScanDisposition, unknown> {
-  return Effect.tryPromise({
-    try: () => task(context),
-    catch: (error) => error,
-  });
-}
-
 function closedExplicitResult<T>(): JscpdExplicitRunResult<T> {
   return Object.freeze({ status: "closed" });
 }
@@ -464,31 +402,17 @@ function closedExplicitResult<T>(): JscpdExplicitRunResult<T> {
 export function createJscpdScheduledExecutor(
   executor: JscpdCommandExecutor,
   scheduler: JscpdScanScheduler,
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCommandExecutor {
   const executeEffect = (
-    invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
-    context: Parameters<JscpdCommandExecutor["execute"]>[1],
+    invocation: Parameters<JscpdCommandExecutor["executeEffect"]>[0],
+    context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
   ): Effect.Effect<JscpdExecutionResult, never, JscpdRuntimeRequirements> => {
-    const cancel =
-      invocation.command === "off"
-        ? (scheduler.cancelAutomaticEffect ?? Effect.sync(() => scheduler.cancelAutomatic()))
-        : Effect.void;
-    const execute = executor.executeEffect
-      ? executor.executeEffect(invocation, context)
-      : Effect.tryPromise({
-          try: () => executor.execute(invocation, context),
-          catch: () => schedulerClosedResult(),
-        }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+    const cancel = invocation.command === "off" ? scheduler.cancelAutomaticEffect : Effect.void;
+    const execute = executor.executeEffect(invocation, context);
     if (invocation.command !== "scan" && invocation.command !== "changed") {
       return cancel.pipe(Effect.zipRight(execute));
     }
-    const scheduled = scheduler.runExplicitEffect
-      ? scheduler.runExplicitEffect(execute)
-      : Effect.tryPromise({
-          try: () => scheduler.runExplicit(() => executor.execute(invocation, context)),
-          catch: () => ({ status: "closed" as const }),
-        }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+    const scheduled = scheduler.runExplicitEffect(execute);
     return cancel.pipe(
       Effect.zipRight(scheduled),
       Effect.map((result) =>
@@ -497,18 +421,6 @@ export function createJscpdScheduledExecutor(
     );
   };
   return {
-    execute: executor.executeEffect
-      ? (invocation, context) => runtime.runPromise(executeEffect(invocation, context))
-      : async (invocation, context) => {
-          if (invocation.command === "off") scheduler.cancelAutomatic();
-          if (invocation.command !== "scan" && invocation.command !== "changed") {
-            return executor.execute(invocation, context);
-          }
-          const scheduled = await scheduler.runExplicit(() =>
-            executor.execute(invocation, context),
-          );
-          return scheduled.status === "completed" ? scheduled.value : schedulerClosedResult();
-        },
     executeEffect,
   };
 }

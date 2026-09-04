@@ -8,11 +8,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import {
-  JSCPD_AUTOMATIC_MESSAGE_TYPE,
-  JSCPD_AUTOMATIC_STATUS_KEY,
-  type JscpdAutomaticCheck,
-} from "../src/automatic.js";
+import { JSCPD_AUTOMATIC_MESSAGE_TYPE, JSCPD_AUTOMATIC_STATUS_KEY } from "../src/automatic.js";
 import type {
   JscpdBaselineService,
   JscpdBaselineStartContext,
@@ -20,18 +16,20 @@ import type {
 } from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigLoadContext, JscpdConfigService } from "../src/config.js";
-import {
-  createJscpdSlashCommandDefinition,
-  createJscpdToolDefinition,
-  registerJscpdExtension,
-} from "../src/extension.js";
+import { registerJscpdExtension } from "../src/extension.js";
 import type { JscpdRunRequest, JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
-import { createJscpdScanScheduler } from "../src/scheduler.js";
 import { JSCPD_SESSION_STATE_TYPE, JSCPD_SESSION_STATE_VERSION } from "../src/session-state.js";
-import type { JscpdCommandExecutor, JscpdExecutionResult, JscpdScanReport } from "../src/types.js";
+import type { JscpdExecutionResult, JscpdScanReport } from "../src/types.js";
 import type { JscpdVerificationService } from "../src/verification.js";
+import { automaticFromPromise, type TestAutomaticRun } from "./support/automatic.js";
 import { capabilityFromPromise, type TestCapabilityProbe } from "./support/capability.js";
+import { commandFromPromise, type TestCommandExecute } from "./support/command.js";
+import {
+  createTestSlashCommandDefinition as createJscpdSlashCommandDefinition,
+  createTestToolDefinition as createJscpdToolDefinition,
+} from "./support/host.js";
+import { createSchedulerTestDriver as createJscpdScanScheduler } from "./support/scheduler.js";
 
 const unavailableResult = {
   status: "unavailable",
@@ -123,8 +121,8 @@ const statusResult = {
 } as const;
 
 function createExecutor(result: JscpdExecutionResult = unavailableResult) {
-  const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => result);
-  return { executor: { execute }, execute };
+  const execute = vi.fn<TestCommandExecute>(async () => result);
+  return { executor: commandFromPromise(execute), execute };
 }
 
 function commandContext(notify = vi.fn()) {
@@ -426,7 +424,7 @@ describe("Pi extension registration", () => {
         adapterService: adapter.service,
         capabilityService: createCapabilityService().service,
         configService: createConfigService().service,
-        automaticCheck: { run: automaticRun },
+        automaticCheck: automaticFromPromise(automaticRun),
       },
     );
     const context = {
@@ -803,7 +801,7 @@ describe("Pi extension registration", () => {
     await writeFile(source, "first\n");
     const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
     const scheduler = createJscpdScanScheduler();
-    const run = vi.fn<JscpdAutomaticCheck["run"]>(async () => "attempted");
+    const run = vi.fn<TestAutomaticRun>(async () => "attempted");
     const pi = {
       registerTool: vi.fn(),
       registerCommand: vi.fn(),
@@ -817,7 +815,7 @@ describe("Pi extension registration", () => {
     try {
       registerJscpdExtension(pi, {
         executor: createExecutor().executor,
-        automaticCheck: { run },
+        automaticCheck: automaticFromPromise(run),
         scheduler,
       });
       await handlers.get("session_start")?.(
@@ -1151,7 +1149,7 @@ describe("Pi extension registration", () => {
     const handlers = new Map<string, (...args: unknown[]) => void | Promise<void>>();
     const scheduler = createJscpdScanScheduler();
     let automaticSignal: AbortSignal | undefined;
-    const run = vi.fn<JscpdAutomaticCheck["run"]>(
+    const run = vi.fn<TestAutomaticRun>(
       ({ signal }) =>
         new Promise<"deferred">((resolve) => {
           automaticSignal = signal;
@@ -1171,7 +1169,7 @@ describe("Pi extension registration", () => {
     try {
       registerJscpdExtension(pi, {
         executor: createExecutor().executor,
-        automaticCheck: { run },
+        automaticCheck: automaticFromPromise(run),
         scheduler,
       });
       await handlers.get("session_start")?.(

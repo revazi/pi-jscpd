@@ -2,13 +2,13 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
   consumeJscpdV5JsonReportEffect,
   JSCPD_STRUCTURED_REPORT_FILE_NAME,
   JSCPD_STRUCTURED_REPORTER,
 } from "../src/jscpd-report.js";
 import type { JscpdReportErrorCode, JscpdScanReport } from "../src/types.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 type JsonObject = { [key: string]: JsonValue };
 type JsonValue = JsonObject | JsonValue[] | boolean | number | string | null;

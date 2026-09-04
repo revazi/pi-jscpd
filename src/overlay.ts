@@ -16,11 +16,20 @@ import {
 import type {
   JscpdChangedFinding,
   JscpdCommand,
-  JscpdCommandExecutor,
+  JscpdCommandInvocation,
+  JscpdExecutionContext,
   JscpdExecutionResult,
   JscpdPresentedFinding,
   JscpdStatusResult,
 } from "./types.js";
+
+/** Promise execution is confined to the Pi UI adapter, never a domain service. */
+export interface JscpdOverlayExecutor {
+  execute(
+    invocation: JscpdCommandInvocation,
+    context: JscpdExecutionContext,
+  ): Promise<JscpdExecutionResult>;
+}
 
 const FILTER_LIMIT = 256;
 const OVERLAY_FINDING_LIMIT = 100;
@@ -40,7 +49,7 @@ export interface JscpdOverlayComponentOptions {
   readonly tui: TUI;
   readonly theme: Theme;
   readonly keybindings: KeybindingsManager;
-  readonly executor: JscpdCommandExecutor;
+  readonly executor: JscpdOverlayExecutor;
   readonly cwd: string;
   readonly signal?: AbortSignal;
   readonly changedFileCount: () => number;
@@ -60,7 +69,7 @@ interface ActionItem {
 type OverlayFinding = JscpdChangedFinding | JscpdPresentedFinding;
 
 export function createJscpdOverlayLauncher(
-  executor: JscpdCommandExecutor,
+  executor: JscpdOverlayExecutor,
   options: JscpdOverlayLauncherOptions = {},
 ): JscpdOverlayLauncher {
   const changedFileCount = options.changedFileCount ?? (() => 0);
@@ -100,7 +109,7 @@ export function createJscpdOverlayLauncher(
 }
 
 async function openNonTuiFallback(
-  executor: JscpdCommandExecutor,
+  executor: JscpdOverlayExecutor,
   context: ExtensionCommandContext,
   writeFallback: (text: string) => void,
 ): Promise<void> {
@@ -122,7 +131,7 @@ export class JscpdOverlayComponent {
   readonly #tui: TUI;
   readonly #theme: Theme;
   readonly #keybindings: KeybindingsManager;
-  readonly #executor: JscpdCommandExecutor;
+  readonly #executor: JscpdOverlayExecutor;
   readonly #cwd: string;
   readonly #outerSignal?: AbortSignal;
   readonly #changedFileCount: () => number;
@@ -684,7 +693,7 @@ export class JscpdOverlayComponent {
 }
 
 async function safeExecute(
-  executor: JscpdCommandExecutor,
+  executor: JscpdOverlayExecutor,
   command: JscpdCommand,
   cwd: string,
   signal?: AbortSignal,

@@ -22,6 +22,10 @@ export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
 ]);
 
 export const EFFECT_ONLY_SERVICE_BOUNDARIES = Object.freeze([
+  "src/types.ts",
+  "src/scan.ts",
+  "src/changed.ts",
+  "src/status.ts",
   "src/baseline.ts",
   "src/capability.ts",
   "src/process.ts",

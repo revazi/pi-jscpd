@@ -134,9 +134,8 @@ describe("initial jscpd baseline", () => {
     const bytes = await readFile(join(process.cwd(), "test/fixtures/jscpd-v5/findings.json"));
     const cap = capability();
     const run = vi.fn(async (request: JscpdRunRequest<JscpdScanReport>) => {
-      const decision = await import("../src/effect/runtime-boundary.js").then(
-        ({ JscpdTestEffectRuntime }) =>
-          JscpdTestEffectRuntime.runPromise(request.consumeReportEffect(bytes)),
+      const decision = await import("./support/runtime.js").then(({ JscpdTestEffectRuntime }) =>
+        JscpdTestEffectRuntime.runPromise(request.consumeReportEffect(bytes)),
       );
       return decision.status === "accepted"
         ? ({ status: "report", value: decision.value } as const)

@@ -1,30 +1,32 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import { createJscpdToolDefinition, registerJscpdExtension } from "../src/extension.js";
+import { registerJscpdExtension } from "../src/extension.js";
 import { boundedJscpdDisplayPath } from "../src/finding-presentation.js";
 import { presentJscpdChanged } from "../src/presentation.js";
 import { jscpdCommandNames } from "../src/registry.js";
-import { createJscpdScanScheduler } from "../src/scheduler.js";
 import {
   JSCPD_SESSION_STATE_TYPE,
   JSCPD_SESSION_STATE_VERSION,
   restoreJscpdSessionState,
 } from "../src/session-state.js";
-import type { JscpdCommandExecutor, JscpdScanReport } from "../src/types.js";
+import type { JscpdScanReport } from "../src/types.js";
+import { commandFromPromise, type TestCommandExecute } from "./support/command.js";
+import { createTestToolDefinition as createJscpdToolDefinition } from "./support/host.js";
+import { createSchedulerTestDriver as createJscpdScanScheduler } from "./support/scheduler.js";
 
 const cancelled = {
   status: "failed",
   reason: "scan-cancelled",
-  message: "The jscpd scan was cancelled.",
+  message: "The jscpd scan was cancelled and its temporary report was removed.",
 } as const;
 
 describe("M7.1 observable behavior characterization", () => {
   it("keeps the public command and tool cancellation contract unchanged", async () => {
     const controller = new AbortController();
     controller.abort();
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => cancelled);
-    const tool = createJscpdToolDefinition({ execute });
+    const execute = vi.fn<TestCommandExecute>(async () => cancelled);
+    const tool = createJscpdToolDefinition(commandFromPromise(execute));
 
     const result = await tool.execute(
       "characterization",
@@ -78,7 +80,7 @@ describe("M7.1 observable behavior characterization", () => {
     } as unknown as ExtensionAPI;
 
     registerJscpdExtension(pi, {
-      executor: { execute: async () => cancelled },
+      executor: commandFromPromise(async () => cancelled),
       adapterService: adapter as never,
       configService: {
         loadEffect: () => Effect.succeed(configResult),

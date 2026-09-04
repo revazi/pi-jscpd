@@ -1,7 +1,7 @@
 import type { Effect, Exit as EffectExit } from "effect";
-import type { JscpdClock, JscpdFileSystem, JscpdProcess } from "./services.js";
+import type { JscpdWorkflowRequirements } from "./services.js";
 
-export type JscpdRuntimeRequirements = JscpdClock | JscpdFileSystem | JscpdProcess;
+export type JscpdRuntimeRequirements = JscpdWorkflowRequirements;
 
 /** Host-owned execution boundary shared by every compatibility facade in one extension. */
 export interface JscpdEffectRuntime {

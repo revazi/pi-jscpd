@@ -8,7 +8,6 @@ import {
 } from "./capability.js";
 import { indexJscpdCloneReportEffect } from "./clone-identity.js";
 import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
-import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem, type JscpdProcess } from "./effect/services.js";
 import type {
   JscpdRunFailureReason,
@@ -56,8 +55,8 @@ type ScopeResolution =
 
 interface JscpdScanWorkflowService {
   readonly execute: (
-    invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
-    context: Parameters<JscpdCommandExecutor["execute"]>[1],
+    invocation: Parameters<JscpdCommandExecutor["executeEffect"]>[0],
+    context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
   ) => Effect.Effect<JscpdExecutionResult, never, JscpdFileSystem | JscpdProcess>;
 }
 
@@ -70,11 +69,9 @@ export function createJscpdScanExecutor(
   capabilityService: JscpdCapabilityService,
   service: JscpdService,
   options: JscpdScanExecutorOptions = {},
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCommandExecutor {
   const workflow = scanWorkflowFor(capabilityService, service, options);
   return {
-    execute: (invocation, context) => runtime.runPromise(workflow.execute(invocation, context)),
     executeEffect: (invocation, context) => workflow.execute(invocation, context),
   };
 }

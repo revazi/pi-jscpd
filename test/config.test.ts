@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createJscpdConfigService, DEFAULT_JSCPD_CONFIG } from "../src/config.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 let root: string;
 let projectDirectory: string;

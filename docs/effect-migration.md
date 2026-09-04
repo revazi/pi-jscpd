@@ -260,10 +260,18 @@ lazy construction, injected filesystem access, and stale-start rejection.
 An AST gate rejects runtime dependencies, Promise contracts, and execution
 bridges in the migrated Effect-only service modules.
 
-The remaining audit must remove temporary command/status and scheduler/automatic
-adapters and test-runtime defaults; trace background work
-and finalizer ownership; and check the whole tree for unmanaged resources,
-broad error erasure, and obsolete tests/types. This step is not yet complete.
+The current unreleased refactor also removes command/status and scheduler/automatic
+Promise facades and production test-runtime defaults. These services require native
+Effects; Pi adapters supply the host runtime explicitly, while the overlay retains
+only a UI-specific Promise interface. Characterization drivers and the isolated
+runtime now live under `test/support/`. Focused tests cover native construction
+failures, cancellation, retryable delivery failure, and repeated scheduler disposal
+that awaits finalizers.
+
+The remaining audit must trace background work and finalizer ownership across the
+whole tree, and check for unmanaged resources, broad error erasure, and obsolete
+tests/types. This step is not yet complete; focused validation is not full
+recertification.
 
 ### Step 9 — Pre-release recertification ([#72](https://github.com/revazi/pi-jscpd/issues/72))
 

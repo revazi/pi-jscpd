@@ -1,10 +1,6 @@
 import { Cause, Context, Effect, Layer, MutableRef } from "effect";
 import type { JscpdAcknowledgedFinding, JscpdAcknowledgementTracker } from "./acknowledgements.js";
-import {
-  type JscpdEffectRuntime,
-  type JscpdRuntimeRequirements,
-  JscpdTestEffectRuntime,
-} from "./effect/runtime-boundary.js";
+import type { JscpdWorkflowRequirements as JscpdRuntimeRequirements } from "./effect/services.js";
 import { JscpdPiPort } from "./effect/services.js";
 import type { JscpdAutomaticScanDisposition } from "./scheduler.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult } from "./types.js";
@@ -18,31 +14,16 @@ export function boundedJscpdAutomaticFindingLimit(configuredLimit: number): numb
   return Math.min(configuredLimit, MAX_AUTOMATIC_FINDINGS);
 }
 
-export interface JscpdAutomaticCheckContext {
-  readonly cwd: string;
-  readonly signal: AbortSignal;
-  /** Reject result side effects after a mutation or lifecycle transition supersedes this run. */
-  readonly isCurrent?: () => boolean;
-  readonly onResult?: JscpdAutomaticResultHandler;
-}
-
-export type JscpdAutomaticResultHandler = (
-  result: JscpdExecutionResult,
-  context: JscpdAutomaticCheckContext,
-) => JscpdAutomaticScanDisposition | undefined | Promise<JscpdAutomaticScanDisposition | undefined>;
-
 export interface JscpdAutomaticCheck {
-  run(context: JscpdAutomaticCheckContext): Promise<JscpdAutomaticScanDisposition>;
-  /** Native path used by the managed scheduler and host runtime. */
-  readonly runEffect?: (
+  readonly runEffect: (
     context: JscpdAutomaticCheckEffectContext<JscpdRuntimeRequirements, unknown>,
   ) => Effect.Effect<JscpdAutomaticScanDisposition, never, JscpdRuntimeRequirements>;
 }
 
 export interface JscpdAutomaticCheckOptions {
   /** Internal result sink used when a run does not supply its lifecycle-bound sink. */
-  readonly onResult?: JscpdAutomaticResultHandler;
-  readonly beforeRun?: () => void;
+  readonly onResult?: JscpdAutomaticResultEffectHandler<never, unknown>;
+  readonly beforeRun?: Effect.Effect<void>;
 }
 
 export interface JscpdAutomaticCheckEffectScope {
@@ -173,16 +154,6 @@ export function createJscpdAutomaticAcknowledgementTransaction(
 }
 
 /** Deliver only current actionable findings; clean and failed checks remain outside model context. */
-export function handleJscpdAutomaticResult(
-  result: JscpdExecutionResult,
-  actions: JscpdAutomaticResultActions,
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
-): JscpdAutomaticScanDisposition {
-  return runtime.runSync(
-    handleJscpdAutomaticResultEffect(result, createJscpdAutomaticResultEffectActions(actions)),
-  );
-}
-
 export function handleJscpdAutomaticResultEffect<R>(
   result: JscpdExecutionResult,
   actions: JscpdAutomaticResultEffectActions<R>,
@@ -270,11 +241,9 @@ export function compactJscpdAutomaticStatus(result: JscpdExecutionResult): strin
 export function createJscpdAutomaticCheck(
   executor: JscpdCommandExecutor,
   options: JscpdAutomaticCheckOptions = {},
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdAutomaticCheck {
-  const service = createAutomaticCheckEffectService(executor, automaticEffectOptions(options));
+  const service = createAutomaticCheckEffectService(executor, options);
   return {
-    run: (context) => runtime.runPromise(service.run(automaticEffectContext(context))),
     runEffect: (context) => service.run(context),
   };
 }
@@ -285,18 +254,13 @@ export function createJscpdAutomaticCheckLayer(
 ) {
   return Layer.succeed(
     JscpdAutomaticChecking,
-    createAutomaticCheckEffectService(executor, automaticEffectOptions(options)),
+    createAutomaticCheckEffectService(executor, options),
   );
-}
-
-interface AutomaticCheckEffectOptions {
-  readonly onResult?: JscpdAutomaticResultEffectHandler<never, unknown>;
-  readonly beforeRun?: Effect.Effect<void>;
 }
 
 function createAutomaticCheckEffectService(
   executor: JscpdCommandExecutor,
-  options: AutomaticCheckEffectOptions,
+  options: JscpdAutomaticCheckOptions,
 ): JscpdAutomaticCheckEffectService {
   return {
     run: (context) =>
@@ -307,7 +271,9 @@ function createAutomaticCheckEffectService(
         if (disposition === "deferred") return disposition;
         const handler = context.onResult ?? options.onResult;
         if (handler) {
-          const handled = yield* completeAutomaticResultHandler(handler(result, context));
+          const handled = yield* completeAutomaticResultHandler(
+            Effect.suspend(() => handler(result, context)),
+          );
           if (handled === "deferred") return "deferred";
         }
         return isCurrent(context) ? "attempted" : "deferred";
@@ -319,20 +285,16 @@ function executeAutomaticChangedEffect<R, E>(
   executor: JscpdCommandExecutor,
   context: JscpdAutomaticCheckEffectContext<R, E>,
 ): Effect.Effect<JscpdExecutionResult, never, JscpdRuntimeRequirements> {
-  if (executor.executeEffect) {
-    return executor.executeEffect(
+  return Effect.suspend(() =>
+    executor.executeEffect(
       { command: "changed", args: [] },
       { cwd: context.cwd, signal: context.signal },
-    );
-  }
-  return Effect.tryPromise({
-    try: () =>
-      executor.execute(
-        { command: "changed", args: [] },
-        { cwd: context.cwd, signal: context.signal },
-      ),
-    catch: () => automaticFailure(),
-  }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+    ),
+  ).pipe(
+    Effect.catchAllCause((cause) =>
+      Cause.isInterruptedOnly(cause) ? Effect.failCause(cause) : Effect.succeed(automaticFailure()),
+    ),
+  );
 }
 
 function completeAutomaticResultHandler<R, E>(
@@ -343,44 +305,6 @@ function completeAutomaticResultHandler<R, E>(
       Cause.isInterruptedOnly(cause) ? Effect.interrupt : Effect.succeed("deferred" as const),
     ),
   );
-}
-
-function automaticEffectOptions(options: JscpdAutomaticCheckOptions): AutomaticCheckEffectOptions {
-  return {
-    beforeRun: options.beforeRun ? Effect.sync(options.beforeRun) : undefined,
-    onResult: options.onResult
-      ? (result, context) =>
-          Effect.tryPromise({
-            try: () => Promise.resolve(options.onResult?.(result, promiseCheckContext(context))),
-            catch: (error) => error,
-          })
-      : undefined,
-  };
-}
-
-function automaticEffectContext(
-  context: JscpdAutomaticCheckContext,
-): JscpdAutomaticCheckEffectContext<never, unknown> {
-  return {
-    cwd: context.cwd,
-    signal: context.signal,
-    isCurrent: context.isCurrent,
-    onResult: context.onResult
-      ? (result) =>
-          Effect.tryPromise({
-            try: () => Promise.resolve(context.onResult?.(result, context)),
-            catch: (error) => error,
-          })
-      : undefined,
-  };
-}
-
-function promiseCheckContext(context: JscpdAutomaticCheckEffectScope): JscpdAutomaticCheckContext {
-  return {
-    cwd: context.cwd,
-    signal: context.signal,
-    isCurrent: context.isCurrent,
-  };
 }
 
 export function createJscpdAutomaticResultEffectActions(

@@ -2,12 +2,10 @@ import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Context, Effect, Layer, MutableRef } from "effect";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService, JscpdConfigSource } from "./config.js";
-import {
-  type JscpdEffectRuntime,
-  type JscpdRuntimeRequirements,
-  JscpdTestEffectRuntime,
-} from "./effect/runtime-boundary.js";
-import type { JscpdProcess } from "./effect/services.js";
+import type {
+  JscpdProcess,
+  JscpdWorkflowRequirements as JscpdRuntimeRequirements,
+} from "./effect/services.js";
 import type { JscpdFallowCoexistenceService } from "./fallow.js";
 import { renderJscpdCommandHelp } from "./registry.js";
 import { capabilityProbeEffect } from "./scan.js";
@@ -20,17 +18,16 @@ import type {
 } from "./types.js";
 
 export interface JscpdStatusService {
-  inspect(context: JscpdExecutionContext): Promise<JscpdStatusResult>;
-  inspectEffect?: (
+  inspectEffect: (
     context: JscpdExecutionContext,
   ) => Effect.Effect<JscpdStatusResult, never, JscpdProcess>;
   record(result: JscpdExecutionResult, expectedScope?: number): void;
-  recordEffect?: (result: JscpdExecutionResult, expectedScope?: number) => Effect.Effect<void>;
+  recordEffect: (result: JscpdExecutionResult, expectedScope?: number) => Effect.Effect<void>;
   restore(lastCheck?: JscpdLastCheck): void;
   lastCheck(): JscpdLastCheck;
   /** Lifecycle generation used to reject results from a superseded branch. */
-  scope?(): number;
-  readonly scopeEffect?: Effect.Effect<number>;
+  scope(): number;
+  readonly scopeEffect: Effect.Effect<number>;
 }
 
 export interface JscpdSessionModeService {
@@ -153,11 +150,10 @@ export function createJscpdStatusAwareExecutor(
   sessionMode: JscpdSessionModeService,
   stateChanged: () => void = () => {},
   changedExecutor: JscpdCommandExecutor = scanExecutor,
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCommandExecutor {
   const executeEffect = (
-    invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
-    context: Parameters<JscpdCommandExecutor["execute"]>[1],
+    invocation: Parameters<JscpdCommandExecutor["executeEffect"]>[0],
+    context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
   ) =>
     statusAwareExecutionEffect(
       invocation,
@@ -169,7 +165,6 @@ export function createJscpdStatusAwareExecutor(
       stateChanged,
     );
   return {
-    execute: (invocation, context) => runtime.runPromise(executeEffect(invocation, context)),
     executeEffect,
   };
 }
@@ -179,10 +174,9 @@ export function createJscpdStatusService(
   configService: JscpdConfigService,
   sessionMode: JscpdSessionModeService,
   fallowCoexistence?: JscpdFallowCoexistenceService,
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdStatusService {
   const owner = new StatusOwner(capabilityService, configService, sessionMode, fallowCoexistence);
-  return statusServiceFor(owner, runtime);
+  return statusServiceFor(owner);
 }
 
 export function createJscpdStatusWorkflowLayer(
@@ -265,9 +259,8 @@ class StatusOwner {
   }
 }
 
-function statusServiceFor(owner: StatusOwner, runtime: JscpdEffectRuntime): JscpdStatusService {
+function statusServiceFor(owner: StatusOwner): JscpdStatusService {
   return {
-    inspect: (context) => runtime.runPromise(owner.inspectEffect(context)),
     inspectEffect: (context) => owner.inspectEffect(context),
     record: (result, expectedScope) => owner.record(result, expectedScope),
     recordEffect: (result, expectedScope) => Effect.sync(() => owner.record(result, expectedScope)),
@@ -289,8 +282,8 @@ function statusWorkflowFor(owner: StatusOwner): JscpdStatusWorkflowService {
 }
 
 function statusAwareExecutionEffect(
-  invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
-  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  invocation: Parameters<JscpdCommandExecutor["executeEffect"]>[0],
+  context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
   scanExecutor: JscpdCommandExecutor,
   changedExecutor: JscpdCommandExecutor,
   statusService: JscpdStatusService,
@@ -343,27 +336,20 @@ function statusInspectEffect(
   status: JscpdStatusService,
   context: JscpdExecutionContext,
 ): Effect.Effect<JscpdStatusResult, never, JscpdProcess> {
-  return (
-    status.inspectEffect?.(context) ??
-    Effect.tryPromise({
-      try: () => status.inspect(context),
-      catch: () => undefined,
-    }).pipe(Effect.catchAll(() => Effect.succeed(statusUnavailableResult())))
-  );
+  return status.inspectEffect(context);
 }
 
 function recordedExecutionEffect(
   executor: JscpdCommandExecutor,
-  invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
-  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  invocation: Parameters<JscpdCommandExecutor["executeEffect"]>[0],
+  context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
   status: JscpdStatusService,
   stateChanged: () => void,
 ): Effect.Effect<JscpdExecutionResult, never, JscpdRuntimeRequirements> {
   return Effect.gen(function* () {
     const expectedScope = yield* statusScopeEffect(status);
     const result = yield* commandExecutionEffect(executor, invocation, context);
-    yield* status.recordEffect?.(result, expectedScope) ??
-      Effect.sync(() => status.record(result, expectedScope));
+    yield* status.recordEffect(result, expectedScope);
     yield* Effect.sync(stateChanged);
     return result;
   });
@@ -371,46 +357,14 @@ function recordedExecutionEffect(
 
 function commandExecutionEffect(
   executor: JscpdCommandExecutor,
-  invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
-  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  invocation: Parameters<JscpdCommandExecutor["executeEffect"]>[0],
+  context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
 ): Effect.Effect<JscpdExecutionResult, never, JscpdRuntimeRequirements> {
-  if (executor.executeEffect) return executor.executeEffect(invocation, context);
-  return Effect.tryPromise({
-    try: () => executor.execute(invocation, context),
-    catch: () => processFailedResult(),
-  }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+  return executor.executeEffect(invocation, context);
 }
 
 function statusScopeEffect(service: JscpdStatusService): Effect.Effect<number | undefined> {
-  return service.scopeEffect ?? Effect.sync(() => service.scope?.());
-}
-
-function statusUnavailableResult(): JscpdStatusResult {
-  const message = "jscpd status is temporarily unavailable.";
-  return Object.freeze({
-    status: "status",
-    message,
-    terminalMessage: message,
-    mode: "disabled",
-    modeSource: "configuration",
-    configSource: "defaults",
-    configSources: Object.freeze(["defaults"] as const),
-    configDiagnostics: 0,
-    capability: Object.freeze({
-      status: "failed" as const,
-      executable: "jscpd" as const,
-      reason: "execution-error" as const,
-    }),
-    lastCheck: Object.freeze({ state: "never" as const }),
-  });
-}
-
-function processFailedResult(): JscpdExecutionResult {
-  return Object.freeze({
-    status: "failed",
-    reason: "process-failed",
-    message: "The jscpd operation failed safely; no result was used.",
-  });
+  return service.scopeEffect;
 }
 
 function presentStatus(

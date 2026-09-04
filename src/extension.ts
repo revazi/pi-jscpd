@@ -11,7 +11,6 @@ import {
   createJscpdAutomaticAcknowledgementTransaction,
   createJscpdAutomaticCheck,
   createJscpdAutomaticResultEffectActions,
-  handleJscpdAutomaticResult,
   handleJscpdAutomaticResultEffect,
   JSCPD_AUTOMATIC_MESSAGE_TYPE,
   JSCPD_AUTOMATIC_STATUS_KEY,
@@ -33,7 +32,7 @@ import { dispatchJscpdCommand } from "./dispatch.js";
 import {
   createJscpdManagedRuntime,
   type JscpdEffectRuntime,
-  JscpdTestEffectRuntime,
+  makeEffectScope,
 } from "./effect/runtime-boundary.js";
 import {
   createJscpdFallowCoexistenceService,
@@ -103,7 +102,7 @@ export function registerJscpdExtension(
   let persistSessionState = () => {};
   const changedFiles = createJscpdChangedFileTracker();
   const acknowledgements = createJscpdAcknowledgementTracker();
-  const scheduler = options.scheduler ?? createJscpdScanScheduler(runtime);
+  const scheduler = options.scheduler ?? createJscpdScanScheduler(makeEffectScope(runtime));
   const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService();
   const fallowCoexistence =
@@ -112,24 +111,18 @@ export function registerJscpdExtension(
     capabilityService ??= createJscpdCapabilityService();
     verificationService ??= createJscpdVerificationService();
     sessionMode = createJscpdSessionModeService();
-    const scanExecutor = createJscpdScanExecutor(
-      capabilityService,
-      adapterService,
-      {
-        config: () => ({
-          ...configService.current().config,
-          enabled: sessionMode?.isEnabled() ?? true,
-        }),
-        verification: verificationService,
-      },
-      runtime,
-    );
+    const scanExecutor = createJscpdScanExecutor(capabilityService, adapterService, {
+      config: () => ({
+        ...configService.current().config,
+        enabled: sessionMode?.isEnabled() ?? true,
+      }),
+      verification: verificationService,
+    });
     statusService = createJscpdStatusService(
       capabilityService,
       configService,
       sessionMode,
       fallowCoexistence,
-      runtime,
     );
     baselineService ??= createJscpdBaselineService(capabilityService, adapterService);
     persistSessionState = () => {
@@ -157,7 +150,6 @@ export function registerJscpdExtension(
       changedFiles,
       acknowledgements,
       changedOptions,
-      runtime,
     );
     automaticAcknowledgements = createJscpdAutomaticAcknowledgementTransaction(acknowledgements);
     automaticCheck ??= createJscpdAutomaticCheck(
@@ -177,10 +169,8 @@ export function registerJscpdExtension(
           },
           prioritizeFindings: true,
         },
-        runtime,
       ),
-      { beforeRun: automaticAcknowledgements.discard },
-      runtime,
+      { beforeRun: Effect.sync(automaticAcknowledgements.discard) },
     );
     executor = createJscpdStatusAwareExecutor(
       scanExecutor,
@@ -191,13 +181,14 @@ export function registerJscpdExtension(
         synchronizeBaselineMode(runtime, baselineService, baselineContext, sessionMode);
       },
       changedExecutor,
-      runtime,
     );
   }
-  executor = createJscpdScheduledExecutor(executor, scheduler, runtime);
+  executor = createJscpdScheduledExecutor(executor, scheduler);
   const overlayLauncher =
     options.overlayLauncher ??
-    createJscpdOverlayLauncher(executor, { changedFileCount: () => changedFiles.files().length });
+    createJscpdOverlayLauncher(overlayExecutor(executor, runtime), {
+      changedFileCount: () => changedFiles.files().length,
+    });
 
   pi.registerTool(createJscpdToolDefinition(executor, runtime));
   pi.registerCommand(
@@ -206,7 +197,7 @@ export function registerJscpdExtension(
   );
 
   pi.on("session_start", async (_event, ctx) => {
-    scheduler.reset();
+    runtime.runSync(scheduler.resetEffect);
     fallowCoexistence.reset();
     verificationService?.reset();
     baselineService?.invalidate();
@@ -249,7 +240,7 @@ export function registerJscpdExtension(
     }
   });
   pi.on("session_tree", async (_event, ctx) => {
-    scheduler.reset();
+    runtime.runSync(scheduler.resetEffect);
     verificationService?.reset();
     baselineService?.invalidate();
     adapterService.invalidate();
@@ -281,7 +272,7 @@ export function registerJscpdExtension(
     }
   });
   pi.on("session_before_switch", () => {
-    scheduler.reset();
+    runtime.runSync(scheduler.resetEffect);
     fallowCoexistence.reset();
     verificationService?.reset();
     baselineContext = undefined;
@@ -292,8 +283,8 @@ export function registerJscpdExtension(
     adapterService.invalidate();
   });
   pi.on("before_agent_start", (_event, ctx) => {
-    scheduler.cancelAutomatic();
-    const snapshot = scheduler.snapshot();
+    runtime.runSync(scheduler.cancelAutomaticEffect);
+    const snapshot = runtime.runSync(scheduler.snapshotEffect);
     if (ctx.hasUI && snapshot.changedGeneration > snapshot.attemptedGeneration) {
       safeSetStatus(ctx.ui, pendingAutomaticStatus(fallowCoexistence));
     }
@@ -310,7 +301,7 @@ export function registerJscpdExtension(
         changedFiles.recordToolResultPathEffect(event, ctx.cwd),
       );
       if (path) {
-        scheduler.markChanged();
+        runtime.runSync(scheduler.markChangedEffect);
         if (ctx.hasUI) safeSetStatus(ctx.ui, pendingAutomaticStatus(fallowCoexistence));
         const acknowledgementChanged = acknowledgements.invalidatePaths([path]);
         baselineContext = baselineContext
@@ -331,6 +322,7 @@ export function registerJscpdExtension(
     )
       return;
     requestAutomaticCheck(
+      runtime,
       pi,
       ctx,
       scheduler,
@@ -347,7 +339,7 @@ export function registerJscpdExtension(
     baselineService?.invalidate();
     shutdownPromise ??= Promise.resolve().then(async () => {
       try {
-        await scheduler.dispose();
+        await runtime.runPromise(scheduler.disposeEffect);
         capabilityService?.dispose();
         await runtime.runPromise(adapterService.disposeEffect());
       } finally {
@@ -359,6 +351,7 @@ export function registerJscpdExtension(
 }
 
 function requestAutomaticCheck(
+  runtime: JscpdEffectRuntime,
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   scheduler: JscpdScanScheduler,
@@ -368,8 +361,8 @@ function requestAutomaticCheck(
   persist: () => void,
 ): void {
   const cwd = ctx.cwd;
-  if (scheduler.requestAutomaticEffect && automaticCheck.runEffect) {
-    scheduler.requestAutomaticEffect(({ signal, isCurrent }) => {
+  runtime.runSync(
+    scheduler.scheduleAutomaticEffect(({ signal, isCurrent }) => {
       const actions = createAutomaticDeliveryActions(
         pi,
         ctx,
@@ -380,7 +373,7 @@ function requestAutomaticCheck(
       );
       return Effect.sync(() => setAutomaticCheckingStatus(ctx, isCurrent)).pipe(
         Effect.zipRight(
-          automaticCheck.runEffect?.({
+          automaticCheck.runEffect({
             cwd,
             signal,
             isCurrent,
@@ -391,35 +384,14 @@ function requestAutomaticCheck(
                     createJscpdAutomaticResultEffectActions(actions),
                   )
               : undefined,
-          }) ?? Effect.succeed("deferred" as const),
+          }),
         ),
         Effect.tap((disposition) =>
           Effect.sync(() => restoreDeferredAutomaticStatus(ctx, isCurrent, disposition)),
         ),
       );
-    });
-    return;
-  }
-
-  scheduler.requestAutomatic(async ({ signal, isCurrent }) => {
-    setAutomaticCheckingStatus(ctx, isCurrent);
-    const actions = createAutomaticDeliveryActions(
-      pi,
-      ctx,
-      isCurrent,
-      acknowledgements,
-      status,
-      persist,
-    );
-    const disposition = await automaticCheck.run({
-      cwd,
-      signal,
-      isCurrent,
-      onResult: actions ? (result) => handleJscpdAutomaticResult(result, actions) : undefined,
-    });
-    restoreDeferredAutomaticStatus(ctx, isCurrent, disposition);
-    return disposition;
-  });
+    }),
+  );
 }
 
 function createAutomaticDeliveryActions(
@@ -577,7 +549,7 @@ function isBuiltInMutationTool(pi: ExtensionAPI, toolName: string): boolean {
 
 export function createJscpdToolDefinition(
   executor: JscpdCommandExecutor,
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+  runtime: JscpdEffectRuntime,
 ): JscpdToolDefinition {
   return {
     ...jscpdToolContract,
@@ -599,8 +571,8 @@ export function createJscpdToolDefinition(
 
 export function createJscpdSlashCommandDefinition(
   executor: JscpdCommandExecutor,
-  overlayLauncher: JscpdOverlayLauncher = createJscpdOverlayLauncher(executor),
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
+  overlayLauncher: JscpdOverlayLauncher | undefined = undefined,
+  runtime: JscpdEffectRuntime,
 ): JscpdSlashCommandDefinition {
   return {
     description: "Open the jscpd overview or run an explicit subcommand.",
@@ -614,7 +586,9 @@ export function createJscpdSlashCommandDefinition(
       }
       if (parsed.kind === "bare") {
         try {
-          await overlayLauncher.open(ctx);
+          await (
+            overlayLauncher ?? createJscpdOverlayLauncher(overlayExecutor(executor, runtime))
+          ).open(ctx);
         } catch {
           ctx.ui.notify(
             "The jscpd overview could not open; explicit subcommands remain available.",
@@ -633,6 +607,13 @@ export function createJscpdSlashCommandDefinition(
       );
       ctx.ui.notify(terminalResultMessage(result), resultNotificationLevel(result));
     },
+  };
+}
+
+function overlayExecutor(executor: JscpdCommandExecutor, runtime: JscpdEffectRuntime) {
+  return {
+    execute: (...args: Parameters<JscpdCommandExecutor["executeEffect"]>) =>
+      runtime.runPromise(executor.executeEffect(...args)),
   };
 }
 

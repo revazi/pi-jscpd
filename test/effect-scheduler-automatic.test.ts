@@ -1,4 +1,4 @@
-import { Deferred, Effect } from "effect";
+import { Deferred, Effect, Scope } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { createJscpdAcknowledgementTracker } from "../src/acknowledgements.js";
 import {
@@ -7,14 +7,16 @@ import {
   handleJscpdAutomaticPiResultEffect,
   JscpdAutomaticChecking,
 } from "../src/automatic.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
+  createJscpdScanScheduler,
   createJscpdScanSchedulerLayer,
   type JscpdAutomaticScanContext,
   JscpdScanScheduling,
 } from "../src/scheduler.js";
-import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
+import type { JscpdExecutionResult } from "../src/types.js";
+import { commandFromPromise, type TestCommandExecute } from "./support/command.js";
 import { createJscpdClockTestLayer, createJscpdPiPortTestLayer } from "./support/effect-layers.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 const cleanResult = {
   status: "changed",
@@ -56,6 +58,42 @@ function finding() {
 }
 
 describe("Effect scan scheduling", () => {
+  it("awaits native scheduler finalization and tolerates repeated disposal", async () => {
+    let finalized = 0;
+    let signal: AbortSignal | undefined;
+    await JscpdTestEffectRuntime.runPromise(
+      Effect.gen(function* () {
+        const scheduler = createJscpdScanScheduler(yield* Scope.make());
+        const started = yield* Deferred.make<void>();
+        yield* scheduler.markChangedEffect;
+        yield* scheduler.scheduleAutomaticEffect((context) =>
+          Effect.sync(() => {
+            signal = context.signal;
+          }).pipe(
+            Effect.zipRight(Deferred.succeed(started, undefined)),
+            Effect.zipRight(Effect.never),
+            Effect.ensuring(
+              Effect.yieldNow().pipe(
+                Effect.zipRight(
+                  Effect.sync(() => {
+                    finalized += 1;
+                  }),
+                ),
+              ),
+            ),
+          ),
+        );
+        yield* Deferred.await(started);
+        yield* scheduler.disposeEffect;
+        expect(finalized).toBe(1);
+        expect(signal?.aborted).toBe(true);
+        yield* scheduler.disposeEffect;
+        expect(finalized).toBe(1);
+        expect(yield* scheduler.snapshotEffect).toMatchObject({ closed: true, automatic: "idle" });
+      }),
+    );
+  });
+
   it("uses the injected Effect clock for the coalescing boundary", async () => {
     const clock = createJscpdClockTestLayer();
     const program = Effect.gen(function* () {
@@ -146,8 +184,27 @@ describe("Effect scan scheduling", () => {
 });
 
 describe("Effect automatic checking and delivery", () => {
+  it("leaves a result retryable when its native handler throws during construction", async () => {
+    const program = Effect.flatMap(JscpdAutomaticChecking, (automatic) =>
+      automatic.run({
+        cwd: "/project",
+        signal: new AbortController().signal,
+        onResult: (): Effect.Effect<"deferred"> => {
+          throw new Error("handler construction failure");
+        },
+      }),
+    ).pipe(
+      Effect.provide(
+        createJscpdAutomaticCheckLayer({
+          executeEffect: () => Effect.succeed(cleanResult),
+        }),
+      ),
+    );
+    await expect(JscpdTestEffectRuntime.runPromise(program)).resolves.toBe("deferred");
+  });
+
   it("runs the changed check through the Effect service layer", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => cleanResult);
+    const execute = vi.fn<TestCommandExecute>(async () => cleanResult);
     const handled: JscpdExecutionResult[] = [];
     const program = Effect.flatMap(JscpdAutomaticChecking, (automatic) =>
       automatic.run({
@@ -162,7 +219,7 @@ describe("Effect automatic checking and delivery", () => {
     );
 
     const disposition = await JscpdTestEffectRuntime.runPromise(
-      program.pipe(Effect.provide(createJscpdAutomaticCheckLayer({ execute }))),
+      program.pipe(Effect.provide(createJscpdAutomaticCheckLayer(commandFromPromise(execute)))),
     );
 
     expect(disposition).toBe("attempted");

@@ -2,12 +2,12 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
   createJscpdFallowCoexistenceService,
   evaluateJscpdFallowCoexistenceEffect,
   type JscpdFallowCoexistenceContext,
 } from "../src/fallow.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 let root: string;
 let project: string;
