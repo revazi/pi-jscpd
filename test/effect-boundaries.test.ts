@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-const { APPROVED_EFFECT_RUNTIME_BOUNDARIES, findEffectRuntimeCalls } = await import(
+const {
+  APPROVED_EFFECT_RUNTIME_BOUNDARIES,
+  MIGRATED_FILESYSTEM_BOUNDARIES,
+  findEffectRuntimeCalls,
+  findNodeFileSystemImports,
+} = await import(
   // @ts-expect-error The executable architecture script intentionally has no published type surface.
   "../scripts/check-effect-boundaries.mjs"
 );
@@ -86,6 +91,20 @@ describe("Effect runtime architecture boundary", () => {
       { line: 10, name: "runPromise" },
       { line: 11, name: "runPromise" },
     ]);
+  });
+
+  it("detects direct Node filesystem imports in migrated modules", () => {
+    const source = `
+      import { readFile } from "node:fs/promises";
+      import type { Stats } from "node:fs";
+      import { join } from "node:path";
+    `;
+
+    expect(findNodeFileSystemImports(source, "src/config.ts")).toEqual([
+      { path: "src/config.ts", line: 2, moduleName: "node:fs/promises" },
+      { path: "src/config.ts", line: 3, moduleName: "node:fs" },
+    ]);
+    expect(MIGRATED_FILESYSTEM_BOUNDARIES).toContain("src/jscpd-report.ts");
   });
 
   it("keeps runtime execution at the temporary application bridge and Pi adapter", () => {

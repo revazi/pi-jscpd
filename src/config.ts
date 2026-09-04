@@ -1,13 +1,14 @@
-import { constants as fsConstants } from "node:fs";
-import type { FileHandle } from "node:fs/promises";
-import { open, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { Cause, Context, Data, Effect, Exit, Layer } from "effect";
+import { JscpdFileSystemLive } from "./effect/filesystem.js";
+import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { JscpdFileSystem } from "./effect/services.js";
+import { canonicalDirectoryEffect } from "./path-utils.js";
 
 const PROJECT_CONFIG_FILE_NAME = "jscpd-guardrail.json";
 const LOCAL_CONFIG_FILE_NAME = "jscpd-guardrail.local.json";
 const MAX_CONFIG_BYTES = 64 * 1_024;
-const CONFIG_READ_CHUNK_BYTES = 8 * 1_024;
 const MIN_TIMEOUT_MS = 100;
 const MAX_TIMEOUT_MS = 5 * 60_000;
 const MAX_PRESENTED_FINDINGS = 100;
@@ -62,6 +63,17 @@ export interface JscpdConfigService {
   current(): JscpdConfigLoadResult;
 }
 
+interface JscpdConfigEffectService {
+  readonly load: (
+    context: JscpdConfigLoadContext,
+  ) => Effect.Effect<JscpdConfigLoadResult, never, JscpdFileSystem>;
+  readonly current: Effect.Effect<JscpdConfigLoadResult>;
+}
+
+export const JscpdConfiguration = Context.GenericTag<JscpdConfigEffectService>(
+  "pi-jscpd/effect/Configuration",
+);
+
 interface ConfigPatch {
   enabled?: boolean;
   timeoutMs?: number;
@@ -75,174 +87,193 @@ type ConfigFileResult =
   | { status: "valid"; patch: ConfigPatch }
   | { status: "invalid"; diagnostic: JscpdConfigDiagnostic };
 
+class ConfigDecodeFailure extends Data.TaggedError("ConfigDecodeFailure")<{
+  readonly diagnostic: JscpdConfigDiagnostic;
+}> {}
+
 const SOURCE_FILES: readonly [ConfigFileSource, string][] = [
   ["project", PROJECT_CONFIG_FILE_NAME],
   ["local", LOCAL_CONFIG_FILE_NAME],
 ];
 
 export function createJscpdConfigService(): JscpdConfigService {
-  let loaded = defaultLoadResult(false);
+  const owner = new DefaultJscpdConfigService();
   return {
     async load(context) {
-      loaded = await loadJscpdConfig(context);
-      return loaded;
+      const program = owner.loadEffect(context).pipe(Effect.provide(JscpdFileSystemLive));
+      const exit = await runEffectExitAtApplicationBoundary(program);
+      if (Exit.isSuccess(exit)) return exit.value;
+      throw Cause.squash(exit.cause);
     },
-    current() {
-      return loaded;
-    },
+    current: () => owner.currentValue(),
   };
 }
 
-async function loadJscpdConfig(context: JscpdConfigLoadContext): Promise<JscpdConfigLoadResult> {
-  if (!context.trusted) {
-    return defaultLoadResult(false);
+export function createJscpdConfigLayer() {
+  const owner = new DefaultJscpdConfigService();
+  return Layer.succeed(JscpdConfiguration, {
+    load: (context) => owner.loadEffect(context),
+    current: Effect.sync(() => owner.currentValue()),
+  });
+}
+
+class DefaultJscpdConfigService {
+  #loaded = defaultLoadResult(false);
+
+  loadEffect(
+    context: JscpdConfigLoadContext,
+  ): Effect.Effect<JscpdConfigLoadResult, never, JscpdFileSystem> {
+    return loadJscpdConfigEffect(context).pipe(
+      Effect.tap((loaded) =>
+        Effect.sync(() => {
+          this.#loaded = loaded;
+        }),
+      ),
+    );
   }
 
-  const projectDirectory = await canonicalProjectDirectory(context.cwd);
-  if (!projectDirectory) {
+  currentValue(): JscpdConfigLoadResult {
+    return this.#loaded;
+  }
+}
+
+export function loadJscpdConfigEffect(
+  context: JscpdConfigLoadContext,
+): Effect.Effect<JscpdConfigLoadResult, never, JscpdFileSystem> {
+  if (!context.trusted) return Effect.succeed(defaultLoadResult(false));
+  return Effect.gen(function* () {
+    const projectDirectory = yield* canonicalDirectoryEffect(context.cwd).pipe(
+      Effect.catchAll(() => Effect.succeed(undefined)),
+    );
+    if (!projectDirectory) return invalidProjectResult();
+
+    const config: JscpdConfig = { ...DEFAULT_JSCPD_CONFIG };
+    const sources: JscpdConfigSource[] = ["defaults"];
+    const diagnostics: JscpdConfigDiagnostic[] = [];
+    for (const [source, fileName] of SOURCE_FILES) {
+      const result = yield* loadConfigFileEffect(projectDirectory, source, fileName);
+      if (result.status === "valid") {
+        Object.assign(config, result.patch);
+        sources.push(source);
+      } else if (result.status === "invalid") {
+        diagnostics.push(result.diagnostic);
+      }
+    }
     return Object.freeze({
-      config: DEFAULT_JSCPD_CONFIG,
-      sources: Object.freeze(["defaults"] as const),
-      diagnostics: Object.freeze([
-        diagnostic(
-          "project",
-          "invalid-project",
-          "jscpd configuration was not loaded because the project directory is unavailable.",
-        ),
-      ]),
+      config: Object.freeze(config),
+      sources: Object.freeze(sources),
+      diagnostics: Object.freeze(diagnostics),
       trusted: true,
     });
-  }
+  });
+}
 
-  const config: JscpdConfig = { ...DEFAULT_JSCPD_CONFIG };
-  const sources: JscpdConfigSource[] = ["defaults"];
-  const diagnostics: JscpdConfigDiagnostic[] = [];
-  for (const [source, fileName] of SOURCE_FILES) {
-    const result = await loadConfigFile(projectDirectory, source, fileName);
-    if (result.status === "valid") {
-      Object.assign(config, result.patch);
-      sources.push(source);
-    } else if (result.status === "invalid") {
-      diagnostics.push(result.diagnostic);
-    }
-  }
+function loadConfigFileEffect(
+  projectDirectory: string,
+  source: ConfigFileSource,
+  fileName: string,
+): Effect.Effect<ConfigFileResult, never, JscpdFileSystem> {
+  return Effect.flatMap(JscpdFileSystem, (filesystem) => {
+    const configuredPath = join(projectDirectory, CONFIG_DIR_NAME, fileName);
+    return filesystem.canonicalize(configuredPath).pipe(
+      Effect.matchEffect({
+        onFailure: (error) =>
+          Effect.succeed(
+            error.reason === "missing"
+              ? ({ status: "missing" } as const)
+              : unreadableConfigFile(source),
+          ),
+        onSuccess: (canonicalPath) =>
+          isPathInside(projectDirectory, canonicalPath)
+            ? readConfigFileEffect(filesystem, canonicalPath, source)
+            : Effect.succeed(
+                invalidFile(
+                  source,
+                  "unsafe-file",
+                  `${sourceLabel(source)} resolves outside the project and was ignored.`,
+                ),
+              ),
+      }),
+    );
+  });
+}
 
+function readConfigFileEffect(
+  filesystem: JscpdFileSystem,
+  path: string,
+  source: ConfigFileSource,
+): Effect.Effect<ConfigFileResult> {
+  return filesystem
+    .read({
+      path,
+      maxBytes: MAX_CONFIG_BYTES,
+      regularFileOnly: true,
+      noFollow: true,
+      limitSubject: "configuration",
+    })
+    .pipe(
+      Effect.matchEffect({
+        onFailure: (error) =>
+          Effect.succeed(
+            error._tag === "JscpdLimitExceeded"
+              ? invalidFile(
+                  source,
+                  "file-too-large",
+                  `${sourceLabel(source)} exceeds the 64 KiB limit and was ignored.`,
+                )
+              : unreadableConfigFile(source),
+          ),
+        onSuccess: (bytes) =>
+          decodeConfigFileEffect(bytes, source).pipe(
+            Effect.match({
+              onFailure: (error): ConfigFileResult => ({
+                status: "invalid",
+                diagnostic: error.diagnostic,
+              }),
+              onSuccess: (patch): ConfigFileResult => ({ status: "valid", patch }),
+            }),
+          ),
+      }),
+    );
+}
+
+function invalidProjectResult(): JscpdConfigLoadResult {
   return Object.freeze({
-    config: Object.freeze(config),
-    sources: Object.freeze(sources),
-    diagnostics: Object.freeze(diagnostics),
+    config: DEFAULT_JSCPD_CONFIG,
+    sources: Object.freeze(["defaults"] as const),
+    diagnostics: Object.freeze([
+      diagnostic(
+        "project",
+        "invalid-project",
+        "jscpd configuration was not loaded because the project directory is unavailable.",
+      ),
+    ]),
     trusted: true,
   });
 }
 
-async function canonicalProjectDirectory(cwd: string): Promise<string | undefined> {
-  if (!isAbsolute(cwd)) {
-    return undefined;
-  }
-  try {
-    const [canonical, metadata] = await Promise.all([realpath(cwd), stat(cwd)]);
-    return metadata.isDirectory() ? canonical : undefined;
-  } catch {
-    return undefined;
-  }
+function unreadableConfigFile(source: ConfigFileSource): ConfigFileResult {
+  return invalidFile(
+    source,
+    "read-failed",
+    `${sourceLabel(source)} could not be read and was ignored.`,
+  );
 }
 
-async function loadConfigFile(
-  projectDirectory: string,
+function decodeConfigFileEffect(
+  bytes: Uint8Array,
   source: ConfigFileSource,
-  fileName: string,
-): Promise<ConfigFileResult> {
-  const configuredPath = join(projectDirectory, CONFIG_DIR_NAME, fileName);
-  let canonicalPath: string;
-  try {
-    canonicalPath = await realpath(configuredPath);
-  } catch (error) {
-    const missing =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      (error as NodeJS.ErrnoException).code === "ENOENT";
-    return missing
-      ? { status: "missing" }
-      : invalidFile(
-          source,
-          "read-failed",
-          `${sourceLabel(source)} could not be read and was ignored.`,
-        );
-  }
-
-  if (!isPathInside(projectDirectory, canonicalPath)) {
-    return invalidFile(
-      source,
-      "unsafe-file",
-      `${sourceLabel(source)} resolves outside the project and was ignored.`,
-    );
-  }
-
-  const bytes = await readBoundedConfig(canonicalPath);
-  if (bytes.status === "too-large") {
-    return invalidFile(
-      source,
-      "file-too-large",
-      `${sourceLabel(source)} exceeds the 64 KiB limit and was ignored.`,
-    );
-  }
-  if (bytes.status === "failed") {
-    return invalidFile(
-      source,
-      "read-failed",
-      `${sourceLabel(source)} could not be read and was ignored.`,
-    );
-  }
-  return parseConfigFile(bytes.value, source);
+): Effect.Effect<ConfigPatch, ConfigDecodeFailure> {
+  const decoded = parseConfigFile(bytes, source);
+  return decoded.status === "valid"
+    ? Effect.succeed(decoded.patch)
+    : Effect.fail(new ConfigDecodeFailure({ diagnostic: decoded.diagnostic }));
 }
 
-type ConfigBytesResult =
-  | { status: "bytes"; value: Uint8Array }
-  | { status: "too-large" }
-  | { status: "failed" };
-
-async function readBoundedConfig(path: string): Promise<ConfigBytesResult> {
-  let file: FileHandle;
-  try {
-    file = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  } catch {
-    return { status: "failed" };
-  }
-
-  try {
-    const metadata = await file.stat();
-    if (!metadata.isFile()) {
-      return { status: "failed" };
-    }
-    if (metadata.size > MAX_CONFIG_BYTES) {
-      return { status: "too-large" };
-    }
-    return await readConfigChunks(file);
-  } catch {
-    return { status: "failed" };
-  } finally {
-    await file.close().catch(() => undefined);
-  }
-}
-
-async function readConfigChunks(file: FileHandle): Promise<ConfigBytesResult> {
-  const chunks: Buffer[] = [];
-  let bytesRead = 0;
-  while (bytesRead <= MAX_CONFIG_BYTES) {
-    const capacity = Math.min(CONFIG_READ_CHUNK_BYTES, MAX_CONFIG_BYTES - bytesRead + 1);
-    const chunk = Buffer.alloc(capacity);
-    const read = await file.read(chunk, 0, capacity, null);
-    if (read.bytesRead === 0) {
-      return { status: "bytes", value: Buffer.concat(chunks, bytesRead) };
-    }
-    chunks.push(chunk.subarray(0, read.bytesRead));
-    bytesRead += read.bytesRead;
-  }
-  return { status: "too-large" };
-}
-
-function parseConfigFile(bytes: Uint8Array, source: ConfigFileSource): ConfigFileResult {
+function parseConfigFile(
+  bytes: Uint8Array,
+  source: ConfigFileSource,
+): Exclude<ConfigFileResult, { status: "missing" }> {
   let value: unknown;
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
@@ -341,7 +372,7 @@ function invalidFile(
   source: ConfigFileSource,
   code: JscpdConfigDiagnosticCode,
   message: string,
-): ConfigFileResult {
+): Extract<ConfigFileResult, { status: "invalid" }> {
   return { status: "invalid", diagnostic: diagnostic(source, code, message) };
 }
 

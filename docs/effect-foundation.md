@@ -2,8 +2,9 @@
 
 Issue [#64](https://github.com/revazi/pi-jscpd/issues/64) establishes the first,
 behavior-preserving Effect migration slice. It declares contracts and test support
-only. M7.2 now builds on these contracts for process and analyzer resources;
-filesystem policy, domain, scheduler, application, Pi, and TUI workflows retain
+only. M7.2 builds on these contracts for process and analyzer resources, and
+M7.3 provides the bounded filesystem layer used by configuration and external
+data boundaries. Domain, scheduler, application, Pi, and TUI workflows retain
 their characterized pre-migration paths. The single managed extension runtime
 still waits for M7.7.
 
@@ -24,7 +25,7 @@ supported Node checks, and packed-artifact recertification.
 
 ## Declarative service boundary
 
-`src/effect/services.ts` defines four `Context` service tags without live layers:
+`src/effect/services.ts` defines four `Context` service tags:
 
 - `JscpdProcess`: shell-free bounded execution whose future implementation owns
   process-tree cleanup;
@@ -34,10 +35,12 @@ supported Node checks, and packed-artifact recertification.
 - `JscpdPiPort`: bounded session persistence, finding delivery, notifications,
   and footer status without importing Pi UI types into lower layers.
 
-The interfaces return effects with expected typed failures. They do not wrap or
-replace any current production service. Deterministic layer factories live only
-under `test/support/effect-layers.ts`; tests can inspect requests, files, time,
-and Pi writes without patching globals.
+The interfaces return effects with expected typed failures. M7.2 provides the
+live process implementation and M7.3 provides `JscpdFileSystemLive`; clock and Pi
+ports remain declarative until their owning slices. Deterministic layer factories
+live only under `test/support/effect-layers.ts`; tests can inspect requests,
+files, time, and Pi writes without patching globals. See the
+[filesystem and decoding boundary](effect-filesystem.md).
 
 ## Stable expected-error taxonomy
 

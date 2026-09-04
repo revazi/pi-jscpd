@@ -1,6 +1,14 @@
-import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { compareText, hasControlCharacters, isPathInside } from "./path-utils.js";
+import { Cause, Data, Effect, Exit } from "effect";
+import { JscpdFileSystemLive } from "./effect/filesystem.js";
+import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { JscpdFileSystem } from "./effect/services.js";
+import {
+  canonicalDirectoryEffect,
+  compareText,
+  hasControlCharacters,
+  isPathInside,
+} from "./path-utils.js";
 import type {
   JscpdCloneOccurrence,
   JscpdClonePair,
@@ -62,6 +70,13 @@ interface UnresolvedClonePair {
   readonly occurrences: readonly [UnresolvedOccurrence, UnresolvedOccurrence];
 }
 
+interface PreparedClonePair extends Omit<UnresolvedClonePair, "occurrences"> {
+  readonly occurrences: readonly [
+    UnresolvedOccurrence & { readonly candidatePath: ReporterPathCandidates },
+    UnresolvedOccurrence & { readonly candidatePath: ReporterPathCandidates },
+  ];
+}
+
 interface JsonObjectContainer {
   readonly kind: "object";
   readonly keys: Set<string>;
@@ -83,15 +98,9 @@ interface ParsedReport {
   readonly clonePairs: readonly UnresolvedClonePair[];
 }
 
-class ReportValidationError extends Error {
+class ReportValidationError extends Data.TaggedError("ReportValidationError")<{
   readonly code: JscpdReportErrorCode;
-
-  constructor(code: JscpdReportErrorCode) {
-    super("The jscpd report did not satisfy the bounded v5 JSON contract.");
-    this.name = "ReportValidationError";
-    this.code = code;
-  }
-}
+}> {}
 
 /**
  * Validate and normalize bounded jscpd v5 JSON bytes for the adapter's consumeReport boundary.
@@ -102,18 +111,30 @@ export async function consumeJscpdV5JsonReport(
   bytes: Uint8Array,
   cwd: string,
 ): Promise<JscpdReportDecision<JscpdScanReport>> {
-  try {
-    const parsed = parseReportBytes(bytes);
-    const report = await normalizeReportPaths(parsed, cwd);
-    return report.clonePairs.length === 0
-      ? { status: "no-findings", value: report }
-      : { status: "accepted", value: report };
-  } catch (error) {
-    if (error instanceof ReportValidationError) {
-      return { status: "rejected", reason: error.code };
-    }
-    throw error;
-  }
+  const exit = await runEffectExitAtApplicationBoundary(
+    consumeJscpdV5JsonReportEffect(bytes, cwd).pipe(Effect.provide(JscpdFileSystemLive)),
+  );
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw Cause.squash(exit.cause);
+}
+
+export function consumeJscpdV5JsonReportEffect(
+  bytes: Uint8Array,
+  cwd: string,
+): Effect.Effect<JscpdReportDecision<JscpdScanReport>, never, JscpdFileSystem> {
+  return Effect.flatMap(
+    validationAttempt(() => parseReportBytes(bytes)),
+    (parsed) => normalizeReportPathsEffect(parsed, cwd),
+  ).pipe(
+    Effect.map((report) =>
+      report.clonePairs.length === 0
+        ? ({ status: "no-findings", value: report } as const)
+        : ({ status: "accepted", value: report } as const),
+    ),
+    Effect.catchTag("ReportValidationError", (error) =>
+      Effect.succeed({ status: "rejected", reason: error.code } as const),
+    ),
+  );
 }
 
 export function isJscpdReportErrorCode(value: unknown): value is JscpdReportErrorCode {
@@ -439,36 +460,60 @@ function validateStatisticsFormatRows(
   }
 }
 
-async function normalizeReportPaths(parsed: ParsedReport, cwd: string): Promise<JscpdScanReport> {
-  const projectDirectory = await resolveProjectDirectory(cwd);
-  const candidatePairs = parsed.clonePairs.map((pair) => {
-    const [first, second] = pair.occurrences;
-    return {
-      ...pair,
-      occurrences: [
-        {
-          ...first,
-          candidatePath: prepareCandidatePath(first.reporterPath, pair.format, projectDirectory),
-        },
-        {
-          ...second,
-          candidatePath: prepareCandidatePath(second.reporterPath, pair.format, projectDirectory),
-        },
-      ] as const,
-    };
-  });
-  const candidatePaths = new Map<string, ReporterPathCandidates>();
-  for (const { occurrences } of candidatePairs) {
-    for (const { candidatePath } of occurrences) {
-      candidatePaths.set(candidatePath.key, candidatePath);
+function normalizeReportPathsEffect(
+  parsed: ParsedReport,
+  cwd: string,
+): Effect.Effect<JscpdScanReport, ReportValidationError, JscpdFileSystem> {
+  return Effect.gen(function* () {
+    const projectDirectory = yield* resolveProjectDirectoryEffect(cwd);
+    const candidatePairs = yield* validationAttempt(() =>
+      parsed.clonePairs.map((pair): PreparedClonePair => {
+        const [first, second] = pair.occurrences;
+        return {
+          ...pair,
+          occurrences: [
+            {
+              ...first,
+              candidatePath: prepareCandidatePath(
+                first.reporterPath,
+                pair.format,
+                projectDirectory,
+              ),
+            },
+            {
+              ...second,
+              candidatePath: prepareCandidatePath(
+                second.reporterPath,
+                pair.format,
+                projectDirectory,
+              ),
+            },
+          ] as const,
+        };
+      }),
+    );
+    const candidatePaths = new Map<string, ReporterPathCandidates>();
+    for (const { occurrences } of candidatePairs) {
+      for (const { candidatePath } of occurrences) {
+        candidatePaths.set(candidatePath.key, candidatePath);
+      }
     }
-  }
-  const normalizedPaths = await resolveCandidatePaths(
-    [...candidatePaths.values()],
-    projectDirectory,
-  );
-  const seenPairs = new Set<string>();
+    const normalizedPaths = yield* resolveCandidatePathsEffect(
+      [...candidatePaths.values()],
+      projectDirectory,
+    );
+    return yield* validationAttempt(() =>
+      finalizeNormalizedReport(parsed, candidatePairs, normalizedPaths),
+    );
+  });
+}
 
+function finalizeNormalizedReport(
+  parsed: ParsedReport,
+  candidatePairs: readonly PreparedClonePair[],
+  normalizedPaths: ReadonlyMap<string, string>,
+): JscpdScanReport {
+  const seenPairs = new Set<string>();
   const clonePairs = candidatePairs.map((pair): JscpdClonePair => {
     const occurrences = pair.occurrences
       .map(
@@ -507,23 +552,18 @@ async function normalizeReportPaths(parsed: ParsedReport, cwd: string): Promise<
   });
 }
 
-async function resolveProjectDirectory(cwd: string): Promise<string> {
-  if (!isSafePathText(cwd) || !isAbsolute(cwd)) {
-    fail("unsafe-path");
-  }
-  try {
-    const canonical = await realpath(cwd);
-    const metadata = await stat(canonical);
-    if (!metadata.isDirectory() || !isSafePathText(canonical) || !isAbsolute(canonical)) {
-      fail("unsafe-path");
-    }
-    return canonical;
-  } catch (error) {
-    if (error instanceof ReportValidationError) {
-      throw error;
-    }
-    fail("unsafe-path");
-  }
+function resolveProjectDirectoryEffect(
+  cwd: string,
+): Effect.Effect<string, ReportValidationError, JscpdFileSystem> {
+  if (!isSafePathText(cwd) || !isAbsolute(cwd)) return validationFailure("unsafe-path");
+  return canonicalDirectoryEffect(cwd).pipe(
+    Effect.mapError(() => new ReportValidationError({ code: "unsafe-path" })),
+    Effect.flatMap((canonical) =>
+      canonical && isSafePathText(canonical) && isAbsolute(canonical)
+        ? Effect.succeed(canonical)
+        : validationFailure("unsafe-path"),
+    ),
+  );
 }
 
 function prepareCandidatePath(
@@ -584,80 +624,61 @@ function embeddedFormatBasePath(path: string, format: string): string | undefine
   return finalCharacter === "/" || finalCharacter === "\\" ? undefined : candidate;
 }
 
-async function resolveCandidatePaths(
+function resolveCandidatePathsEffect(
   candidatePaths: readonly ReporterPathCandidates[],
   cwd: string,
-): Promise<ReadonlyMap<string, string>> {
-  const normalized = new Map<string, string>();
-  let nextIndex = 0;
-  const worker = async (): Promise<void> => {
-    while (nextIndex < candidatePaths.length) {
-      const candidate = candidatePaths[nextIndex];
-      nextIndex += 1;
-      if (candidate === undefined) {
-        break;
-      }
-      normalized.set(candidate.key, await canonicalProjectPath(candidate, cwd));
-    }
-  };
-  const workerCount = Math.min(PATH_RESOLUTION_CONCURRENCY, candidatePaths.length);
-  await Promise.all(Array.from({ length: workerCount }, worker));
-  return normalized;
+): Effect.Effect<ReadonlyMap<string, string>, ReportValidationError, JscpdFileSystem> {
+  return Effect.forEach(
+    candidatePaths,
+    (candidate) =>
+      Effect.map(
+        canonicalProjectPathEffect(candidate, cwd),
+        (path) => [candidate.key, path] as const,
+      ),
+    { concurrency: PATH_RESOLUTION_CONCURRENCY },
+  ).pipe(Effect.map((entries) => new Map(entries)));
 }
 
-async function canonicalProjectPath(
+function canonicalProjectPathEffect(
   candidate: ReporterPathCandidates,
   cwd: string,
-): Promise<string> {
+): Effect.Effect<string, ReportValidationError, JscpdFileSystem> {
   const paths =
     candidate.embeddedBase === undefined
       ? [candidate.exact]
       : [candidate.exact, candidate.embeddedBase];
-  const resolved = await Promise.all(paths.map((path) => resolveRegularProjectFile(path, cwd)));
-  const projectPaths = [...new Set(resolved.filter((path) => path !== undefined))];
-  if (projectPaths.length === 0) {
-    fail("unsafe-path");
-  }
-  if (projectPaths.length > 1) {
-    fail("ambiguous-path");
-  }
-  return projectPaths[0] as string;
+  return Effect.forEach(paths, (path) => resolveRegularProjectFileEffect(path, cwd), {
+    concurrency: "unbounded",
+  }).pipe(
+    Effect.flatMap((resolved) => {
+      const projectPaths = [...new Set(resolved.filter((path) => path !== undefined))];
+      if (projectPaths.length === 0) return validationFailure("unsafe-path");
+      if (projectPaths.length > 1) return validationFailure("ambiguous-path");
+      return Effect.succeed(projectPaths[0] as string);
+    }),
+  );
 }
 
-async function resolveRegularProjectFile(
+function resolveRegularProjectFileEffect(
   candidate: string,
   cwd: string,
-): Promise<string | undefined> {
-  let canonical: string;
-  try {
-    canonical = await realpath(candidate);
-    const metadata = await stat(canonical);
-    if (!metadata.isFile()) {
-      return undefined;
-    }
-  } catch (error) {
-    if (isMissingPathError(error)) {
-      return undefined;
-    }
-    fail("unsafe-path");
-  }
-  if (!isPathInside(cwd, canonical)) {
-    fail("unsafe-path");
-  }
-  const projectRelative = relative(cwd, canonical);
-  if (!isSafeProjectRelativePath(projectRelative)) {
-    fail("unsafe-path");
-  }
-  return projectRelative.split(sep).join("/");
-}
-
-function isMissingPathError(error: unknown): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) {
-    return false;
-  }
-  const code = (error as NodeJS.ErrnoException).code;
-  return (
-    code === "ENOENT" || code === "ENOTDIR" || (process.platform === "win32" && code === "EINVAL")
+): Effect.Effect<string | undefined, ReportValidationError, JscpdFileSystem> {
+  return Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    Effect.flatMap(filesystem.canonicalize(candidate), (canonical) =>
+      Effect.map(filesystem.metadata(canonical), (metadata) => ({ canonical, metadata })),
+    ),
+  ).pipe(
+    Effect.catchTag("JscpdFileSystemFailure", (error) =>
+      error.reason === "missing" ? Effect.succeed(undefined) : validationFailure("unsafe-path"),
+    ),
+    Effect.flatMap((resolved) => {
+      if (resolved?.metadata.kind !== "file") return Effect.succeed(undefined);
+      if (!isPathInside(cwd, resolved.canonical)) return validationFailure("unsafe-path");
+      const projectRelative = relative(cwd, resolved.canonical);
+      return isSafeProjectRelativePath(projectRelative)
+        ? Effect.succeed(projectRelative.split(sep).join("/"))
+        : validationFailure("unsafe-path");
+    }),
   );
 }
 
@@ -792,6 +813,22 @@ function requirePercentage(value: unknown): number {
   return value;
 }
 
+function validationAttempt<A>(evaluate: () => A): Effect.Effect<A, ReportValidationError> {
+  return Effect.try({
+    try: evaluate,
+    catch: (error) => {
+      if (error instanceof ReportValidationError) return error;
+      throw error;
+    },
+  });
+}
+
+function validationFailure(
+  code: JscpdReportErrorCode,
+): Effect.Effect<never, ReportValidationError> {
+  return Effect.fail(new ReportValidationError({ code }));
+}
+
 function fail(code: JscpdReportErrorCode): never {
-  throw new ReportValidationError(code);
+  throw new ReportValidationError({ code });
 }

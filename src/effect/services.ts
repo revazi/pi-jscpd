@@ -50,6 +50,9 @@ export interface JscpdBoundedReadRequest {
   readonly maxBytes: number;
   readonly regularFileOnly: boolean;
   readonly noFollow: boolean;
+  readonly offset?: number;
+  readonly length?: number;
+  readonly limitSubject: JscpdLimitExceeded["subject"];
 }
 
 export interface JscpdBoundedWriteRequest {

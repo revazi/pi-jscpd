@@ -60,6 +60,7 @@ describe("Effect migration foundation", () => {
         maxBytes: 16,
         regularFileOnly: true,
         noFollow: true,
+        limitSubject: "report",
       });
       yield* clockService.sleep(25);
       const now = yield* clockService.now;

@@ -90,7 +90,7 @@ export async function certifyPackage() {
     );
 
     console.log(
-      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; Effect resources, bundled jscpd, RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
+      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; Effect process/filesystem resources, bundled jscpd, RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
     );
   } finally {
     for (const pid of cleanupPids) terminateProcess(pid);
@@ -225,6 +225,7 @@ function validateInstalledPackage(projectDirectory) {
     "The installed Effect runtime is not importable.",
   );
   assert.ok(existsSync(join(packageRoot, "src", "effect", "errors.ts")));
+  assert.ok(existsSync(join(packageRoot, "src", "effect", "filesystem.ts")));
   assert.ok(existsSync(join(packageRoot, "src", "effect", "services.ts")));
 
   const installedJscpd = readJson(join(projectDirectory, "node_modules", "jscpd", "package.json"));

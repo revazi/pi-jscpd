@@ -8,6 +8,7 @@ import {
   JscpdWorkspaceFailure,
 } from "../../src/effect/errors.js";
 import {
+  type JscpdBoundedReadRequest,
   JscpdClock,
   type JscpdFileMetadata,
   JscpdFileSystem,
@@ -50,15 +51,23 @@ export function createJscpdProcessTestLayer(outcomes: readonly JscpdProcessTestO
 
 export interface JscpdFileSystemTestEntry {
   readonly path: string;
+  readonly canonicalPath?: string;
   readonly kind?: JscpdFileMetadata["kind"];
   readonly bytes?: Uint8Array;
 }
 
+interface StoredTestEntry {
+  readonly canonicalPath: string;
+  readonly kind: JscpdFileMetadata["kind"];
+  readonly bytes: Uint8Array;
+}
+
 export function createJscpdFileSystemTestLayer(entries: readonly JscpdFileSystemTestEntry[] = []) {
-  const files = new Map(
+  const files = new Map<string, StoredTestEntry>(
     entries.map((entry) => [
       entry.path,
       {
+        canonicalPath: entry.canonicalPath ?? entry.path,
         kind: entry.kind ?? "file",
         bytes: Uint8Array.from(entry.bytes ?? []),
       },
@@ -70,9 +79,10 @@ export function createJscpdFileSystemTestLayer(entries: readonly JscpdFileSystem
     new JscpdFileSystemFailure({ operation, reason: "missing" });
   const service: JscpdFileSystem = {
     canonicalize: (path) =>
-      Effect.sync(() => {
+      Effect.suspend(() => {
         operations.push(`canonicalize:${path}`);
-        return path;
+        const entry = files.get(path);
+        return entry ? Effect.succeed(entry.canonicalPath) : Effect.fail(missing("canonicalize"));
       }),
     metadata: (path) =>
       Effect.suspend(() => {
@@ -83,22 +93,9 @@ export function createJscpdFileSystemTestLayer(entries: readonly JscpdFileSystem
           : Effect.fail(missing("metadata"));
       }),
     read: (request) =>
-      Effect.suspend<Uint8Array, JscpdFileSystemError, never>(() => {
+      Effect.suspend(() => {
         operations.push(`read:${request.path}`);
-        const entry = files.get(request.path);
-        if (!entry) return Effect.fail(missing("read"));
-        if (request.noFollow && entry.kind === "symlink") {
-          return Effect.fail(new JscpdFileSystemFailure({ operation: "read", reason: "symlink" }));
-        }
-        if (request.regularFileOnly && entry.kind !== "file") {
-          return Effect.fail(
-            new JscpdFileSystemFailure({ operation: "read", reason: "not-regular" }),
-          );
-        }
-        if (entry.bytes.byteLength > request.maxBytes) {
-          return Effect.fail(new JscpdLimitExceeded({ subject: "report" }));
-        }
-        return Effect.succeed(Uint8Array.from(entry.bytes));
+        return readTestFile(files.get(request.path), request, missing("read"));
       }),
     write: (request) =>
       Effect.suspend(() => {
@@ -106,7 +103,11 @@ export function createJscpdFileSystemTestLayer(entries: readonly JscpdFileSystem
         if (request.bytes.byteLength > request.maxBytes) {
           return Effect.fail(new JscpdLimitExceeded({ subject: "report" }));
         }
-        files.set(request.path, { kind: "file", bytes: Uint8Array.from(request.bytes) });
+        files.set(request.path, {
+          canonicalPath: request.path,
+          kind: "file",
+          bytes: Uint8Array.from(request.bytes),
+        });
         return Effect.void;
       }),
     makeTempDirectory: (prefix) =>
@@ -117,7 +118,7 @@ export function createJscpdFileSystemTestLayer(entries: readonly JscpdFileSystem
         }
         temporaryIndex += 1;
         const path = `/test-tmp/${prefix}${temporaryIndex}`;
-        files.set(path, { kind: "directory", bytes: new Uint8Array() });
+        files.set(path, { canonicalPath: path, kind: "directory", bytes: new Uint8Array() });
         return Effect.succeed(path);
       }),
     remove: (path, recursive) =>
@@ -134,6 +135,37 @@ export function createJscpdFileSystemTestLayer(entries: readonly JscpdFileSystem
       return bytes ? Uint8Array.from(bytes) : undefined;
     },
   });
+}
+
+function readTestFile(
+  entry: StoredTestEntry | undefined,
+  request: JscpdBoundedReadRequest,
+  missing: JscpdFileSystemFailure,
+): Effect.Effect<Uint8Array, JscpdFileSystemError> {
+  if (!entry) return Effect.fail(missing);
+  const safetyFailure = testReadSafetyFailure(entry, request);
+  if (safetyFailure) return Effect.fail(safetyFailure);
+  const offset = request.offset ?? 0;
+  if (offset > entry.bytes.byteLength) {
+    return Effect.fail(new JscpdFileSystemFailure({ operation: "read", reason: "io" }));
+  }
+  const length = request.length ?? entry.bytes.byteLength - offset;
+  if (length > request.maxBytes || offset + length > entry.bytes.byteLength) {
+    return Effect.fail(new JscpdLimitExceeded({ subject: request.limitSubject }));
+  }
+  return Effect.succeed(Uint8Array.from(entry.bytes.subarray(offset, offset + length)));
+}
+
+function testReadSafetyFailure(
+  entry: StoredTestEntry,
+  request: JscpdBoundedReadRequest,
+): JscpdFileSystemFailure | undefined {
+  if (request.noFollow && entry.kind === "symlink") {
+    return new JscpdFileSystemFailure({ operation: "read", reason: "symlink" });
+  }
+  return request.regularFileOnly && entry.kind !== "file"
+    ? new JscpdFileSystemFailure({ operation: "read", reason: "not-regular" })
+    : undefined;
 }
 
 export function createJscpdClockTestLayer(initialMilliseconds = 0) {
