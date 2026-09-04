@@ -69,7 +69,9 @@ so jscpd remains this project's single duplication authority.
   no-follow opens, exact byte bounds, atomic decode rejection, and body-free
   diagnostics. Stateful domain changes must use one owner per layer/facade,
   preserve immutable snapshots and generation/revision checks, and test stale
-  completion plus competing updates.
+  completion plus competing updates. Scheduler and automatic-check changes must
+  use scoped fibers, preserve explicit-work priority and retry eligibility, and
+  commit acknowledgements only after successful quiet Pi delivery.
 - Remove the superseded internal Promise path in the same slice; temporary
   adapters are allowed only at documented outer boundaries.
 - Do not combine a migration slice with unrelated public behavior changes.

@@ -1,4 +1,11 @@
-import { Cause, Effect, type Exit as EffectExit, Exit } from "effect";
+import {
+  Cause,
+  Effect,
+  type Exit as EffectExit,
+  type Scope as EffectScope,
+  Exit,
+  Scope,
+} from "effect";
 import { JscpdFileSystemLive } from "./filesystem.js";
 import type { JscpdFileSystem } from "./services.js";
 
@@ -8,6 +15,24 @@ export function runEffectExitAtApplicationBoundary<A, E>(
   signal?: AbortSignal,
 ): Promise<EffectExit.Exit<A, E>> {
   return Effect.runPromiseExit(effect, signal ? { signal } : undefined);
+}
+
+/** Temporary Promise bridge for migrated application services. */
+export function runEffectPromiseAtApplicationBoundary<A, E>(
+  effect: Effect.Effect<A, E>,
+  signal?: AbortSignal,
+): Promise<A> {
+  return Effect.runPromise(effect, signal ? { signal } : undefined);
+}
+
+/** Temporary synchronous bridge for compatibility facades over one Effect-owned owner. */
+export function runEffectSyncAtApplicationBoundary<A, E>(effect: Effect.Effect<A, E>): A {
+  return Effect.runSync(effect);
+}
+
+/** Temporary scope for compatibility-owned fibers until M7.7 supplies the extension root scope. */
+export function makeEffectScopeAtApplicationBoundary(): EffectScope.CloseableScope {
+  return runEffectSyncAtApplicationBoundary(Scope.make());
 }
 
 /** Temporary bridge for Promise callers of filesystem-dependent Effect services. */

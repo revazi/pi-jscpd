@@ -4,16 +4,20 @@ import type {
   RegisteredCommand,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { Effect } from "effect";
 import { createJscpdAcknowledgementTracker } from "./acknowledgements.js";
 import {
   boundedJscpdAutomaticFindingLimit,
   createJscpdAutomaticAcknowledgementTransaction,
   createJscpdAutomaticCheck,
+  createJscpdAutomaticResultEffectActions,
   handleJscpdAutomaticResult,
+  handleJscpdAutomaticResultEffect,
   JSCPD_AUTOMATIC_MESSAGE_TYPE,
   JSCPD_AUTOMATIC_STATUS_KEY,
   type JscpdAutomaticAcknowledgementTransaction,
   type JscpdAutomaticCheck,
+  type JscpdAutomaticResultActions,
 } from "./automatic.js";
 import {
   createJscpdBaselineService,
@@ -331,40 +335,89 @@ function requestAutomaticCheck(
   persist: () => void,
 ): void {
   const cwd = ctx.cwd;
+  if (scheduler.requestAutomaticEffect && automaticCheck.runEffect) {
+    scheduler.requestAutomaticEffect(({ signal, isCurrent }) => {
+      const actions = createAutomaticDeliveryActions(
+        pi,
+        ctx,
+        isCurrent,
+        acknowledgements,
+        status,
+        persist,
+      );
+      return Effect.sync(() => setAutomaticCheckingStatus(ctx, isCurrent)).pipe(
+        Effect.zipRight(
+          automaticCheck.runEffect?.({
+            cwd,
+            signal,
+            isCurrent,
+            onResult: actions
+              ? (result) =>
+                  handleJscpdAutomaticResultEffect(
+                    result,
+                    createJscpdAutomaticResultEffectActions(actions),
+                  )
+              : undefined,
+          }) ?? Effect.succeed("deferred" as const),
+        ),
+        Effect.tap((disposition) =>
+          Effect.sync(() => restoreDeferredAutomaticStatus(ctx, isCurrent, disposition)),
+        ),
+      );
+    });
+    return;
+  }
+
   scheduler.requestAutomatic(async ({ signal, isCurrent }) => {
     setAutomaticCheckingStatus(ctx, isCurrent);
+    const actions = createAutomaticDeliveryActions(
+      pi,
+      ctx,
+      isCurrent,
+      acknowledgements,
+      status,
+      persist,
+    );
     const disposition = await automaticCheck.run({
       cwd,
       signal,
       isCurrent,
-      onResult:
-        acknowledgements && status
-          ? (result) =>
-              handleJscpdAutomaticResult(result, {
-                isCurrent,
-                isIdle: () => ctx.isIdle(),
-                hasPendingMessages: () => ctx.hasPendingMessages(),
-                acknowledgements,
-                sendFinding(content, details) {
-                  pi.sendMessage(
-                    {
-                      customType: JSCPD_AUTOMATIC_MESSAGE_TYPE,
-                      content,
-                      display: ctx.hasUI,
-                      details,
-                    },
-                    { triggerTurn: false },
-                  );
-                },
-                record: (resultToRecord) => status.record(resultToRecord),
-                persist,
-                setStatus: ctx.hasUI ? (text) => safeSetStatus(ctx.ui, text) : undefined,
-              })
-          : undefined,
+      onResult: actions ? (result) => handleJscpdAutomaticResult(result, actions) : undefined,
     });
     restoreDeferredAutomaticStatus(ctx, isCurrent, disposition);
     return disposition;
   });
+}
+
+function createAutomaticDeliveryActions(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  isCurrent: () => boolean,
+  acknowledgements: JscpdAutomaticAcknowledgementTransaction | undefined,
+  status: JscpdStatusService | undefined,
+  persist: () => void,
+): JscpdAutomaticResultActions | undefined {
+  if (!acknowledgements || !status) return undefined;
+  return {
+    isCurrent,
+    isIdle: () => ctx.isIdle(),
+    hasPendingMessages: () => ctx.hasPendingMessages(),
+    acknowledgements,
+    sendFinding(content, details) {
+      pi.sendMessage(
+        {
+          customType: JSCPD_AUTOMATIC_MESSAGE_TYPE,
+          content,
+          display: ctx.hasUI,
+          details,
+        },
+        { triggerTurn: false },
+      );
+    },
+    record: (result) => status.record(result),
+    persist,
+    setStatus: ctx.hasUI ? (text) => safeSetStatus(ctx.ui, text) : undefined,
+  };
 }
 
 function setAutomaticCheckingStatus(ctx: ExtensionContext, isCurrent: () => boolean): void {

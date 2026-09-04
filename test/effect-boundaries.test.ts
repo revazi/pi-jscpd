@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 const {
   APPROVED_EFFECT_RUNTIME_BOUNDARIES,
+  MIGRATED_CONCURRENCY_BOUNDARIES,
   MIGRATED_FILESYSTEM_BOUNDARIES,
   findEffectRuntimeCalls,
   findNodeFileSystemImports,
+  findUnmanagedAsyncConstructs,
 } = await import(
   // @ts-expect-error The executable architecture script intentionally has no published type surface.
   "../scripts/check-effect-boundaries.mjs"
@@ -105,6 +107,22 @@ describe("Effect runtime architecture boundary", () => {
       { path: "src/config.ts", line: 3, moduleName: "node:fs" },
     ]);
     expect(MIGRATED_FILESYSTEM_BOUNDARIES).toContain("src/jscpd-report.ts");
+  });
+
+  it("detects unmanaged Promise and timer creation in migrated concurrency modules", () => {
+    const source = `
+      const deferred = new Promise((resolve) => resolve());
+      queueMicrotask(start);
+      setTimeout(retry, 10);
+      Effect.sleep(10);
+    `;
+
+    expect(findUnmanagedAsyncConstructs(source, "src/scheduler.ts")).toEqual([
+      { path: "src/scheduler.ts", line: 2, name: "new Promise" },
+      { path: "src/scheduler.ts", line: 3, name: "queueMicrotask" },
+      { path: "src/scheduler.ts", line: 4, name: "setTimeout" },
+    ]);
+    expect(MIGRATED_CONCURRENCY_BOUNDARIES).toEqual(["src/automatic.ts", "src/scheduler.ts"]);
   });
 
   it("keeps runtime execution at the temporary application bridge and Pi adapter", () => {

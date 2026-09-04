@@ -3,8 +3,8 @@
 Issue [#67](https://github.com/revazi/pi-jscpd/issues/67) moves lifecycle-bound
 baseline, changed-file, acknowledgement, verification, and branch-session state
 to Effect service layers. This is the fourth release-blocking migration slice;
-scheduler/application composition and the single managed extension runtime land
-in later ordered slices.
+scheduler composition lands in M7.5; application composition and the single
+managed extension runtime remain later ordered slices.
 
 ## Ownership model
 
@@ -75,7 +75,8 @@ persistence was added.
 Promise-facing callers temporarily execute the Effect programs through
 `src/effect/runtime-boundary.ts`. Synchronous acknowledgement and verification
 calls use the same `MutableRef` owners directly, so no duplicate mutable closure
-or Promise implementation remains.
+or Promise implementation remains. M7.5 consumes these acknowledgement owners
+through Effect delivery transactions without adding parallel state.
 
 `test/effect-domain-state.test.ts` covers competing acknowledgement revisions,
 verification reset, concurrent changed-file attribution, baseline invalidation,
