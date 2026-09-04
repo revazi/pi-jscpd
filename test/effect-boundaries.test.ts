@@ -130,15 +130,19 @@ describe("Effect runtime architecture boundary", () => {
   it("detects async and Promise-chain orchestration in migrated application modules", () => {
     const source = `
       async function workflow() { return await operation(); }
+      const created = new Promise(resolve => resolve());
+      const grouped = Promise.all(workflows);
       const chained = operation().then(onSuccess).catch(onFailure).finally(cleanup);
       const effect = Effect.flatMap(operation, onSuccess);
     `;
 
     expect(findPromiseWorkflowConstructs(source, "src/scan.ts")).toEqual([
       { path: "src/scan.ts", line: 2, name: "async function" },
-      { path: "src/scan.ts", line: 3, name: "Promise.finally" },
-      { path: "src/scan.ts", line: 3, name: "Promise.catch" },
-      { path: "src/scan.ts", line: 3, name: "Promise.then" },
+      { path: "src/scan.ts", line: 3, name: "new Promise" },
+      { path: "src/scan.ts", line: 4, name: "Promise.all" },
+      { path: "src/scan.ts", line: 5, name: "Promise.finally" },
+      { path: "src/scan.ts", line: 5, name: "Promise.catch" },
+      { path: "src/scan.ts", line: 5, name: "Promise.then" },
     ]);
     expect(MIGRATED_APPLICATION_BOUNDARIES).toEqual([
       "src/baseline.ts",

@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { Cause, Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { JscpdFileSystemLive } from "../src/effect/filesystem.js";
 import {
   createJscpdLayer,
   createJscpdService,
@@ -121,6 +122,7 @@ function request<T = string>(
     signal?: AbortSignal;
     extraArgs?: readonly string[];
     consumeReport?: JscpdRunRequest<T>["consumeReport"];
+    consumeReportEffect?: JscpdRunRequest<T>["consumeReportEffect"];
     executable?: string;
     cwd?: string;
     onReportPath?: (reportPath: string) => void;
@@ -145,6 +147,7 @@ function request<T = string>(
           status: "accepted",
           value: Buffer.from(report).toString("utf8"),
         }) as JscpdReportDecision<T>),
+    consumeReportEffect: options.consumeReportEffect,
   };
 }
 
@@ -163,11 +166,65 @@ describe("Effect jscpd adapter layer", () => {
     ).pipe(
       Effect.provide(createJscpdLayer({ temporaryRoot, timeoutMs: 1_000 })),
       Effect.provide(JscpdProcessLive),
+      Effect.provide(JscpdFileSystemLive),
     );
 
     await expect(Effect.runPromise(program)).resolves.toEqual({
       status: "report",
       value: "effect artifact",
+    });
+    await expectTemporaryRootClean();
+  });
+
+  it("uses the native report consumer and cleans its workspace before completing", async () => {
+    const compatibilityConsumer = vi.fn(() => {
+      throw new Error("compatibility consumer must not run");
+    });
+    const nativeConsumer = vi.fn((report: Uint8Array) =>
+      Effect.succeed({
+        status: "accepted" as const,
+        value: Buffer.from(report).toString("utf8"),
+      }),
+    );
+    const program = Effect.flatMap(JscpdAdapter, (adapter) =>
+      adapter.run(
+        request("report", {
+          extraArgs: ["native effect artifact"],
+          consumeReport: compatibilityConsumer,
+          consumeReportEffect: nativeConsumer,
+        }),
+      ),
+    ).pipe(
+      Effect.provide(createJscpdLayer({ temporaryRoot, timeoutMs: 1_000 })),
+      Effect.provide(JscpdProcessLive),
+      Effect.provide(JscpdFileSystemLive),
+    );
+
+    await expect(Effect.runPromise(program)).resolves.toEqual({
+      status: "report",
+      value: "native effect artifact",
+    });
+    expect(nativeConsumer).toHaveBeenCalledOnce();
+    expect(compatibilityConsumer).not.toHaveBeenCalled();
+    await expectTemporaryRootClean();
+  });
+
+  it("maps a native report-consumer defect to a bounded failure and still cleans up", async () => {
+    const program = Effect.flatMap(JscpdAdapter, (adapter) =>
+      adapter.run(
+        request("report", {
+          consumeReportEffect: () => Effect.die("private consumer defect"),
+        }),
+      ),
+    ).pipe(
+      Effect.provide(createJscpdLayer({ temporaryRoot, timeoutMs: 1_000 })),
+      Effect.provide(JscpdProcessLive),
+      Effect.provide(JscpdFileSystemLive),
+    );
+
+    await expect(Effect.runPromise(program)).resolves.toEqual({
+      status: "failed",
+      reason: "internal-error",
     });
     await expectTemporaryRootClean();
   });
@@ -180,6 +237,7 @@ describe("Effect jscpd adapter layer", () => {
     ).pipe(
       Effect.provide(createJscpdLayer({ temporaryRoot, timeoutMs: 5_000 })),
       Effect.provide(JscpdProcessLive),
+      Effect.provide(JscpdFileSystemLive),
     );
     const running = Effect.runPromiseExit(program, { signal: controller.signal });
     await vi.waitFor(() => expect(readFile(started)).resolves.toBeDefined());

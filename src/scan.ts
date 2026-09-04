@@ -169,22 +169,29 @@ function resolveScanScopesEffect(
     Effect.flatMap((projectDirectory) => {
       if (!projectDirectory) return Effect.succeed(unavailableProjectScope());
       const requestedTargets = requested.length === 0 ? ["."] : requested;
-      return Effect.forEach(
-        requestedTargets,
-        (token) => resolveScanScopeEffect(cwd, projectDirectory, token),
-        { concurrency: 1 },
-      ).pipe(
-        Effect.map((resolved) => {
-          const failure = resolved.find((result) => !result.ok);
-          if (failure && !failure.ok) return failure;
-          const targets = [
-            ...new Set(resolved.flatMap((result) => (result.ok ? [result.target] : []))),
-          ];
-          return { ok: true, value: { cwd: projectDirectory, targets } } as const;
-        }),
-      );
+      return resolveScanTargetsEffect(cwd, projectDirectory, requestedTargets);
     }),
   );
+}
+
+function resolveScanTargetsEffect(
+  cwd: string,
+  projectDirectory: string,
+  requestedTargets: readonly string[],
+): Effect.Effect<ScopeResolution, never, JscpdFileSystem> {
+  return Effect.gen(function* () {
+    const targets: string[] = [];
+    const seen = new Set<string>();
+    for (const token of requestedTargets) {
+      const resolved = yield* resolveScanScopeEffect(cwd, projectDirectory, token);
+      if (!resolved.ok) return resolved;
+      if (!seen.has(resolved.target)) {
+        seen.add(resolved.target);
+        targets.push(resolved.target);
+      }
+    }
+    return { ok: true, value: { cwd: projectDirectory, targets } } as const;
+  });
 }
 
 function resolveScanScopeEffect(

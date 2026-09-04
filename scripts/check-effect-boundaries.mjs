@@ -45,6 +45,7 @@ const UNMANAGED_ASYNC_CALLS = new Set([
   "setInterval",
   "setTimeout",
 ]);
+const PROMISE_CHAIN_METHODS = new Set(["catch", "finally", "then"]);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   checkEffectBoundaries();
@@ -114,9 +115,23 @@ export function findPromiseWorkflowConstructs(sourceText, path = "fixture.ts") {
 
 function promiseWorkflowName(node) {
   if (hasAsyncModifier(node)) return "async function";
-  if (!ts.isCallExpression(node)) return undefined;
-  const member = memberParts(node.expression);
-  return member && (member.name === "then" || member.name === "catch" || member.name === "finally")
+  if (isPromiseConstruction(node)) return "new Promise";
+  return ts.isCallExpression(node) ? promiseCallName(node.expression) : undefined;
+}
+
+function isPromiseConstruction(node) {
+  return (
+    ts.isNewExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "Promise"
+  );
+}
+
+function promiseCallName(expression) {
+  const member = memberParts(expression);
+  if (!member) return undefined;
+  if (PROMISE_CHAIN_METHODS.has(member.name)) return `Promise.${member.name}`;
+  return ts.isIdentifier(member.receiver) && member.receiver.text === "Promise"
     ? `Promise.${member.name}`
     : undefined;
 }

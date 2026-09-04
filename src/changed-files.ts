@@ -29,6 +29,7 @@ export interface JscpdChangedFileTracker {
   recordToolResultPath(event: JscpdMutationToolResult, cwd: string): Promise<string | undefined>;
   /** Deterministically sorted canonical project-relative paths. */
   files(): readonly string[];
+  readonly filesEffect?: Effect.Effect<readonly string[]>;
 }
 
 interface ProjectRoots {
@@ -178,6 +179,7 @@ function changedFileTrackerFor(owner: ChangedFileOwner): JscpdChangedFileTracker
     recordToolResultPath: (event, cwd) =>
       run(owner.recordEffect(event, cwd)).then((result) => result?.path),
     files: () => owner.files(),
+    filesEffect: Effect.sync(() => owner.files()),
   };
 }
 

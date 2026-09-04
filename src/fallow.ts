@@ -91,12 +91,14 @@ export function createJscpdFallowCoexistenceLayer() {
 }
 
 interface FallowOwnerState {
+  readonly generation: number;
   readonly value: JscpdFallowCoexistenceState;
   readonly noticeDelivered: boolean;
 }
 
 class FallowWorkflowOwner {
   readonly #state = MutableRef.make<FallowOwnerState>({
+    generation: 0,
     value: absentState(),
     noticeDelivered: false,
   });
@@ -104,14 +106,12 @@ class FallowWorkflowOwner {
   evaluateEffect(
     context: JscpdFallowCoexistenceContext,
   ): Effect.Effect<JscpdFallowCoexistenceState, never, JscpdFileSystem> {
-    return evaluateJscpdFallowCoexistenceEffect(context).pipe(
-      Effect.tap((value) =>
-        Effect.sync(() => {
-          const current = MutableRef.get(this.#state);
-          MutableRef.set(this.#state, { ...current, value });
-        }),
-      ),
-    );
+    return Effect.suspend(() => {
+      const generation = this.#beginEvaluation();
+      return evaluateJscpdFallowCoexistenceEffect(context).pipe(
+        Effect.map((value) => this.#commitEvaluation(generation, value)),
+      );
+    });
   }
 
   current(): JscpdFallowCoexistenceState {
@@ -126,7 +126,29 @@ class FallowWorkflowOwner {
   }
 
   reset(): void {
-    MutableRef.set(this.#state, { value: absentState(), noticeDelivered: false });
+    const current = MutableRef.get(this.#state);
+    MutableRef.set(this.#state, {
+      generation: current.generation + 1,
+      value: absentState(),
+      noticeDelivered: false,
+    });
+  }
+
+  #beginEvaluation(): number {
+    const current = MutableRef.get(this.#state);
+    const generation = current.generation + 1;
+    MutableRef.set(this.#state, { ...current, generation });
+    return generation;
+  }
+
+  #commitEvaluation(
+    generation: number,
+    value: JscpdFallowCoexistenceState,
+  ): JscpdFallowCoexistenceState {
+    const current = MutableRef.get(this.#state);
+    if (current.generation !== generation) return current.value;
+    MutableRef.set(this.#state, { ...current, value });
+    return value;
   }
 }
 

@@ -34,6 +34,7 @@ import type {
 import type { JscpdVerificationService } from "./verification.js";
 import {
   compareAndRememberJscpdVerificationEffect,
+  jscpdVerificationScopeEffect,
   withJscpdVerification,
 } from "./verification.js";
 
@@ -121,10 +122,12 @@ function changedWorkflowFor(
   const semaphore = Effect.unsafeMakeSemaphore(1);
   return {
     execute: (context) =>
-      Effect.suspend(() => {
-        const scope = acknowledgements.scope();
-        const verificationScope = options.verification?.scope();
-        return semaphore.withPermits(1)(
+      Effect.gen(function* () {
+        const scope = yield* acknowledgementScopeEffect(acknowledgements);
+        const verificationScope = options.verification
+          ? yield* jscpdVerificationScopeEffect(options.verification)
+          : undefined;
+        return yield* semaphore.withPermits(1)(
           executeChangedEffect(
             capabilityService,
             service,
@@ -222,13 +225,17 @@ function prepareChangedCheckEffect(
   scope: number,
 ): Effect.Effect<JscpdPreparedChangedCheck | JscpdChangedResultStep> {
   return Effect.gen(function* () {
-    if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
+    if ((yield* acknowledgementScopeEffect(acknowledgements)) !== scope) {
+      return resultStep(lifecycleChanged());
+    }
     const config = options.config?.() ?? DEFAULT_JSCPD_CONFIG;
     if (!config.enabled) return resultStep(disabledResult());
-    const ownedPaths = changedFiles.files();
+    const ownedPaths = yield* changedFilesEffect(changedFiles);
     if (ownedPaths.length === 0) return resultStep(noTrackedFilesResult());
     const baseline = yield* safeBaselineEffect(baselineService);
-    if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
+    if ((yield* acknowledgementScopeEffect(acknowledgements)) !== scope) {
+      return resultStep(lifecycleChanged());
+    }
     if (baseline.status !== "accepted") return resultStep(unavailableBaseline(baseline));
     if (baseline.snapshot.status !== "accepted") {
       return resultStep(
@@ -263,7 +270,9 @@ function scanCurrentChangesEffect(
       path: options.path,
       signal: context.signal,
     });
-    if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
+    if ((yield* acknowledgementScopeEffect(acknowledgements)) !== scope) {
+      return resultStep(lifecycleChanged());
+    }
     if (capability.status !== "available") {
       return resultStep(capabilityUnavailableResult(capability));
     }
@@ -278,7 +287,9 @@ function scanCurrentChangesEffect(
       consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, cwd),
       consumeReportEffect: (bytes) => consumeJscpdV5JsonReportEffect(bytes, cwd),
     });
-    if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
+    if ((yield* acknowledgementScopeEffect(acknowledgements)) !== scope) {
+      return resultStep(lifecycleChanged());
+    }
     const report = reportFromRun(run);
     return report
       ? Object.freeze({ status: "ready", cwd, report })
@@ -298,9 +309,9 @@ function compareCurrentChangesEffect(
   verificationScope: number | undefined,
 ): Effect.Effect<JscpdExecutionResult, never, JscpdFileSystem> {
   return Effect.gen(function* () {
-    const revision = acknowledgements.revision();
+    const revision = yield* acknowledgementRevisionEffect(acknowledgements);
     const current = yield* indexJscpdCloneReportEffect(report, cwd);
-    if (acknowledgements.scope() !== scope) return lifecycleChanged();
+    if ((yield* acknowledgementScopeEffect(acknowledgements)) !== scope) return lifecycleChanged();
     if (current.status !== "accepted") {
       return changedUnavailable(
         "identity-partial",
@@ -309,11 +320,16 @@ function compareCurrentChangesEffect(
     }
     const comparison = compareJscpdCloneSnapshots(baseline.snapshot, current);
     const changedPathSet = new Set(ownedPaths);
+    const acknowledged = new Set(
+      (yield* acknowledgementFindingsEffect(acknowledgements)).map(
+        ({ fingerprint }) => fingerprint,
+      ),
+    );
     const { active, candidates } = selectChangedCandidates(
       current.groups,
       comparison.new,
       changedPathSet,
-      acknowledgements,
+      acknowledged,
       options.prioritizeFindings ?? false,
     );
     const presented = presentJscpdChanged(
@@ -325,7 +341,9 @@ function compareCurrentChangesEffect(
     const surfaced = candidates
       .slice(0, presented.findings.length)
       .map(({ acknowledgement }) => acknowledgement);
-    if (acknowledgements.reconcile(revision, active, surfaced)) options.stateChanged?.();
+    if (yield* acknowledgementReconcileEffect(acknowledgements, revision, active, surfaced)) {
+      options.stateChanged?.();
+    }
     if (!options.verification || verificationScope === undefined) return presented;
     const verification = yield* compareAndRememberJscpdVerificationEffect(
       options.verification,
@@ -336,6 +354,38 @@ function compareCurrentChangesEffect(
     );
     return withJscpdVerification(presented, verification);
   });
+}
+
+function acknowledgementScopeEffect(service: JscpdAcknowledgementTracker): Effect.Effect<number> {
+  return service.scopeEffect ?? Effect.sync(() => service.scope());
+}
+
+function acknowledgementRevisionEffect(
+  service: JscpdAcknowledgementTracker,
+): Effect.Effect<number> {
+  return service.revisionEffect ?? Effect.sync(() => service.revision());
+}
+
+function acknowledgementFindingsEffect(
+  service: JscpdAcknowledgementTracker,
+): Effect.Effect<readonly JscpdAcknowledgedFinding[]> {
+  return service.findingsEffect ?? Effect.sync(() => service.findings());
+}
+
+function acknowledgementReconcileEffect(
+  service: JscpdAcknowledgementTracker,
+  expectedRevision: number,
+  active: readonly JscpdAcknowledgedFinding[],
+  surfaced: readonly JscpdAcknowledgedFinding[],
+): Effect.Effect<boolean> {
+  return (
+    service.reconcileEffect?.(expectedRevision, active, surfaced) ??
+    Effect.sync(() => service.reconcile(expectedRevision, active, surfaced))
+  );
+}
+
+function changedFilesEffect(service: JscpdChangedFileTracker): Effect.Effect<readonly string[]> {
+  return service.filesEffect ?? Effect.sync(() => service.files());
 }
 
 function safeBaselineEffect(service: JscpdBaselineService): Effect.Effect<JscpdBaselineState> {
@@ -438,7 +488,7 @@ function selectChangedCandidates(
   groups: readonly JscpdIndexedCloneGroup[],
   newClones: readonly JscpdScanReport["clonePairs"][number][],
   changedPaths: ReadonlySet<string>,
-  acknowledgements: JscpdAcknowledgementTracker,
+  acknowledged: ReadonlySet<string>,
   prioritize: boolean,
 ): {
   readonly active: readonly JscpdAcknowledgedFinding[];
@@ -453,7 +503,7 @@ function selectChangedCandidates(
     active.push(acknowledgement);
     if (!newGroups.has(group.clone)) continue;
     if (!group.clone.occurrences.some(({ path }) => changedPaths.has(path))) continue;
-    if (acknowledgements.has(group.fingerprint)) continue;
+    if (acknowledged.has(group.fingerprint)) continue;
     candidates.push({ group, acknowledgement });
   }
   if (prioritize)

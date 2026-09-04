@@ -22,8 +22,11 @@ export interface JscpdAcknowledgementTracker {
   reset(): void;
   /** Lifecycle generation for active-branch isolation. */
   scope(): number;
+  readonly scopeEffect?: Effect.Effect<number>;
   revision(): number;
+  readonly revisionEffect?: Effect.Effect<number>;
   findings(): readonly JscpdAcknowledgedFinding[];
+  readonly findingsEffect?: Effect.Effect<readonly JscpdAcknowledgedFinding[]>;
   has(fingerprint: string): boolean;
   /** Drop acknowledgements touched by a verified source mutation. */
   invalidatePaths(paths: readonly string[]): boolean;
@@ -33,6 +36,11 @@ export interface JscpdAcknowledgementTracker {
     active: readonly JscpdAcknowledgedFinding[],
     surfaced: readonly JscpdAcknowledgedFinding[],
   ): boolean;
+  reconcileEffect?: (
+    expectedRevision: number,
+    active: readonly JscpdAcknowledgedFinding[],
+    surfaced: readonly JscpdAcknowledgedFinding[],
+  ) => Effect.Effect<boolean>;
 }
 
 interface AcknowledgementState {
@@ -179,11 +187,16 @@ function acknowledgementTrackerFor(owner: AcknowledgementOwner): JscpdAcknowledg
     restore: (value) => owner.restore(value),
     reset: () => owner.reset(),
     scope: () => owner.scope(),
+    scopeEffect: Effect.sync(() => owner.scope()),
     revision: () => owner.revision(),
+    revisionEffect: Effect.sync(() => owner.revision()),
     findings: () => owner.findings(),
+    findingsEffect: Effect.sync(() => owner.findings()),
     has: (fingerprint) => owner.has(fingerprint),
     invalidatePaths: (paths) => owner.invalidatePaths(paths),
     reconcile: (revision, active, surfaced) => owner.reconcile(revision, active, surfaced),
+    reconcileEffect: (revision, active, surfaced) =>
+      Effect.sync(() => owner.reconcile(revision, active, surfaced)),
   };
 }
 

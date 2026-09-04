@@ -3,6 +3,7 @@ import { Context, Effect, Layer, MutableRef } from "effect";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService, JscpdConfigSource } from "./config.js";
 import { runEffectPromiseAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import type { JscpdProcess } from "./effect/services.js";
 import type { JscpdFallowCoexistenceService } from "./fallow.js";
 import { JscpdProcessLive } from "./process.js";
 import { renderJscpdCommandHelp } from "./registry.js";
@@ -18,10 +19,13 @@ import type {
 export interface JscpdStatusService {
   inspect(context: JscpdExecutionContext): Promise<JscpdStatusResult>;
   inspectEffect?: (context: JscpdExecutionContext) => Effect.Effect<JscpdStatusResult>;
-  record(result: JscpdExecutionResult): void;
-  recordEffect?: (result: JscpdExecutionResult) => Effect.Effect<void>;
+  record(result: JscpdExecutionResult, expectedScope?: number): void;
+  recordEffect?: (result: JscpdExecutionResult, expectedScope?: number) => Effect.Effect<void>;
   restore(lastCheck?: JscpdLastCheck): void;
   lastCheck(): JscpdLastCheck;
+  /** Lifecycle generation used to reject results from a superseded branch. */
+  scope?(): number;
+  readonly scopeEffect?: Effect.Effect<number>;
 }
 
 export interface JscpdSessionModeService {
@@ -56,10 +60,13 @@ export const JscpdSessionMode = Context.GenericTag<JscpdSessionModeEffectService
 );
 
 interface JscpdStatusWorkflowService {
-  readonly inspect: (context: JscpdExecutionContext) => Effect.Effect<JscpdStatusResult>;
-  readonly record: (result: JscpdExecutionResult) => Effect.Effect<void>;
+  readonly inspect: (
+    context: JscpdExecutionContext,
+  ) => Effect.Effect<JscpdStatusResult, never, JscpdProcess>;
+  readonly record: (result: JscpdExecutionResult, expectedScope?: number) => Effect.Effect<void>;
   readonly restore: (lastCheck?: JscpdLastCheck) => Effect.Effect<void>;
   readonly lastCheck: Effect.Effect<JscpdLastCheck>;
+  readonly scope: Effect.Effect<number>;
 }
 
 export const JscpdStatusWorkflow = Context.GenericTag<JscpdStatusWorkflowService>(
@@ -182,12 +189,20 @@ export function createJscpdStatusWorkflowLayer(
   return Layer.succeed(JscpdStatusWorkflow, statusWorkflowFor(owner));
 }
 
+interface StatusState {
+  readonly scope: number;
+  readonly lastCheck: JscpdLastCheck;
+}
+
 class StatusOwner {
   readonly #capability: JscpdCapabilityService;
   readonly #config: JscpdConfigService;
   readonly #mode: JscpdSessionModeService;
   readonly #fallow: JscpdFallowCoexistenceService | undefined;
-  readonly #lastCheck = MutableRef.make<JscpdLastCheck>(Object.freeze({ state: "never" }));
+  readonly #state = MutableRef.make<StatusState>({
+    scope: 0,
+    lastCheck: Object.freeze({ state: "never" }),
+  });
 
   constructor(
     capability: JscpdCapabilityService,
@@ -201,55 +216,71 @@ class StatusOwner {
     this.#fallow = fallow;
   }
 
-  inspectEffect(context: JscpdExecutionContext): Effect.Effect<JscpdStatusResult> {
+  inspectEffect(
+    context: JscpdExecutionContext,
+  ): Effect.Effect<JscpdStatusResult, never, JscpdProcess> {
     return capabilityProbeEffect(this.#capability, {
       cwd: context.cwd,
       signal: context.signal,
     }).pipe(
-      Effect.provide(JscpdProcessLive),
       Effect.map((capability) =>
         presentStatus(
           capability,
           this.#config.current(),
           this.#mode,
-          MutableRef.get(this.#lastCheck),
+          MutableRef.get(this.#state).lastCheck,
           this.#fallow,
         ),
       ),
     );
   }
 
-  record(result: JscpdExecutionResult): void {
+  record(result: JscpdExecutionResult, expectedScope = this.scope()): void {
+    const current = MutableRef.get(this.#state);
+    if (current.scope !== expectedScope) return;
     const recorded = lastCheckFromResult(result);
-    if (recorded) MutableRef.set(this.#lastCheck, recorded);
+    if (recorded) MutableRef.set(this.#state, { ...current, lastCheck: recorded });
   }
 
   restore(restored?: JscpdLastCheck): void {
-    MutableRef.set(this.#lastCheck, restored ?? Object.freeze({ state: "never" }));
+    const current = MutableRef.get(this.#state);
+    MutableRef.set(this.#state, {
+      scope: current.scope + 1,
+      lastCheck: restored ?? Object.freeze({ state: "never" }),
+    });
   }
 
   lastCheck(): JscpdLastCheck {
-    return MutableRef.get(this.#lastCheck);
+    return MutableRef.get(this.#state).lastCheck;
+  }
+
+  scope(): number {
+    return MutableRef.get(this.#state).scope;
   }
 }
 
 function statusServiceFor(owner: StatusOwner): JscpdStatusService {
+  const inspect = (context: JscpdExecutionContext) =>
+    owner.inspectEffect(context).pipe(Effect.provide(JscpdProcessLive));
   return {
-    inspect: (context) => runEffectPromiseAtApplicationBoundary(owner.inspectEffect(context)),
-    inspectEffect: (context) => owner.inspectEffect(context),
-    record: (result) => owner.record(result),
-    recordEffect: (result) => Effect.sync(() => owner.record(result)),
+    inspect: (context) => runEffectPromiseAtApplicationBoundary(inspect(context)),
+    inspectEffect: inspect,
+    record: (result, expectedScope) => owner.record(result, expectedScope),
+    recordEffect: (result, expectedScope) => Effect.sync(() => owner.record(result, expectedScope)),
     restore: (lastCheck) => owner.restore(lastCheck),
     lastCheck: () => owner.lastCheck(),
+    scope: () => owner.scope(),
+    scopeEffect: Effect.sync(() => owner.scope()),
   };
 }
 
 function statusWorkflowFor(owner: StatusOwner): JscpdStatusWorkflowService {
   return {
     inspect: (context) => owner.inspectEffect(context),
-    record: (result) => Effect.sync(() => owner.record(result)),
+    record: (result, expectedScope) => Effect.sync(() => owner.record(result, expectedScope)),
     restore: (lastCheck) => Effect.sync(() => owner.restore(lastCheck)),
     lastCheck: Effect.sync(() => owner.lastCheck()),
+    scope: Effect.sync(() => owner.scope()),
   };
 }
 
@@ -324,12 +355,14 @@ function recordedExecutionEffect(
   status: JscpdStatusService,
   stateChanged: () => void,
 ): Effect.Effect<JscpdExecutionResult> {
-  return commandExecutionEffect(executor, invocation, context).pipe(
-    Effect.tap(
-      (result) => status.recordEffect?.(result) ?? Effect.sync(() => status.record(result)),
-    ),
-    Effect.tap(() => Effect.sync(stateChanged)),
-  );
+  return Effect.gen(function* () {
+    const expectedScope = yield* statusScopeEffect(status);
+    const result = yield* commandExecutionEffect(executor, invocation, context);
+    yield* status.recordEffect?.(result, expectedScope) ??
+      Effect.sync(() => status.record(result, expectedScope));
+    yield* Effect.sync(stateChanged);
+    return result;
+  });
 }
 
 function commandExecutionEffect(
@@ -342,6 +375,10 @@ function commandExecutionEffect(
     try: () => executor.execute(invocation, context),
     catch: () => processFailedResult(),
   }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+}
+
+function statusScopeEffect(service: JscpdStatusService): Effect.Effect<number | undefined> {
+  return service.scopeEffect ?? Effect.sync(() => service.scope?.());
 }
 
 function statusUnavailableResult(): JscpdStatusResult {

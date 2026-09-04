@@ -3,7 +3,7 @@ import type { FileHandle } from "node:fs/promises";
 import { chmod, lstat, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { Context, Effect, Exit, Layer } from "effect";
+import { Cause, Context, Effect, Exit, Layer } from "effect";
 import { JscpdFileSystemLive } from "./effect/filesystem.js";
 import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
 import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
@@ -96,7 +96,9 @@ export type JscpdRunResult<T> =
     };
 
 interface JscpdEffectService {
-  run<T>(request: JscpdRunRequest<T>): Effect.Effect<JscpdRunResult<T>, never, JscpdProcess>;
+  run<T>(
+    request: JscpdRunRequest<T>,
+  ): Effect.Effect<JscpdRunResult<T>, never, JscpdProcess | JscpdFileSystem>;
   invalidate(): Effect.Effect<void>;
   dispose(): Effect.Effect<void>;
 }
@@ -224,11 +226,13 @@ class DefaultJscpdService implements JscpdService {
 
       const job = this.#createJob(request as JscpdRunRequest<unknown>);
       this.#jobs.add(job);
-      return this.#runJobEffect(job) as Effect.Effect<
-        JscpdRunResult<T>,
-        never,
-        JscpdProcess | JscpdFileSystem
-      >;
+      return this.#runJobEffect(job).pipe(
+        Effect.catchAllCause((cause) =>
+          Cause.isInterruptedOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.succeed({ status: "failed", reason: "internal-error" } as const),
+        ),
+      ) as Effect.Effect<JscpdRunResult<T>, never, JscpdProcess | JscpdFileSystem>;
     });
   }
 
@@ -403,7 +407,7 @@ class DefaultJscpdService implements JscpdService {
 
 function effectServiceFor(owner: DefaultJscpdService): JscpdEffectService {
   return {
-    run: (request) => owner.runEffect(request).pipe(Effect.provide(JscpdFileSystemLive)),
+    run: (request) => owner.runEffect(request),
     invalidate: () => owner.invalidateEffect(),
     dispose: () => owner.disposeEffect(),
   };
