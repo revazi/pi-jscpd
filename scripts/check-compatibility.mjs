@@ -6,6 +6,9 @@ const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = await readJson(join(projectRoot, "package.json"));
 const expectedNodeRange = ">=22.19.0 <23 || >=24 <25";
 const expectedPiVersion = "0.84.4";
+const expectedEffectVersion = "3.22.1";
+const expectedEffectIntegrity =
+  "sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ==";
 const expectedJscpdVersion = "5.1.2";
 const expectedPeerRanges = Object.freeze({
   "@earendil-works/pi-ai": ">=0.84.4 <0.85.0",
@@ -49,6 +52,25 @@ for (const name of [
   }
 }
 
+if (manifest.dependencies?.effect !== expectedEffectVersion) {
+  fail(`The Effect runtime dependency must remain pinned at ${expectedEffectVersion}.`);
+}
+const installedEffect = await readJson(join(projectRoot, "node_modules", "effect", "package.json"));
+if (installedEffect.version !== expectedEffectVersion || installedEffect.license !== "MIT") {
+  fail(
+    `Installed Effect ${installedEffect.version} (${installedEffect.license}) does not match the reviewed ${expectedEffectVersion} MIT runtime.`,
+  );
+}
+const lock = await readJson(join(projectRoot, "package-lock.json"));
+const lockedEffect = lock.packages?.["node_modules/effect"];
+if (
+  lock.packages?.[""]?.dependencies?.effect !== expectedEffectVersion ||
+  lockedEffect?.version !== expectedEffectVersion ||
+  lockedEffect?.integrity !== expectedEffectIntegrity
+) {
+  fail(`package-lock.json does not preserve reviewed Effect ${expectedEffectVersion} integrity.`);
+}
+
 if (manifest.dependencies?.jscpd !== expectedJscpdVersion) {
   fail(`The bundled jscpd dependency must remain pinned at ${expectedJscpdVersion}.`);
 }
@@ -60,7 +82,7 @@ if (installedJscpd.version !== expectedJscpdVersion) {
 }
 
 console.log(
-  `Compatibility check passed: Node ${process.versions.node}, Pi ${expectedPiVersion}, TypeBox ${manifest.devDependencies.typebox}, jscpd ${expectedJscpdVersion}.`,
+  `Compatibility check passed: Node ${process.versions.node}, Pi ${expectedPiVersion}, TypeBox ${manifest.devDependencies.typebox}, Effect ${expectedEffectVersion}, jscpd ${expectedJscpdVersion}.`,
 );
 
 function supportsNode(version) {

@@ -14,6 +14,9 @@ until publication is approved.
 - Pi-native `jscpd_run` tool and namespaced `/jscpd` command surface.
 - Pinned jscpd `5.1.2` runtime dependency with project-local, `PATH`, and bundled
   resolution, plus bounded shell-free process ownership and no runtime download.
+- Exact Effect `3.22.1` runtime foundation with declarative process, filesystem,
+  clock, and Pi service tags, stable typed expected failures, bounded public
+  mapping intent, deterministic test layers, and an AST runtime-boundary gate.
 - Strict normalized jscpd JSON report validation and scope-safe explicit scans.
 - Trusted extension configuration, session controls, branch-local state, and
   changed-file attribution.
@@ -35,6 +38,8 @@ until publication is approved.
 
 ### Changed
 
+- Locked existing command/tool, lifecycle, persistence, cancellation, and bounded
+  presentation behavior before production Effect workflow migration.
 - Postponed the first release and any `0.1.0` proposal until the ordered Effect
   runtime migration, legacy-removal audit, documentation pass, and exact-tarball
   recertification are complete. Migration completion remains separate from

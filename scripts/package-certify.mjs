@@ -13,6 +13,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -89,7 +90,7 @@ export async function certifyPackage() {
     );
 
     console.log(
-      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; bundled jscpd, RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
+      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; Effect foundation, bundled jscpd, RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
     );
   } finally {
     for (const pid of cleanupPids) terminateProcess(pid);
@@ -195,8 +196,8 @@ function validateInstalledPackage(projectDirectory) {
   assert.deepEqual(manifest.pi?.extensions, ["./src/index.ts"]);
   assert.deepEqual(
     manifest.dependencies,
-    { jscpd: "5.1.2" },
-    "The package must own exactly the certified jscpd runtime dependency.",
+    { effect: "3.22.1", jscpd: "5.1.2" },
+    "The package must own exactly the certified Effect and jscpd runtime dependencies.",
   );
   assert.equal(manifest.optionalDependencies, undefined);
   assert.equal(manifest.bundleDependencies, undefined);
@@ -207,6 +208,24 @@ function validateInstalledPackage(projectDirectory) {
     "@earendil-works/pi-tui": ">=0.84.4 <0.85.0",
     typebox: ">=1.3.7 <2",
   });
+
+  const requireFromArtifact = createRequire(join(packageRoot, "package.json"));
+  const installedEffectPath = requireFromArtifact.resolve("effect/package.json");
+  const installedEffect = readJson(installedEffectPath);
+  assert.equal(
+    installedEffect.version,
+    "3.22.1",
+    "Installed Effect differs from the reviewed runtime.",
+  );
+  assert.equal(installedEffect.license, "MIT", "Installed Effect license differs from the review.");
+  const effectModule = requireFromArtifact("effect");
+  assert.equal(
+    typeof effectModule.Context?.GenericTag,
+    "function",
+    "The installed Effect runtime is not importable.",
+  );
+  assert.ok(existsSync(join(packageRoot, "src", "effect", "errors.ts")));
+  assert.ok(existsSync(join(packageRoot, "src", "effect", "services.ts")));
 
   const installedJscpd = readJson(join(projectDirectory, "node_modules", "jscpd", "package.json"));
   assert.equal(installedJscpd.version, "5.1.2", "Installed jscpd differs from the pinned runtime.");
@@ -321,6 +340,12 @@ async function validateToolAndTuiContract(
   assert.equal(result.commandRequired, true);
   assert.deepEqual(result.commands, ["scan", "changed", "status", "off", "on", "help"]);
   assert.equal(result.executionStatus, "status");
+  assert.equal(result.effectServiceTag, "pi-jscpd/effect/Clock");
+  assert.deepEqual(result.effectErrorMapping, {
+    disposition: "result",
+    status: "unavailable",
+    reason: "missing-binary",
+  });
   assert.equal(result.capabilitySource, expectedCapabilitySource);
   assert.equal(
     result.capabilityVersion,
@@ -581,9 +606,13 @@ if (process.env.JSCPD_CERTIFY_HANG_FLAG && existsSync(process.env.JSCPD_CERTIFY_
 function probeExtensionSource(packageRoot, marker) {
   const entry = pathToFileURL(join(packageRoot, "src", "index.ts")).href;
   const overlay = pathToFileURL(join(packageRoot, "src", "overlay.ts")).href;
+  const errors = pathToFileURL(join(packageRoot, "src", "effect", "errors.ts")).href;
+  const services = pathToFileURL(join(packageRoot, "src", "effect", "services.ts")).href;
   return `import { writeFile } from "node:fs/promises";
 import extension from ${JSON.stringify(entry)};
 import { JscpdOverlayComponent } from ${JSON.stringify(overlay)};
+import { JscpdAnalyzerUnavailable, mapJscpdExpectedError } from ${JSON.stringify(errors)};
+import { JscpdClock } from ${JSON.stringify(services)};
 
 export default async function (pi) {
   let captured;
@@ -624,6 +653,7 @@ export default async function (pi) {
       const schema = captured.parameters;
       const commandSchema = schema.properties?.command;
       const commands = commandSchema?.enum ?? [];
+      const effectError = mapJscpdExpectedError(new JscpdAnalyzerUnavailable({ reason: "missing" }));
       await writeFile(${JSON.stringify(marker)}, JSON.stringify({
         registeredTools: pi.getAllTools().filter((tool) => tool.name === "jscpd_run").map((tool) => tool.name),
         toolName: captured.name,
@@ -631,6 +661,12 @@ export default async function (pi) {
         commandRequired: schema.required?.includes("command") ?? false,
         commands,
         executionStatus: status.status,
+        effectServiceTag: JscpdClock.key,
+        effectErrorMapping: {
+          disposition: effectError.disposition,
+          status: effectError.status,
+          reason: effectError.reason,
+        },
         capabilitySource: status.capability?.source,
         capabilityVersion: status.capability?.version,
         executionText: execution.content?.[0]?.text ?? "",

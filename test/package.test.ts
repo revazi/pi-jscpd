@@ -22,6 +22,23 @@ interface PackageManifest {
   pi?: { extensions?: string[] };
 }
 
+const EXPECTED_SCRIPTS = {
+  typecheck: "tsc --noEmit",
+  test: "vitest run",
+  format: "biome check --write src test scripts package.json tsconfig.json biome.json",
+  lint: "biome check src test scripts package.json tsconfig.json biome.json",
+  "compatibility:check": "node scripts/check-compatibility.mjs",
+  "architecture:check": "node scripts/check-effect-boundaries.mjs",
+  "docs:check": "node scripts/check-markdown.mjs",
+  "repo:hygiene": "node scripts/check-repository-hygiene.mjs",
+  check:
+    "npm run compatibility:check && npm run architecture:check && npm run typecheck && npm run lint && npm test",
+  "pack:certify": "node scripts/package-certify.mjs",
+  "pack:dry-run": "npm pack --dry-run",
+  "release:check":
+    "npm run docs:check && npm run repo:hygiene && npm run check && npm run pack:certify && npm run pack:dry-run",
+};
+
 async function readManifest(): Promise<PackageManifest> {
   const manifestPath = resolve(process.cwd(), "package.json");
   return JSON.parse(await readFile(manifestPath, "utf8")) as PackageManifest;
@@ -57,10 +74,10 @@ describe("Pi package manifest", () => {
     expect(manifest.devDependencies?.typebox).toBe("1.3.7");
   });
 
-  it("ships the supported jscpd analyzer as an exact runtime dependency", async () => {
+  it("ships exact reviewed Effect and jscpd runtime dependencies", async () => {
     const manifest = await readManifest();
 
-    expect(manifest.dependencies).toEqual({ jscpd: "5.1.2" });
+    expect(manifest.dependencies).toEqual({ effect: "3.22.1", jscpd: "5.1.2" });
   });
 
   it("pins development tooling fixtures", async () => {
@@ -72,24 +89,9 @@ describe("Pi package manifest", () => {
   });
 
   it("defines compatibility, quality, package, and release-readiness scripts", async () => {
-    const scripts = (await readManifest()).scripts;
+    const manifest = await readManifest();
 
-    expect(scripts?.format).toBe(
-      "biome check --write src test scripts package.json tsconfig.json biome.json",
-    );
-    expect(scripts?.lint).toBe(
-      "biome check src test scripts package.json tsconfig.json biome.json",
-    );
-    expect(scripts?.["compatibility:check"]).toBe("node scripts/check-compatibility.mjs");
-    expect(scripts?.["docs:check"]).toBe("node scripts/check-markdown.mjs");
-    expect(scripts?.["repo:hygiene"]).toBe("node scripts/check-repository-hygiene.mjs");
-    expect(scripts?.["pack:certify"]).toBe("node scripts/package-certify.mjs");
-    expect(scripts?.["release:check"]).toBe(
-      "npm run docs:check && npm run repo:hygiene && npm run check && npm run pack:certify && npm run pack:dry-run",
-    );
-    expect(scripts?.check).toBe(
-      "npm run compatibility:check && npm run typecheck && npm run lint && npm test",
-    );
+    expect(manifest.scripts).toEqual(EXPECTED_SCRIPTS);
   });
 
   it("declares its license, maintainer, and public project links", async () => {

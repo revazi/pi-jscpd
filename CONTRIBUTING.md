@@ -37,9 +37,10 @@ npm run pack:certify
 npm run pack:dry-run
 ```
 
-`npm run check` validates the active Node/Pi fixtures, type checks strict ESM
-TypeScript, runs Biome's formatting/lint checks, and executes the network-free
-test suite. The documentation and hygiene checks validate public local links,
+`npm run check` validates the active Node/Pi/Effect fixtures, enforces the
+approved Effect runtime boundary, type checks strict ESM TypeScript, runs
+Biome's formatting/lint checks, and executes the network-free test suite. The
+documentation and hygiene checks validate public local links,
 release guards, ignored/private path policy, package metadata, and the
 non-publishing workflow. `pack:certify` installs and exercises the exact tarball.
 CI repeats those checks on Node 22.19.0 and 24.12.0.
@@ -57,7 +58,8 @@ so jscpd remains this project's single duplication authority.
 - Use Effect for fallible async work, resources, cancellation, concurrency, and
   shared service state—not to decorate pure functions.
 - Declare capabilities with services/layers and build one production runtime in
-  the Pi composition boundary.
+  the Pi composition boundary only when the ordered Pi-boundary slice is reached.
+  The foundation contracts create no runtime and provide no live production layer.
 - Keep `Effect.run*` out of infrastructure, domain, and application modules.
 - Add characterization tests before converting a boundary, deterministic test
   layers with the conversion, and interruption/finalizer tests for resources.

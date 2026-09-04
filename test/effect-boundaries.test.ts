@@ -1,0 +1,94 @@
+import { describe, expect, it } from "vitest";
+
+const { APPROVED_EFFECT_RUNTIME_BOUNDARIES, findEffectRuntimeCalls } = await import(
+  // @ts-expect-error The executable architecture script intentionally has no published type surface.
+  "../scripts/check-effect-boundaries.mjs"
+);
+
+describe("Effect runtime architecture boundary", () => {
+  it("recognizes aliases, namespace and element access, and direct named runners", () => {
+    const source = `
+      import { Effect as Fx } from "effect";
+      import * as EffectModule from "effect/Effect";
+      import { runPromise as execute } from "effect/Effect";
+      import * as EffectPackage from "effect";
+      const Alias = Fx;
+      const named = Fx.runSync;
+      const { runPromiseExit: exit } = Fx;
+      Fx.runPromise(program);
+      Alias["runFork"](program);
+      EffectModule.runSync(program);
+      EffectPackage.Effect.runCallback(program);
+      execute(program);
+      named(program);
+      exit(program);
+    `;
+
+    expect(
+      findEffectRuntimeCalls(source, "src/fixture.ts").map(({ name }: { name: string }) => name),
+    ).toEqual([
+      "runPromise",
+      "runFork",
+      "runSync",
+      "runCallback",
+      "runPromise",
+      "runSync",
+      "runPromiseExit",
+    ]);
+  });
+
+  it("recognizes Effect destructured from an effect package namespace", () => {
+    const source = `
+      import * as EffectPackage from "effect";
+      const { Effect: DirectFx } = EffectPackage;
+      const PackageAlias = EffectPackage;
+      const { Effect: AliasedFx } = PackageAlias;
+      DirectFx.runPromise(program);
+      AliasedFx.runSync(program);
+    `;
+
+    expect(findEffectRuntimeCalls(source, "src/fixture.ts")).toMatchObject([
+      { path: "src/fixture.ts", line: 6, name: "runPromise" },
+      { path: "src/fixture.ts", line: 7, name: "runSync" },
+    ]);
+  });
+
+  it("ignores comments, strings, unrelated objects, and type-only references", () => {
+    const source = `
+      import { Effect } from "effect";
+      import type { Effect as EffectType } from "effect";
+      // Effect.runPromise(program)
+      const text = "Effect.runSync(program)";
+      const unrelated = { runPromise() {} };
+      unrelated.runPromise();
+      type Runner = typeof Effect.runPromise;
+      EffectType.runSync(program);
+    `;
+
+    expect(findEffectRuntimeCalls(source)).toEqual([]);
+  });
+
+  it("respects lexical bindings that shadow imported Effect runners", () => {
+    const source = `
+      import { Effect } from "effect";
+      import { runPromise as execute } from "effect/Effect";
+      function useLocal() {
+        const Effect = localEffect;
+        const execute = localRunner;
+        Effect.runSync(program);
+        execute(program);
+      }
+      Effect.runPromise(program);
+      execute(program);
+    `;
+
+    expect(findEffectRuntimeCalls(source, "src/fixture.ts")).toMatchObject([
+      { line: 10, name: "runPromise" },
+      { line: 11, name: "runPromise" },
+    ]);
+  });
+
+  it("keeps the future runtime allowlist limited to the Pi adapter", () => {
+    expect(APPROVED_EFFECT_RUNTIME_BOUNDARIES).toEqual(["src/extension.ts"]);
+  });
+});

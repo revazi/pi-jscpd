@@ -20,6 +20,7 @@ describe("public repository safeguards", () => {
       "npm run compatibility:check",
       "npm run docs:check",
       "npm run repo:hygiene",
+      "npm run architecture:check",
       "npm run lint",
       "npm run typecheck",
       "npm test",
@@ -64,6 +65,8 @@ describe("public repository safeguards", () => {
     expect(dependabot).toContain('dependency-name: "@earendil-works/pi-*"');
     expect(dependabot).toContain("version-update:semver-minor");
     expect(dependabot).toContain("dependency-name: vitest");
+    expect(dependabot).toContain("Effect is intentionally excluded");
+    expect(dependabot).not.toContain("dependency-name: effect");
     expect(dependabot).not.toContain("dependency-type: direct");
     expect(dependabot).toContain("reviewers:\n      - revazi");
   });
