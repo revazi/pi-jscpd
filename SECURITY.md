@@ -62,15 +62,22 @@ Security-sensitive behavior includes:
 - exclusion of local overrides, credentials, and private coding-agent context
   from Git history and npm packages.
 
-The extension is advisory and never installs jscpd, rewrites project
+The extension is advisory and installs jscpd only as an explicit package
+dependency; it never downloads packages during a Pi session, rewrites project
 configuration, edits source automatically, or treats scan success as permission
 to publish data. Security fixes must preserve those boundaries.
+
+The release-blocking [Effect migration](docs/effect-migration.md) must preserve
+and strengthen resource ownership: one managed runtime/root scope, typed
+expected failures, interruption-safe child-process and temporary-directory
+finalizers, and no unmanaged fibers, timers, or listeners. Migration must not
+turn defects or sensitive exception details into user-facing output.
 
 ## Release authority
 
 Only [Revaz Zakalashvili](https://github.com/revazi) may authorize an npm
 publication or security release. A pull request, automated dependency update,
-CI result, readiness run, or third-party review does not itself authorize a
-release. If a vulnerability affects a future published version, coordinate any
+CI result, readiness run, Effect migration completion, or third-party review
+does not itself authorize a release. If a vulnerability affects a future published version, coordinate any
 deprecation, corrected release, advisory, and bounded post-release verification
 privately before disclosure; npm versions must never be overwritten.

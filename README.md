@@ -11,6 +11,11 @@ locations, and helps you inspect, refactor, test, and verify the result. jscpd
 remains the source of truth for tokenization, clone detection, supported
 languages, and statistics.
 
+> **Pre-release status:** the implementation is functional, but the first release
+> and any `0.1.0` proposal are postponed until the ordered
+> [Effect migration](docs/effect-migration.md) is complete. Migration completion
+> will not itself authorize publication.
+
 ## Install
 
 ```sh
@@ -184,6 +189,7 @@ are network-free and use deterministic fake jscpd executables.
 
 Useful documentation:
 
+- [Effect migration guide and release gate](docs/effect-migration.md)
 - [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
 - [`/jscpd` overlay contract](docs/overlay-interaction.md)
 - [Fallow coexistence](docs/fallow-coexistence.md)
@@ -194,8 +200,9 @@ Useful documentation:
 - [Changelog](CHANGELOG.md)
 
 The npm package is not published yet: it remains version `0.0.0` with
-`"private": true`. The installation interface above is the release-ready package
-contract. No release, tag, or publication is authorized by passing CI.
+`"private": true`. The installation interface above is the intended package
+contract, not a claim of current availability. No `0.1.0`, release, tag, or
+publication is authorized by finishing the Effect migration or passing CI.
 
 ## License
 

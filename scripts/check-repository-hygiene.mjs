@@ -18,6 +18,7 @@ const requiredPublicFiles = [
   "README.md",
   "SECURITY.md",
   "docs/compatibility.md",
+  "docs/effect-migration.md",
   "docs/release.md",
 ];
 const forbiddenPathPatterns = [
