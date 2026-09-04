@@ -72,10 +72,12 @@ and strengthen resource ownership. Child-process, temporary-report, and bounded
 filesystem resources now use typed Effect services and scoped file/process
 ownership. Baseline, changed-file, acknowledgement, verification, and session
 snapshot state now use generation/revision-checked Effect owners with bounded
-values. Trusted configuration, report paths, clone source ranges, and Fallow
-signals retain no-follow, containment, and byte-limit checks. The remaining
-slices must converge on one managed runtime/root scope with no unmanaged fibers,
-timers, or listeners. Migration must not turn defects or sensitive exception
+values. Automatic scheduling uses scoped fibers, interruption-linked abort
+signals, and acknowledgement commit only after successful quiet delivery.
+Trusted configuration, report paths, clone source ranges, and Fallow signals
+retain no-follow, containment, and byte-limit checks. The remaining slices must
+converge on one managed runtime/root scope with no unmanaged fibers, timers, or
+listeners. Migration must not turn defects or sensitive exception
 details into user-facing output.
 
 ## Release authority

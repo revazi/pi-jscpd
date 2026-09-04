@@ -203,8 +203,8 @@ rendering remain ordinary TypeScript. See the
 
 Trust gates, no-follow checks, canonical containment, strict schemas, atomic
 configuration rejection, source-fragment omission, and byte limits remain
-unchanged. Existing Promise callers cross the same temporary application bridge;
-Step 4 can now proceed because Steps 2 and 3 are complete.
+unchanged. Remaining Promise callers cross the same temporary application bridge
+until their ordered workflow or Pi-boundary slice removes it.
 
 ### Step 4 — Stateful domain services ([#67](https://github.com/revazi/pi-jscpd/issues/67))
 
@@ -222,10 +222,12 @@ branch reset, and verification behavior remain unchanged.
 
 ### Step 5 — Scheduler and automatic checks ([#68](https://github.com/revazi/pi-jscpd/issues/68))
 
-Migrate serialized scheduling, coalescing, priorities, generation invalidation,
-background ownership, and acknowledgement transactions. Use deterministic clock
-and interruption tests. `agent_settled` must remain a non-blocking eligibility
-signal, not a scan body.
+Implemented on the unreleased branch: dirty-generation coalescing, explicit-work
+priority, lifecycle invalidation, retry eligibility, and background ownership now
+use scoped Effect fibers. Automatic changed checks and acknowledgement-after-delivery
+transactions compose as effects, including typed Pi delivery with
+`triggerTurn: false`. The `agent_settled` handler remains a non-blocking eligibility
+signal. See [Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md).
 
 ### Step 6 — Application workflows ([#69](https://github.com/revazi/pi-jscpd/issues/69))
 

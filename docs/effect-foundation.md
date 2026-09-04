@@ -2,11 +2,12 @@
 
 Issue [#64](https://github.com/revazi/pi-jscpd/issues/64) establishes the first,
 behavior-preserving Effect migration slice. It declares contracts and test support
-only. M7.2 builds on these contracts for process and analyzer resources, and
-M7.3 provides the bounded filesystem layer used by configuration and external
-data boundaries, and M7.4 moves lifecycle-bound domain state to Effect-owned
-services. Scheduler, application, Pi, and TUI workflows retain their
-characterized pre-migration paths. The single managed extension runtime still
+only. M7.2 builds on these contracts for process and analyzer resources, M7.3
+provides the bounded filesystem layer used by configuration and external data
+boundaries, M7.4 moves lifecycle-bound domain state to Effect-owned services,
+and M7.5 moves scheduling and automatic delivery to scoped fibers and Effect
+transactions. Application, Pi, and TUI workflows retain their remaining
+characterized migration boundaries. The single managed extension runtime still
 waits for M7.7.
 
 ## Reviewed dependency
@@ -37,13 +38,16 @@ supported Node checks, and packed-artifact recertification.
   and footer status without importing Pi UI types into lower layers.
 
 The interfaces return effects with expected typed failures. M7.2 provides the
-live process implementation and M7.3 provides `JscpdFileSystemLive`; clock and Pi
-ports remain declarative until their owning slices. Deterministic layer factories
+live process implementation, M7.3 provides `JscpdFileSystemLive`, and M7.5
+provides `JscpdClockLive`; the Pi port remains declarative until its owning
+boundary slice. Deterministic layer factories
 live only under `test/support/effect-layers.ts`; tests can inspect requests,
 files, time, and Pi writes without patching globals. M7.4 adds domain tags beside
-their owning modules so pure domain contracts remain local. See the
-[filesystem and decoding boundary](effect-filesystem.md) and
-[Effect-owned domain state](effect-domain-state.md).
+their owning modules so pure domain contracts remain local. M7.5 adds scoped
+scheduler and automatic-check tags while retaining the same deterministic Pi
+port. See the [filesystem and decoding boundary](effect-filesystem.md),
+[Effect-owned domain state](effect-domain-state.md), and
+[Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md).
 
 ## Stable expected-error taxonomy
 

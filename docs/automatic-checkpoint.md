@@ -1,12 +1,13 @@
 # Automatic advisory checkpoint decision
 
-Status: **implemented behavior contract; Effect migration pending**
+Status: **implemented with Effect-owned scheduling and automatic delivery**
 
 Scope: lifecycle and process model
 
-The release-blocking [Effect migration](effect-migration.md) must preserve this
-trigger, generation, quiet-delivery, cancellation, and shutdown contract while
-moving scheduler/background ownership to scoped fibers.
+The release-blocking [Effect migration](effect-migration.md) preserves this
+trigger, generation, quiet-delivery, cancellation, and shutdown contract. M7.5
+moves scheduler/background ownership to scoped fibers and Effect transactions;
+application and managed Pi-runtime composition remain later ordered slices.
 
 ## Decision
 
@@ -216,9 +217,16 @@ eligible. Non-TUI mode uses the same model-context message with transcript
 display disabled. Delivery failure, queued work, a newer mutation, or a stale
 lifecycle scope leaves the generation retryable without acknowledging it.
 
+M7.5 replaces the scheduler's mutable Promise/microtask owner with scoped Effect
+fibers, composes automatic checks directly through the scheduler's default Effect
+path, and moves acknowledgement staging plus Pi delivery ordering to Effect. The
+temporary compatibility facade delegates to the same owner until M7.7 supplies
+the extension root scope. See
+[Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md).
+
 Focused tests cover coalescing, scheduler freshness, clean and failure status,
-bounded finding delivery, repeated-finding suppression, non-TUI behavior, and
-acknowledgement-after-delivery ordering.
+bounded finding delivery, repeated-finding suppression, non-TUI behavior,
+scoped interruption, and acknowledgement-after-delivery ordering.
 
 M6 must pin a Pi compatibility range that includes the documented
 `agent_settled` contract. If that contract is unavailable or changes, remain

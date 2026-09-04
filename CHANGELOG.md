@@ -26,6 +26,9 @@ until publication is approved.
 - Effect-owned baseline generations, changed-file attribution, acknowledgement
   transactions, verification checkpoints, and typed branch-snapshot persistence,
   with immutable values and lifecycle-scoped state owners.
+- Scoped Effect scheduling for dirty-generation coalescing, automatic changed
+  checks, interruption-safe cancellation, and acknowledgement-after-delivery Pi
+  transactions without unmanaged background promises or timers.
 - Strict normalized jscpd JSON report validation and scope-safe explicit scans.
 - Trusted extension configuration, session controls, branch-local state, and
   changed-file attribution.

@@ -23,7 +23,18 @@ export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
   "src/path-utils.ts",
 ]);
 
+export const MIGRATED_CONCURRENCY_BOUNDARIES = Object.freeze([
+  "src/automatic.ts",
+  "src/scheduler.ts",
+]);
+
 const APPROVED_NODE_FILESYSTEM_BOUNDARIES = Object.freeze(["src/effect/filesystem.ts"]);
+const UNMANAGED_ASYNC_CALLS = new Set([
+  "queueMicrotask",
+  "setImmediate",
+  "setInterval",
+  "setTimeout",
+]);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   checkEffectBoundaries();
@@ -32,6 +43,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 export function checkEffectBoundaries() {
   const violations = [];
   const filesystemViolations = [];
+  const concurrencyViolations = [];
   let runtimeCalls = 0;
   for (const absolutePath of typescriptFiles(sourceRoot)) {
     const path = relative(root, absolutePath).replaceAll("\\", "/");
@@ -44,6 +56,9 @@ export function checkEffectBoundaries() {
       !APPROVED_NODE_FILESYSTEM_BOUNDARIES.includes(path)
     ) {
       filesystemViolations.push(...findNodeFileSystemImports(sourceText, path));
+    }
+    if (MIGRATED_CONCURRENCY_BOUNDARIES.includes(path)) {
+      concurrencyViolations.push(...findUnmanagedAsyncConstructs(sourceText, path));
     }
   }
   assert.deepEqual(
@@ -60,9 +75,49 @@ export function checkEffectBoundaries() {
       .map(({ path, line, moduleName }) => `- ${path}:${line} ${moduleName}`)
       .join("\n")}`,
   );
-  console.log(
-    `Effect boundary check passed: ${runtimeCalls} runtime calls in src; approved boundaries: ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer.`,
+  assert.deepEqual(
+    concurrencyViolations,
+    [],
+    `Migrated concurrency modules must not create unmanaged Promise/timer work:\n${concurrencyViolations
+      .map(({ path, line, name }) => `- ${path}:${line} ${name}`)
+      .join("\n")}`,
   );
+  console.log(
+    `Effect boundary check passed: ${runtimeCalls} runtime calls in src; approved boundaries: ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer; ${MIGRATED_CONCURRENCY_BOUNDARIES.length} migrated concurrency modules contain no unmanaged Promise/timer creation.`,
+  );
+}
+
+export function findUnmanagedAsyncConstructs(sourceText, path = "fixture.ts") {
+  const source = ts.createSourceFile(
+    path,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const findings = [];
+  walk(source, (node) => {
+    const name = unmanagedAsyncName(node);
+    if (!name) return;
+    const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+    findings.push(Object.freeze({ path, line: line + 1, name }));
+  });
+  return findings;
+}
+
+function unmanagedAsyncName(node) {
+  if (
+    ts.isNewExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "Promise"
+  ) {
+    return "new Promise";
+  }
+  return ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    UNMANAGED_ASYNC_CALLS.has(node.expression.text)
+    ? node.expression.text
+    : undefined;
 }
 
 export function findNodeFileSystemImports(sourceText, path = "fixture.ts") {
