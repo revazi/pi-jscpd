@@ -7,10 +7,12 @@ import type { JscpdBaselineService, JscpdBaselineState } from "../src/baseline.j
 import type { JscpdCapabilityService } from "../src/capability.js";
 import { createJscpdChangedExecutor } from "../src/changed.js";
 import { createJscpdChangedFileTracker } from "../src/changed-files.js";
-import { indexJscpdCloneReport } from "../src/clone-identity.js";
-import type { JscpdRunRequest, JscpdRunResult, JscpdService } from "../src/jscpd.js";
+import { indexJscpdCloneReportEffect } from "../src/clone-identity.js";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
+import type { JscpdRunRequest, JscpdRunResult } from "../src/jscpd.js";
 import type { JscpdClonePair, JscpdScanReport } from "../src/types.js";
 import { createJscpdVerificationService } from "../src/verification.js";
+import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
 
 let root: string;
 let project: string;
@@ -78,7 +80,9 @@ async function acceptedBaseline(): Promise<JscpdBaselineState> {
     status: "accepted",
     outcome: "findings",
     report: baselineReport,
-    snapshot: await indexJscpdCloneReport(baselineReport, project),
+    snapshot: await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(baselineReport, project),
+    ),
   };
 }
 
@@ -114,9 +118,9 @@ function adapter(results: readonly JscpdRunResult<JscpdScanReport>[]) {
     async (_request: JscpdRunRequest<JscpdScanReport>) =>
       results[Math.min(index++, results.length - 1)],
   );
-  const run = runMock as unknown as JscpdService["run"];
+  const run = runMock as unknown as JscpdPromiseRun;
   return {
-    service: { run, invalidate() {}, async dispose() {} } satisfies JscpdService,
+    service: jscpdServiceFromPromise(run),
     run: runMock,
   };
 }

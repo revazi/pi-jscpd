@@ -8,7 +8,7 @@ import { indexJscpdCloneReportEffect, type JscpdCloneSnapshot } from "./clone-id
 import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
-import { consumeJscpdV5JsonReport, consumeJscpdV5JsonReportEffect } from "./jscpd-report.js";
+import { consumeJscpdV5JsonReportEffect } from "./jscpd-report.js";
 import { optionalCanonicalDirectoryEffect } from "./path-utils.js";
 import {
   adapterRunEffect,
@@ -333,7 +333,6 @@ function runBaselineAdapterEffect(
     timeoutMs: context.timeoutMs,
     reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
     createArguments: ({ directory }) => createJscpdScanArguments(directory, ["."]),
-    consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, cwd),
     consumeReportEffect: (bytes) => consumeJscpdV5JsonReportEffect(bytes, cwd),
   });
 }

@@ -1,4 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { createJscpdToolDefinition, registerJscpdExtension } from "../src/extension.js";
 import { boundedJscpdDisplayPath } from "../src/finding-presentation.js";
@@ -47,7 +48,12 @@ describe("M7.1 observable behavior characterization", () => {
 
   it("keeps lifecycle invalidation and shutdown idempotent", async () => {
     const handlers = new Map<string, (...args: unknown[]) => unknown>();
-    const adapter = { invalidate: vi.fn(), dispose: vi.fn(async () => undefined) };
+    const adapterDispose = vi.fn(async () => undefined);
+    const adapter = {
+      invalidate: vi.fn(),
+      dispose: adapterDispose,
+      disposeEffect: () => Effect.promise(adapterDispose),
+    };
     const scheduler = createJscpdScanScheduler();
     const cancelAutomatic = vi.spyOn(scheduler, "cancelAutomatic");
     const dispose = vi.spyOn(scheduler, "dispose");

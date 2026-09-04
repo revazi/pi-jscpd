@@ -1,17 +1,8 @@
-import {
-  Cause,
-  Effect,
-  type Scope as EffectScope,
-  Exit,
-  Layer,
-  ManagedRuntime,
-  Scope,
-} from "effect";
+import { Effect, type Scope as EffectScope, Layer, ManagedRuntime, Scope } from "effect";
 import { JscpdProcessLive } from "../process.js";
 import { JscpdClockLive } from "./clock.js";
 import { JscpdFileSystemLive } from "./filesystem.js";
 import type { JscpdEffectRuntime, JscpdRuntimeRequirements } from "./runtime-contract.js";
-import type { JscpdFileSystem } from "./services.js";
 
 export type { JscpdEffectRuntime, JscpdRuntimeRequirements } from "./runtime-contract.js";
 
@@ -47,22 +38,4 @@ function testProgram<A, E, R extends JscpdRuntimeRequirements>(
 
 export function makeEffectScope(runtime: JscpdEffectRuntime): EffectScope.CloseableScope {
   return runtime.runSync(Scope.make());
-}
-
-/** Isolated compatibility adapter retained for deterministic lower-service tests. */
-export function runFileSystemEffectForTest<A, E>(
-  effect: Effect.Effect<A, E, JscpdFileSystem>,
-  signal?: AbortSignal,
-): Promise<A> {
-  return runFileSystemEffect(JscpdTestEffectRuntime, effect, signal);
-}
-
-async function runFileSystemEffect<A, E>(
-  runtime: JscpdEffectRuntime,
-  effect: Effect.Effect<A, E, JscpdFileSystem>,
-  signal?: AbortSignal,
-): Promise<A> {
-  const exit = await runtime.runPromiseExit(effect, signal);
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
 }

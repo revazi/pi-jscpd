@@ -14,6 +14,7 @@ import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { Cause, Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { JscpdFileSystemLive } from "../src/effect/filesystem.js";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
   createJscpdLayer,
   createJscpdService,
@@ -22,7 +23,7 @@ import {
   type JscpdRunRequest,
   type JscpdService,
 } from "../src/jscpd.js";
-import { consumeJscpdV5JsonReport } from "../src/jscpd-report.js";
+import { consumeJscpdV5JsonReportEffect } from "../src/jscpd-report.js";
 import { JscpdProcessLive } from "../src/process.js";
 
 const FAKE_EXECUTABLE_SOURCE = String.raw`
@@ -91,6 +92,10 @@ let temporaryRoot: string;
 let fakeExecutable: string;
 let services: JscpdService[];
 
+type TestReportConsumer<T> = (
+  report: Uint8Array,
+) => JscpdReportDecision<T> | Promise<JscpdReportDecision<T>>;
+
 beforeEach(async () => {
   fixtureRoot = await mkdtemp(join(tmpdir(), "pi-jscpd-adapter-test-"));
   projectDirectory = join(fixtureRoot, "project");
@@ -106,7 +111,9 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await Promise.all(services.map((service) => service.dispose()));
+  await Promise.all(
+    services.map((service) => JscpdTestEffectRuntime.runPromise(service.disposeEffect())),
+  );
   await rm(fixtureRoot, { recursive: true, force: true });
 });
 
@@ -121,7 +128,7 @@ function request<T = string>(
   options: {
     signal?: AbortSignal;
     extraArgs?: readonly string[];
-    consumeReport?: JscpdRunRequest<T>["consumeReport"];
+    consumeReport?: TestReportConsumer<T>;
     consumeReportEffect?: JscpdRunRequest<T>["consumeReportEffect"];
     executable?: string;
     cwd?: string;
@@ -140,15 +147,31 @@ function request<T = string>(
       options.onReportPath?.(reportPath);
       return [fakeExecutable, mode, reportPath, ...(options.extraArgs ?? [])];
     },
-    consumeReport:
-      options.consumeReport ??
+    consumeReportEffect:
+      options.consumeReportEffect ??
       ((report) =>
-        ({
-          status: "accepted",
-          value: Buffer.from(report).toString("utf8"),
-        }) as JscpdReportDecision<T>),
-    consumeReportEffect: options.consumeReportEffect,
+        Effect.tryPromise({
+          try: () =>
+            Promise.resolve(
+              options.consumeReport
+                ? options.consumeReport(report)
+                : ({
+                    status: "accepted",
+                    value: Buffer.from(report).toString("utf8"),
+                  } as JscpdReportDecision<T>),
+            ),
+          catch: () => undefined,
+        }).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined as unknown as JscpdReportDecision<T>)),
+        )),
   };
+}
+
+function runService<T>(
+  service: JscpdService,
+  request: JscpdRunRequest<T>,
+): Promise<import("../src/jscpd.js").JscpdRunResult<T>> {
+  return JscpdTestEffectRuntime.runPromise(service.runEffect(request));
 }
 
 async function expectTemporaryRootClean(): Promise<void> {
@@ -177,9 +200,6 @@ describe("Effect jscpd adapter layer", () => {
   });
 
   it("uses the native report consumer and cleans its workspace before completing", async () => {
-    const compatibilityConsumer = vi.fn(() => {
-      throw new Error("compatibility consumer must not run");
-    });
     const nativeConsumer = vi.fn((report: Uint8Array) =>
       Effect.succeed({
         status: "accepted" as const,
@@ -190,7 +210,6 @@ describe("Effect jscpd adapter layer", () => {
       adapter.run(
         request("report", {
           extraArgs: ["native effect artifact"],
-          consumeReport: compatibilityConsumer,
           consumeReportEffect: nativeConsumer,
         }),
       ),
@@ -205,7 +224,6 @@ describe("Effect jscpd adapter layer", () => {
       value: "native effect artifact",
     });
     expect(nativeConsumer).toHaveBeenCalledOnce();
-    expect(compatibilityConsumer).not.toHaveBeenCalled();
     await expectTemporaryRootClean();
   });
 
@@ -256,7 +274,8 @@ describe("jscpd temporary report adapter", () => {
     let reportPath = "";
     let directoryMode = 0;
 
-    const result = await service.run(
+    const result = await runService(
+      service,
       request("report", {
         extraArgs: ["bounded artifact"],
         onReportPath(path) {
@@ -283,11 +302,11 @@ describe("jscpd temporary report adapter", () => {
       reportExitCodes: [1],
     });
 
-    await expect(service.run(findings)).resolves.toEqual({
+    await expect(runService(service, findings)).resolves.toEqual({
       status: "report",
       value: "artifact",
     });
-    await expect(service.run(clean)).resolves.toEqual({
+    await expect(runService(service, clean)).resolves.toEqual({
       status: "failed",
       reason: "nonzero-exit",
       exitCode: 1,
@@ -297,16 +316,17 @@ describe("jscpd temporary report adapter", () => {
 
   it("types a validated clean report separately from an absent report", async () => {
     const service = createService();
-    const clean = service.run(
+    const clean = runService(
+      service,
       request("report", {
         consumeReport: () => ({ status: "no-findings" }),
       }),
     );
-    const consumeAbsent = vi.fn<JscpdRunRequest<string>["consumeReport"]>(() => ({
+    const consumeAbsent = vi.fn<TestReportConsumer<string>>(() => ({
       status: "accepted",
       value: "unexpected",
     }));
-    const absent = service.run(request("none", { consumeReport: consumeAbsent }));
+    const absent = runService(service, request("none", { consumeReport: consumeAbsent }));
 
     await expect(clean).resolves.toEqual({ status: "no-findings" });
     await expect(absent).resolves.toEqual({ status: "no-report" });
@@ -317,8 +337,9 @@ describe("jscpd temporary report adapter", () => {
   it("normalizes nonzero and spawn failures without exposing child diagnostics", async () => {
     const service = createService();
 
-    const nonzero = await service.run(request("nonzero"));
-    const missing = await service.run(
+    const nonzero = await runService(service, request("nonzero"));
+    const missing = await runService(
+      service,
       request("none", { executable: join(fixtureRoot, "missing-jscpd") }),
     );
 
@@ -332,7 +353,7 @@ describe("jscpd temporary report adapter", () => {
     const removeWorkspace = vi.fn(async () => false);
     const service = createService({ removeWorkspace });
 
-    await expect(service.run(request("report"))).resolves.toEqual({
+    await expect(runService(service, request("report"))).resolves.toEqual({
       status: "failed",
       reason: "cleanup-failed",
     });
@@ -345,7 +366,7 @@ describe("jscpd temporary report adapter", () => {
       workspaceCleanupTimeoutMs: 20,
     });
 
-    await expect(service.run(request("report"))).resolves.toEqual({
+    await expect(runService(service, request("report"))).resolves.toEqual({
       status: "failed",
       reason: "cleanup-failed",
     });
@@ -354,7 +375,7 @@ describe("jscpd temporary report adapter", () => {
   it("bounds execution time and honors a validated per-run timeout", async () => {
     const service = createService({ timeoutMs: 1_000 });
 
-    await expect(service.run(request("ignore-term", { timeoutMs: 30 }))).resolves.toEqual({
+    await expect(runService(service, request("ignore-term", { timeoutMs: 30 }))).resolves.toEqual({
       status: "timed-out",
       timeoutMs: 30,
     });
@@ -365,7 +386,10 @@ describe("jscpd temporary report adapter", () => {
     const service = createService();
     const marker = join(fixtureRoot, "tree-pid");
     const controller = new AbortController();
-    const active = service.run(request("tree", { signal: controller.signal, extraArgs: [marker] }));
+    const active = runService(
+      service,
+      request("tree", { signal: controller.signal, extraArgs: [marker] }),
+    );
     await waitForStart();
     let descendantPid = 0;
     await vi.waitFor(async () => {
@@ -387,10 +411,12 @@ describe("jscpd temporary report adapter", () => {
     const queuedController = new AbortController();
     const firstMarker = join(fixtureRoot, "first-started");
     const queuedMarker = join(fixtureRoot, "queued-started");
-    const first = service.run(
+    const first = runService(
+      service,
       request("hang", { signal: firstController.signal, extraArgs: [firstMarker] }),
     );
-    const queued = service.run(
+    const queued = runService(
+      service,
       request("hang", { signal: queuedController.signal, extraArgs: [queuedMarker] }),
     );
 
@@ -407,8 +433,8 @@ describe("jscpd temporary report adapter", () => {
     const service = createService();
     const activity = join(fixtureRoot, "activity.log");
 
-    const first = service.run(request("delay", { extraArgs: [activity, "one", "60"] }));
-    const second = service.run(request("delay", { extraArgs: [activity, "two", "10"] }));
+    const first = runService(service, request("delay", { extraArgs: [activity, "one", "60"] }));
+    const second = runService(service, request("delay", { extraArgs: [activity, "two", "10"] }));
 
     await expect(Promise.all([first, second])).resolves.toEqual([
       { status: "report", value: "one" },
@@ -423,7 +449,7 @@ describe("jscpd temporary report adapter", () => {
   it("bounds combined child output", async () => {
     const service = createService({ maxOutputBytes: 20 });
 
-    const result = await service.run(request("output", { extraArgs: ["1"] }));
+    const result = await runService(service, request("output", { extraArgs: ["1"] }));
 
     expect(result).toEqual({ status: "failed", reason: "output-limit" });
     expect(JSON.stringify(result)).not.toContain("private");
@@ -432,13 +458,13 @@ describe("jscpd temporary report adapter", () => {
 
   it("rejects oversized reports without passing bytes to the consumer", async () => {
     const service = createService({ maxReportBytes: 32 });
-    const consumeReport = vi.fn<JscpdRunRequest<string>["consumeReport"]>(() => ({
+    const consumeReport = vi.fn<TestReportConsumer<string>>(() => ({
       status: "accepted",
       value: "unexpected",
     }));
 
     await expect(
-      service.run(request("large-report", { extraArgs: ["128"], consumeReport })),
+      runService(service, request("large-report", { extraArgs: ["128"], consumeReport })),
     ).resolves.toEqual({ status: "failed", reason: "report-too-large" });
     expect(consumeReport).not.toHaveBeenCalled();
     await expectTemporaryRootClean();
@@ -449,12 +475,12 @@ describe("jscpd temporary report adapter", () => {
     const outsideArtifact = join(projectDirectory, "outside-report.json");
     await writeFile(outsideArtifact, "private artifact");
 
-    await expect(service.run(request("directory-report"))).resolves.toEqual({
+    await expect(runService(service, request("directory-report"))).resolves.toEqual({
       status: "failed",
       reason: "invalid-report",
     });
     await expect(
-      service.run(request("symlink-report", { extraArgs: [outsideArtifact] })),
+      runService(service, request("symlink-report", { extraArgs: [outsideArtifact] })),
     ).resolves.toEqual({ status: "failed", reason: "invalid-report" });
     await expectTemporaryRootClean();
   });
@@ -496,18 +522,20 @@ describe("jscpd temporary report adapter", () => {
         total: statisticsRow({ clones: 1 }),
       },
     });
-    const consumeReport = (bytes: Uint8Array) => consumeJscpdV5JsonReport(bytes, projectDirectory);
+    const consumeReportEffect = (bytes: Uint8Array) =>
+      consumeJscpdV5JsonReportEffect(bytes, projectDirectory);
 
     await expect(
-      service.run(request("report", { extraArgs: [finding], consumeReport })),
+      runService(service, request("report", { extraArgs: [finding], consumeReportEffect })),
     ).resolves.toMatchObject({ status: "report" });
     await expectTemporaryRootClean();
 
     await expect(
-      service.run(
+      runService(
+        service,
         request("report", {
           extraArgs: ["{ private malformed body"],
-          consumeReport,
+          consumeReportEffect,
         }),
       ),
     ).resolves.toEqual({
@@ -520,14 +548,16 @@ describe("jscpd temporary report adapter", () => {
 
   it("normalizes malformed-report consumer failures and bounds report consumption", async () => {
     const service = createService({ reportConsumptionTimeoutMs: 20 });
-    const malformed = service.run(
+    const malformed = runService(
+      service,
       request("report", {
         consumeReport: () => {
           throw new Error("private malformed report contents");
         },
       }),
     );
-    const stalled = service.run(
+    const stalled = runService(
+      service,
       request("report", {
         consumeReport: () => new Promise(() => undefined),
       }),
@@ -541,14 +571,15 @@ describe("jscpd temporary report adapter", () => {
   it("cleans after invalidation and permits later work", async () => {
     const service = createService();
     const controller = new AbortController();
-    const active = service.run(request("hang", { signal: controller.signal }));
-    const queued = service.run(request("report"));
+    const active = runService(service, request("hang", { signal: controller.signal }));
+    const queued = runService(service, request("report"));
+    await waitForStart();
 
     service.invalidate();
 
     await expect(active).resolves.toEqual({ status: "invalidated" });
     await expect(queued).resolves.toEqual({ status: "invalidated" });
-    await expect(service.run(request("report"))).resolves.toEqual({
+    await expect(runService(service, request("report"))).resolves.toEqual({
       status: "report",
       value: "artifact",
     });
@@ -557,18 +588,18 @@ describe("jscpd temporary report adapter", () => {
 
   it("disposes idempotently, drains active and queued work, and rejects later requests", async () => {
     const service = createService();
-    const active = service.run(request("hang"));
+    const active = runService(service, request("hang"));
     const queuedMarker = join(fixtureRoot, "queued-after-dispose");
-    const queued = service.run(request("hang", { extraArgs: [queuedMarker] }));
+    const queued = runService(service, request("hang", { extraArgs: [queuedMarker] }));
 
-    const firstDispose = service.dispose();
-    const secondDispose = service.dispose();
+    const firstDispose = JscpdTestEffectRuntime.runPromise(service.disposeEffect());
+    const secondDispose = JscpdTestEffectRuntime.runPromise(service.disposeEffect());
 
-    expect(secondDispose).toBe(firstDispose);
     await expect(active).resolves.toEqual({ status: "failed", reason: "service-disposed" });
     await expect(queued).resolves.toEqual({ status: "failed", reason: "service-disposed" });
     await expect(firstDispose).resolves.toBeUndefined();
-    await expect(service.run(request("report"))).resolves.toEqual({
+    await expect(secondDispose).resolves.toBeUndefined();
+    await expect(runService(service, request("report"))).resolves.toEqual({
       status: "failed",
       reason: "service-disposed",
     });
@@ -585,20 +616,20 @@ describe("jscpd temporary report adapter", () => {
     const controller = new AbortController();
     const removeEventListener = vi.spyOn(controller.signal, "removeEventListener");
 
-    await expect(service.run(invalidExecutable)).resolves.toEqual({
+    await expect(runService(service, invalidExecutable)).resolves.toEqual({
       status: "failed",
       reason: "invalid-request",
     });
-    await expect(service.run(invalidArgument)).resolves.toEqual({
+    await expect(runService(service, invalidArgument)).resolves.toEqual({
       status: "failed",
       reason: "argument-construction",
     });
-    await expect(service.run(invalidTimeout)).resolves.toEqual({
+    await expect(runService(service, invalidTimeout)).resolves.toEqual({
       status: "failed",
       reason: "invalid-request",
     });
     await expect(
-      service.run(request("report", { signal: controller.signal })),
+      runService(service, request("report", { signal: controller.signal })),
     ).resolves.toMatchObject({ status: "report" });
     expect(removeEventListener).toHaveBeenCalledWith("abort", expect.any(Function));
     await expectTemporaryRootClean();
@@ -611,7 +642,7 @@ describe("jscpd temporary report adapter", () => {
     controller.abort();
 
     await expect(
-      service.run({
+      runService(service, {
         ...request("report"),
         signal: controller.signal,
         createArguments,
@@ -619,7 +650,7 @@ describe("jscpd temporary report adapter", () => {
     ).resolves.toEqual({ status: "cancelled" });
     expect(createArguments).not.toHaveBeenCalled();
     await expect(
-      service.run(request("report", { cwd: join(fixtureRoot, "missing-project") })),
+      runService(service, request("report", { cwd: join(fixtureRoot, "missing-project") })),
     ).resolves.toEqual({ status: "failed", reason: "temporary-directory" });
     await expectTemporaryRootClean();
   });
@@ -631,7 +662,7 @@ describe("jscpd temporary report adapter", () => {
     const service = createService({ temporaryRoot: nestedTemporaryRoot });
 
     expect(await readdir(nestedTemporaryRoot)).toEqual(before);
-    await expect(service.run(request("report"))).resolves.toEqual({
+    await expect(runService(service, request("report"))).resolves.toEqual({
       status: "failed",
       reason: "unsafe-temporary-path",
     });

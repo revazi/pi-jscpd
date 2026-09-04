@@ -2,8 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
-  consumeJscpdV5JsonReport,
+  consumeJscpdV5JsonReportEffect,
   JSCPD_STRUCTURED_REPORT_FILE_NAME,
   JSCPD_STRUCTURED_REPORTER,
 } from "../src/jscpd-report.js";
@@ -53,7 +54,9 @@ async function materialize(paths: readonly string[]): Promise<void> {
 }
 
 async function accepted(bytes: Uint8Array, cwd = projectDirectory): Promise<JscpdScanReport> {
-  const decision = await consumeJscpdV5JsonReport(bytes, cwd);
+  const decision = await JscpdTestEffectRuntime.runPromise(
+    consumeJscpdV5JsonReportEffect(bytes, cwd),
+  );
   if (decision.status !== "accepted") {
     const detail = decision.status === "rejected" ? ` (${decision.reason})` : "";
     throw new Error(`Expected an accepted test report, received ${decision.status}${detail}.`);
@@ -62,7 +65,9 @@ async function accepted(bytes: Uint8Array, cwd = projectDirectory): Promise<Jscp
 }
 
 async function rejected(bytes: Uint8Array, reason: JscpdReportErrorCode): Promise<void> {
-  const decision = await consumeJscpdV5JsonReport(bytes, projectDirectory);
+  const decision = await JscpdTestEffectRuntime.runPromise(
+    consumeJscpdV5JsonReportEffect(bytes, projectDirectory),
+  );
   expect(decision).toEqual({ status: "rejected", reason });
   expect(JSON.stringify(decision).length).toBeLessThan(100);
 }
@@ -178,9 +183,8 @@ describe("jscpd v5 JSON report normalization", () => {
   });
 
   it("returns an explicit no-findings decision only for a valid clean report", async () => {
-    const clean = await consumeJscpdV5JsonReport(
-      await fixtureBytes("clean.json"),
-      projectDirectory,
+    const clean = await JscpdTestEffectRuntime.runPromise(
+      consumeJscpdV5JsonReportEffect(await fixtureBytes("clean.json"), projectDirectory),
     );
     expect(clean).toMatchObject({ status: "no-findings" });
     if (clean.status === "no-findings") {

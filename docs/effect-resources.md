@@ -20,9 +20,11 @@ bounded. Missing executables, spawn failures, timeout, output limits, invalid
 requests, and interruption remain distinguishable before the existing public
 facade maps them to its stable result union.
 
-`src/jscpd.ts` now uses an Effect semaphore instead of the Promise job queue.
-`JscpdAdapter` and `createJscpdLayer` expose the Effect-native scoped service.
-Each run acquires its restrictive out-of-project report workspace, executes one
+`src/jscpd.ts` uses an Effect semaphore instead of the former Promise job queue.
+`JscpdService`, `JscpdAdapter`, and `createJscpdLayer` expose only Effect-native
+run and disposal operations; the temporary lower-service Promise facade and
+parallel report-consumer callback have been removed. Each run acquires its
+restrictive out-of-project report workspace, executes one
 serialized analyzer process, consumes a bounded regular non-symlink report
 through the injected filesystem service, and releases the workspace. The adapter
 layer leaves process and filesystem requirements visible to its caller. Cleanup
@@ -47,8 +49,9 @@ analyzer, and capability modules never execute Effect directly.
 
 Pi tools, commands, lifecycle handlers, automatic fibers, and overlay actions
 route through this runtime. Shutdown closes scheduler and analyzer resources
-before disposing its root layer scope. Isolated unit-level compatibility tests
-use the explicit test runner from the same boundary.
+before disposing its root layer scope. Isolated unit tests submit effects through the explicit test runner from the
+same boundary; characterization Promise fakes are adapted only under
+`test/support/`.
 
 ## Verification contract
 

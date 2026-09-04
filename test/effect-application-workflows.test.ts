@@ -66,12 +66,11 @@ function capability(): JscpdCapabilityService {
 
 function adapter(): JscpdService {
   return {
-    async run() {
-      return { status: "no-findings", value: cleanReport };
-    },
+    runEffect: (() =>
+      Effect.succeed({ status: "no-findings", value: cleanReport })) as JscpdService["runEffect"],
     invalidate() {},
-    async dispose() {},
-  } as JscpdService;
+    disposeEffect: () => Effect.void,
+  };
 }
 
 function platformLayer() {
@@ -117,7 +116,7 @@ describe("Effect application workflows", () => {
     expect(filesystem.operations).not.toContain(`canonicalize:${project}/src`);
   });
 
-  it("prefers native capability and adapter effects over compatibility promises", async () => {
+  it("composes native capability and adapter effects", async () => {
     const nativeCapability: JscpdCapabilityService = {
       async probe() {
         throw new Error("compatibility probe must not run");
@@ -133,15 +132,13 @@ describe("Effect application workflows", () => {
       dispose() {},
     };
     const nativeAdapter: JscpdService = {
-      async run() {
-        throw new Error("compatibility adapter must not run");
-      },
       runEffect: (() =>
-        Effect.succeed({ status: "no-findings" as const, value: cleanReport })) as NonNullable<
-        JscpdService["runEffect"]
-      >,
+        Effect.succeed({
+          status: "no-findings" as const,
+          value: cleanReport,
+        })) as JscpdService["runEffect"],
       invalidate() {},
-      async dispose() {},
+      disposeEffect: () => Effect.void,
     };
     const layers = Layer.merge(
       createJscpdScanWorkflowLayer(nativeCapability, nativeAdapter),
@@ -265,12 +262,9 @@ describe("Effect application workflows", () => {
         );
       }) as NonNullable<JscpdService["runEffect"]>;
       const nativeAdapter: JscpdService = {
-        run: async () => {
-          throw new Error("compatibility adapter must not run");
-        },
         runEffect,
         invalidate() {},
-        dispose: async () => undefined,
+        disposeEffect: () => Effect.void,
       };
       const layers = Layer.merge(
         createJscpdChangedWorkflowLayer(

@@ -7,6 +7,7 @@ import type { JscpdRunRequest, JscpdService } from "../src/jscpd.js";
 import { createJscpdScanExecutor } from "../src/scan.js";
 import type { JscpdClonePair, JscpdScanReport } from "../src/types.js";
 import { createJscpdVerificationService } from "../src/verification.js";
+import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
 
 let project: string;
 const block = "same";
@@ -80,8 +81,8 @@ function adapter(reports: readonly JscpdScanReport[]): JscpdService {
   const run = vi.fn(async (_request: JscpdRunRequest<JscpdScanReport>) => ({
     status: "report",
     value: reports[Math.min(index++, reports.length - 1)],
-  })) as unknown as JscpdService["run"];
-  return { run, invalidate() {}, async dispose() {} };
+  })) as unknown as JscpdPromiseRun;
+  return jscpdServiceFromPromise(run);
 }
 
 describe("explicit scan verification flow", () => {

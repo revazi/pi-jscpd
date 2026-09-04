@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { compareJscpdCloneSnapshots, indexJscpdCloneReport } from "../src/clone-identity.js";
+import { compareJscpdCloneSnapshots, indexJscpdCloneReportEffect } from "../src/clone-identity.js";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import type { JscpdCloneOccurrence, JscpdClonePair, JscpdScanReport } from "../src/types.js";
 
 let root: string;
@@ -66,7 +67,9 @@ function report(...clonePairs: JscpdClonePair[]): JscpdScanReport {
 describe("stable clone identity and baseline comparison", () => {
   it("treats reordered occurrences and ordinary line movement as existing", async () => {
     const baselineReport = report(clone(occurrence("src/a.ts"), occurrence("src/b.ts")));
-    const baseline = await indexJscpdCloneReport(baselineReport, project);
+    const baseline = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(baselineReport, project),
+    );
     const prefix = "// inserted before clone\n";
     await Promise.all([
       writeFile(join(project, "src", "a.ts"), prefix + block),
@@ -76,7 +79,9 @@ describe("stable clone identity and baseline comparison", () => {
     const currentReport = report(
       clone(occurrence("src/b.ts", movedOffset, 2), occurrence("src/a.ts", movedOffset, 2)),
     );
-    const current = await indexJscpdCloneReport(currentReport, project);
+    const current = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(currentReport, project),
+    );
 
     const comparison = compareJscpdCloneSnapshots(baseline, current);
 
@@ -96,7 +101,9 @@ describe("stable clone identity and baseline comparison", () => {
 
   it("classifies changed block content as one removed and one new group", async () => {
     const baselineReport = report(clone(occurrence("src/a.ts"), occurrence("src/b.ts")));
-    const baseline = await indexJscpdCloneReport(baselineReport, project);
+    const baseline = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(baselineReport, project),
+    );
     const changed = "const shared = 2;\n";
     expect(Buffer.byteLength(changed)).toBe(Buffer.byteLength(block));
     await Promise.all([
@@ -104,7 +111,9 @@ describe("stable clone identity and baseline comparison", () => {
       writeFile(join(project, "src", "b.ts"), changed),
     ]);
     const currentReport = report(clone(occurrence("src/a.ts"), occurrence("src/b.ts")));
-    const current = await indexJscpdCloneReport(currentReport, project);
+    const current = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(currentReport, project),
+    );
 
     expect(compareJscpdCloneSnapshots(baseline, current)).toMatchObject({
       existing: [],
@@ -117,8 +126,12 @@ describe("stable clone identity and baseline comparison", () => {
   it("classifies path-pair additions and removals deterministically", async () => {
     const removedGroup = clone(occurrence("src/a.ts"), occurrence("src/b.ts"));
     const addedGroup = clone(occurrence("src/a.ts"), occurrence("src/c.ts"));
-    const baseline = await indexJscpdCloneReport(report(removedGroup), project);
-    const current = await indexJscpdCloneReport(report(addedGroup), project);
+    const baseline = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(report(removedGroup), project),
+    );
+    const current = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(report(addedGroup), project),
+    );
 
     expect(compareJscpdCloneSnapshots(baseline, current)).toMatchObject({
       existing: [],
@@ -130,8 +143,12 @@ describe("stable clone identity and baseline comparison", () => {
 
   it("keeps repeated indistinguishable groups ambiguous instead of matching by order", async () => {
     const pair = clone(occurrence("src/a.ts"), occurrence("src/b.ts"));
-    const baseline = await indexJscpdCloneReport(report(pair, pair), project);
-    const current = await indexJscpdCloneReport(report(pair, pair), project);
+    const baseline = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(report(pair, pair), project),
+    );
+    const current = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(report(pair, pair), project),
+    );
 
     const comparison = compareJscpdCloneSnapshots(baseline, current);
 
@@ -145,9 +162,13 @@ describe("stable clone identity and baseline comparison", () => {
 
   it("marks missing source content partial and does not claim a removal", async () => {
     const pair = clone(occurrence("src/a.ts"), occurrence("src/b.ts"));
-    const baseline = await indexJscpdCloneReport(report(pair), project);
+    const baseline = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(report(pair), project),
+    );
     const missingPair = clone(occurrence("src/a.ts"), occurrence("src/missing.ts"));
-    const current = await indexJscpdCloneReport(report(missingPair), project);
+    const current = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(report(missingPair), project),
+    );
 
     expect(current).toMatchObject({
       status: "partial",
@@ -163,9 +184,13 @@ describe("stable clone identity and baseline comparison", () => {
 
   it("handles malformed and partial runtime inputs without throwing or reviving identity", async () => {
     const malformed = { statistics: {}, clonePairs: null } as unknown as JscpdScanReport;
-    const malformedSnapshot = await indexJscpdCloneReport(malformed, project);
+    const malformedSnapshot = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(malformed, project),
+    );
     const unsafePair = clone(occurrence("../outside.ts"), occurrence("src/b.ts"));
-    const partialSnapshot = await indexJscpdCloneReport(report(unsafePair), project);
+    const partialSnapshot = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(report(unsafePair), project),
+    );
 
     expect(malformedSnapshot).toEqual({ status: "partial", groups: [], omittedGroups: 0 });
     expect(partialSnapshot).toMatchObject({
@@ -180,7 +205,9 @@ describe("stable clone identity and baseline comparison", () => {
   it("rejects oversized or invalid byte spans as partial identity evidence", async () => {
     const zeroLength = occurrence("src/a.ts", 0, 1, 0);
     const oversized = occurrence("src/b.ts", 0, 1, 1024 * 1024 + 1);
-    const snapshot = await indexJscpdCloneReport(report(clone(zeroLength, oversized)), project);
+    const snapshot = await JscpdTestEffectRuntime.runPromise(
+      indexJscpdCloneReportEffect(report(clone(zeroLength, oversized)), project),
+    );
 
     expect(snapshot).toMatchObject({
       status: "partial",

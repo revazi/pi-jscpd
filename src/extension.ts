@@ -104,7 +104,7 @@ export function registerJscpdExtension(
   const changedFiles = createJscpdChangedFileTracker(runtime);
   const acknowledgements = createJscpdAcknowledgementTracker();
   const scheduler = options.scheduler ?? createJscpdScanScheduler(runtime);
-  const adapterService = options.adapterService ?? createJscpdService({}, runtime);
+  const adapterService = options.adapterService ?? createJscpdService();
   const configService = options.configService ?? createJscpdConfigService(runtime);
   const fallowCoexistence =
     options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService(runtime);
@@ -341,7 +341,7 @@ export function registerJscpdExtension(
       try {
         await scheduler.dispose();
         capabilityService?.dispose();
-        await adapterService.dispose();
+        await runtime.runPromise(adapterService.disposeEffect());
       } finally {
         await runtime.dispose();
       }

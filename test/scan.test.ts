@@ -12,9 +12,11 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJscpdCapabilityService } from "../src/capability.js";
 import { dispatchJscpdCommand } from "../src/dispatch.js";
+import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import { createJscpdSlashCommandDefinition, createJscpdToolDefinition } from "../src/extension.js";
 import { createJscpdService, type JscpdService } from "../src/jscpd.js";
 import { createJscpdScanExecutor } from "../src/scan.js";
@@ -149,7 +151,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await service.dispose();
+  await JscpdTestEffectRuntime.runPromise(service.disposeEffect());
   await rm(root, { recursive: true, force: true });
 });
 
@@ -346,11 +348,9 @@ describe("end-to-end explicit scans", () => {
         dispose() {},
       },
       {
-        async run() {
-          return { status: "failed", reason: "cleanup-failed" };
-        },
+        runEffect: () => Effect.succeed({ status: "failed", reason: "cleanup-failed" }),
         invalidate() {},
-        async dispose() {},
+        disposeEffect: () => Effect.void,
       } as JscpdService,
     );
 

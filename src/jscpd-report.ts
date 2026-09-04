@@ -1,6 +1,5 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import { Data, Effect } from "effect";
-import { runFileSystemEffectForTest } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import {
   canonicalDirectoryEffect,
@@ -102,17 +101,9 @@ class ReportValidationError extends Data.TaggedError("ReportValidationError")<{
 }> {}
 
 /**
- * Validate and normalize bounded jscpd v5 JSON bytes for the adapter's consumeReport boundary.
- * Rejections are intentionally body-free; unexpected implementation failures still reject the
- * consumer promise and are normalized by the process adapter.
+ * Validate and normalize bounded jscpd v5 JSON bytes for the adapter's Effect consumer boundary.
+ * Rejections are intentionally body-free; unexpected defects are normalized by the adapter.
  */
-export async function consumeJscpdV5JsonReport(
-  bytes: Uint8Array,
-  cwd: string,
-): Promise<JscpdReportDecision<JscpdScanReport>> {
-  return runFileSystemEffectForTest(consumeJscpdV5JsonReportEffect(bytes, cwd));
-}
-
 export function consumeJscpdV5JsonReportEffect(
   bytes: Uint8Array,
   cwd: string,
