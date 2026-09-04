@@ -31,6 +31,7 @@ import { createJscpdScanScheduler } from "../src/scheduler.js";
 import { JSCPD_SESSION_STATE_TYPE, JSCPD_SESSION_STATE_VERSION } from "../src/session-state.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult, JscpdScanReport } from "../src/types.js";
 import type { JscpdVerificationService } from "../src/verification.js";
+import { capabilityFromPromise, type TestCapabilityProbe } from "./support/capability.js";
 
 const unavailableResult = {
   status: "unavailable",
@@ -204,7 +205,7 @@ function createBaselineService(state: JscpdBaselineState = { status: "unstarted"
 }
 
 function createCapabilityService() {
-  const probe = vi.fn<JscpdCapabilityService["probe"]>(async () => ({
+  const probe = vi.fn<TestCapabilityProbe>(async () => ({
     status: "available",
     executable: "jscpd",
     version: "5.1.0",
@@ -213,7 +214,11 @@ function createCapabilityService() {
   const invalidate = vi.fn();
   const dispose = vi.fn();
   return {
-    service: { probe, invalidate, dispose } satisfies JscpdCapabilityService,
+    service: {
+      ...capabilityFromPromise(probe),
+      invalidate,
+      dispose,
+    } satisfies JscpdCapabilityService,
     probe,
     invalidate,
     dispose,

@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
-import type { JscpdCapabilityResult, JscpdCapabilityService } from "../src/capability.js";
+import type { JscpdCapabilityResult } from "../src/capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService } from "../src/config.js";
 import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import { createJscpdFallowCoexistenceService } from "../src/fallow.js";
@@ -10,11 +10,12 @@ import {
   createJscpdStatusService,
 } from "../src/status.js";
 import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
+import { capabilityFromPromise, type TestCapabilityProbe } from "./support/capability.js";
 
 function capabilityService(result: JscpdCapabilityResult) {
-  const probe = vi.fn<JscpdCapabilityService["probe"]>(async () => result);
+  const probe = vi.fn<TestCapabilityProbe>(async () => result);
   return {
-    service: { probe, invalidate() {}, dispose() {} } satisfies JscpdCapabilityService,
+    service: capabilityFromPromise(probe),
     probe,
   };
 }

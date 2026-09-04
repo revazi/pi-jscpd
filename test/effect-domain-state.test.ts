@@ -61,14 +61,13 @@ function mutation(path: string) {
 
 function availableCapabilityService(): JscpdCapabilityService {
   return {
-    async probe() {
-      return {
+    probeEffect: () =>
+      Effect.succeed({
         status: "available",
         executable: "jscpd",
         version: "5.1.2",
         major: 5,
-      };
-    },
+      }),
     invalidate() {},
     dispose() {},
   };

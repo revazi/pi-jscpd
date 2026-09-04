@@ -4,10 +4,7 @@ import { dirname, join } from "node:path";
 import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
-  createJscpdCapabilityLayer,
-  createJscpdCapabilityService,
   createJscpdExecutionPath,
-  createNodeProbeExecutor,
   JSCPD_SUPPORTED_MAJOR,
   JSCPD_VERSION_MAX_OUTPUT_BYTES,
   JSCPD_VERSION_TIMEOUT_MS,
@@ -15,10 +12,15 @@ import {
   type JscpdExecutable,
   type JscpdProbeExecutionRequest,
   type JscpdProbeExecutionResult,
-  type JscpdProbeExecutor,
   parseJscpdVersion,
 } from "../src/capability.js";
 import { JscpdProcessLive } from "../src/process.js";
+import {
+  createCapabilityTestLayer as createJscpdCapabilityLayer,
+  createCapabilityTestDriver as createJscpdCapabilityService,
+  createNodeProbeTestDriver as createNodeProbeExecutor,
+  type TestProbeExecutor as JscpdProbeExecutor,
+} from "./support/capability.js";
 
 const project = { cwd: "/project", path: "/synthetic/bin" } as const;
 
@@ -452,13 +454,16 @@ describe("jscpd capability cache lifecycle", () => {
 
   it("does not cache a completed result from an invalidated generation", async () => {
     const firstExecution = deferred<JscpdProbeExecutionResult>();
+    const entered = deferred<void>();
     let callCount = 0;
     const run = vi.fn<JscpdProbeExecutor["run"]>(() => {
       callCount += 1;
+      entered.resolve();
       return callCount === 1 ? firstExecution.promise : Promise.resolve(completed("5.0.1"));
     });
     const service = createJscpdCapabilityService({ run });
     const staleProbe = service.probe(project);
+    await entered.promise;
 
     service.invalidate();
     firstExecution.resolve(completed("5.0.0"));
@@ -472,6 +477,7 @@ describe("jscpd capability cache lifecycle", () => {
   });
 
   it("cancels active work on disposal and rejects later probes without execution", async () => {
+    const entered = deferred<void>();
     const run = vi.fn<JscpdProbeExecutor["run"]>(
       (request) =>
         new Promise((resolve) => {
@@ -482,10 +488,12 @@ describe("jscpd capability cache lifecycle", () => {
           request.signal.addEventListener("abort", () => resolve({ status: "cancelled" }), {
             once: true,
           });
+          entered.resolve();
         }),
     );
     const service = createJscpdCapabilityService({ run });
     const active = service.probe(project);
+    await entered.promise;
 
     service.dispose();
 

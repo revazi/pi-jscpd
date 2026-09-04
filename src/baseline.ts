@@ -297,7 +297,7 @@ function captureBaselineEffect(
 
 function safeProbeEffect(
   capabilityService: JscpdCapabilityService,
-  request: Omit<Parameters<JscpdCapabilityService["probe"]>[0], "signal">,
+  request: Omit<Parameters<JscpdCapabilityService["probeEffect"]>[0], "signal">,
   controller: AbortController,
 ): Effect.Effect<JscpdCapabilityResult, never, JscpdProcess> {
   return capabilityProbeEffect(capabilityService, {

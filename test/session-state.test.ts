@@ -50,9 +50,7 @@ function services() {
   const mode = createJscpdSessionModeService();
   mode.restore(true);
   const capability = {
-    async probe() {
-      return availableCapability;
-    },
+    probeEffect: () => Effect.succeed(availableCapability),
     invalidate() {},
     dispose() {},
   } satisfies JscpdCapabilityService;

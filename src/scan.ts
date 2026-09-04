@@ -275,11 +275,7 @@ export function capabilityProbeEffect(
   service: JscpdCapabilityService,
   request: JscpdCapabilityRequest,
 ): Effect.Effect<JscpdCapabilityResult, never, JscpdProcess> {
-  if (service.probeEffect) return service.probeEffect(request);
-  return Effect.tryPromise({
-    try: () => service.probe(request),
-    catch: () => ({ status: "failed", executable: "jscpd", reason: "execution-error" }) as const,
-  }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+  return service.probeEffect(request);
 }
 
 export function adapterRunEffect<T>(

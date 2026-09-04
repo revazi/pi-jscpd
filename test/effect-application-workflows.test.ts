@@ -56,9 +56,8 @@ const cleanReport: JscpdScanReport = {
 
 function capability(): JscpdCapabilityService {
   return {
-    async probe() {
-      return { status: "available", executable: "jscpd", version: "5.1.2", major: 5 };
-    },
+    probeEffect: () =>
+      Effect.succeed({ status: "available", executable: "jscpd", version: "5.1.2", major: 5 }),
     invalidate() {},
     dispose() {},
   };
@@ -118,9 +117,6 @@ describe("Effect application workflows", () => {
 
   it("composes native capability and adapter effects", async () => {
     const nativeCapability: JscpdCapabilityService = {
-      async probe() {
-        throw new Error("compatibility probe must not run");
-      },
       probeEffect: () =>
         Effect.succeed({
           status: "available" as const,
@@ -340,9 +336,6 @@ describe("Effect application workflows", () => {
       },
     ]);
     const nativeCapability: JscpdCapabilityService = {
-      async probe() {
-        throw new Error("compatibility probe must not run");
-      },
       probeEffect: () =>
         Effect.flatMap(JscpdProcess, (runner) =>
           runner.run({

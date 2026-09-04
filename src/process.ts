@@ -2,14 +2,13 @@
 import type { ChildProcessByStdio } from "node:child_process";
 import { spawn } from "node:child_process";
 import type { Readable } from "node:stream";
-import { Cause, Effect, Exit, Layer } from "effect";
+import { Effect, Exit, Layer } from "effect";
 import {
   JscpdInvalidInput,
   JscpdLimitExceeded,
   JscpdOperationTimedOut,
   JscpdProcessFailure,
 } from "./effect/errors.js";
-import type { JscpdEffectRuntime } from "./effect/runtime-contract.js";
 import {
   JscpdProcess,
   type JscpdProcessRequest,
@@ -22,20 +21,6 @@ const DEFAULT_FORCE_SETTLE_MS = 250;
 const MAX_PROCESS_TIMEOUT_MS = 5 * 60_000;
 const MAX_PROCESS_OUTPUT_BYTES = 1024 * 1024;
 const MAX_TERMINATION_BOUND_MS = 5_000;
-
-export interface BoundedProcessRequest {
-  /** Operation context used only for typed Effect failures; defaults to scan for compatibility. */
-  stage?: "probe" | "scan";
-  executable: string;
-  args: readonly string[];
-  cwd: string;
-  env?: NodeJS.ProcessEnv;
-  signal: AbortSignal;
-  timeoutMs: number;
-  maxOutputBytes: number;
-  terminationGraceMs?: number;
-  forceSettleMs?: number;
-}
 
 export type BoundedProcessResult =
   | { status: "completed"; exitCode: number; stdout: Buffer; stderr: Buffer }
@@ -62,34 +47,7 @@ export const JscpdProcessLive = Layer.succeed(JscpdProcess, {
   run: runProcessEffect,
 });
 
-/**
- * Promise facade for isolated compatibility callers. Production receives the extension instance's
- * managed runtime; the process implementation itself remains Effect-native.
- */
-export async function runBoundedProcess(
-  request: BoundedProcessRequest,
-  runtime: JscpdEffectRuntime,
-): Promise<BoundedProcessResult> {
-  const processRequest: JscpdProcessRequest = {
-    stage: request.stage ?? "scan",
-    executable: request.executable,
-    args: request.args,
-    cwd: request.cwd,
-    environment: request.env,
-    timeoutMs: request.timeoutMs,
-    maxOutputBytes: request.maxOutputBytes,
-    terminationGraceMs: request.terminationGraceMs,
-    forceSettleMs: request.forceSettleMs,
-  };
-  const program = runBoundedProcessEffect(processRequest);
-  const exit = await runtime.runPromiseExit(program, request.signal);
-  if (Exit.isSuccess(exit)) return exit.value;
-  return Cause.isInterruptedOnly(exit.cause) || request.signal.aborted
-    ? { status: "cancelled" }
-    : { status: "spawn-failed" };
-}
-
-/** Effect-native bounded execution used by analyzer services before the managed host runtime lands. */
+/** Effect-native bounded execution used by analyzer services through the host's process layer. */
 export function runBoundedProcessEffect(
   request: JscpdProcessRequest,
 ): Effect.Effect<BoundedProcessResult, never, JscpdProcess> {
