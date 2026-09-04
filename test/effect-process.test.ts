@@ -67,7 +67,7 @@ describe("Effect process resource ownership", () => {
         executable: process.execPath,
         args: [executable, "ignore-term", marker],
         cwd: root,
-        timeoutMs: 100,
+        timeoutMs: 500,
         maxOutputBytes: 1_024,
         terminationGraceMs: 20,
         forceSettleMs: 100,

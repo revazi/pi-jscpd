@@ -1,7 +1,6 @@
 import { join } from "node:path";
-import { Cause, Effect, Exit } from "effect";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { Effect } from "effect";
+import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
 
@@ -76,11 +75,7 @@ export function createJscpdFallowCoexistenceService(): JscpdFallowCoexistenceSer
 export async function evaluateJscpdFallowCoexistence(
   context: JscpdFallowCoexistenceContext,
 ): Promise<JscpdFallowCoexistenceState> {
-  const exit = await runEffectExitAtApplicationBoundary(
-    evaluateJscpdFallowCoexistenceEffect(context).pipe(Effect.provide(JscpdFileSystemLive)),
-  );
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
+  return runFileSystemEffectAtApplicationBoundary(evaluateJscpdFallowCoexistenceEffect(context));
 }
 
 export function evaluateJscpdFallowCoexistenceEffect(

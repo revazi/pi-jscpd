@@ -25,9 +25,10 @@ pi install npm:pi-jscpd
 The package includes pinned jscpd `5.1.2` and Effect `3.22.1` runtime
 dependencies—there is no separate analyzer installation and no runtime download.
 Effect owns bounded process execution, analyzer probing, temporary report
-workspaces, adapter serialization, trusted configuration and signal reads, and
-canonical source-path validation. Higher domain, application, and Pi workflows
-are still migrating in ordered slices. If your project already installs
+workspaces, adapter serialization, trusted configuration and signal reads,
+canonical source-path validation, baseline generations, changed-file attribution,
+acknowledgement transactions, and verification checkpoints. Scheduler,
+application, and Pi workflows are still migrating in ordered slices. If your project already installs
 a compatible jscpd locally, or `jscpd`/`cpd` is available on `PATH`, the
 extension uses that installation first and keeps the bundled version as a
 fallback.
@@ -199,6 +200,7 @@ Useful documentation:
 - [Effect foundation contracts and reviewed dependency](docs/effect-foundation.md)
 - [Effect-owned process and analyzer resources](docs/effect-resources.md)
 - [Effect filesystem and decoding boundaries](docs/effect-filesystem.md)
+- [Effect-owned domain state](docs/effect-domain-state.md)
 - [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
 - [`/jscpd` overlay contract](docs/overlay-interaction.md)
 - [Fallow coexistence](docs/fallow-coexistence.md)

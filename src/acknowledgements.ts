@@ -1,5 +1,7 @@
+import { Context, Effect, Layer, MutableRef } from "effect";
 import { isSafeChangedFilePath } from "./changed-files.js";
 import { compareText } from "./path-utils.js";
+import { hasExactKeys } from "./value-utils.js";
 
 const JSCPD_ACKNOWLEDGEMENT_IDENTITY_VERSION = 1;
 export const MAX_ACKNOWLEDGED_FINDINGS = 1_000;
@@ -33,6 +35,31 @@ export interface JscpdAcknowledgementTracker {
   ): boolean;
 }
 
+interface AcknowledgementState {
+  readonly scope: number;
+  readonly revision: number;
+  readonly findings: ReadonlyMap<string, JscpdAcknowledgedFinding>;
+}
+
+interface JscpdAcknowledgementEffectService {
+  readonly restore: (value?: JscpdPersistedAcknowledgements) => Effect.Effect<void>;
+  readonly reset: Effect.Effect<void>;
+  readonly scope: Effect.Effect<number>;
+  readonly revision: Effect.Effect<number>;
+  readonly findings: Effect.Effect<readonly JscpdAcknowledgedFinding[]>;
+  readonly has: (fingerprint: string) => Effect.Effect<boolean>;
+  readonly invalidatePaths: (paths: readonly string[]) => Effect.Effect<boolean>;
+  readonly reconcile: (
+    expectedRevision: number,
+    active: readonly JscpdAcknowledgedFinding[],
+    surfaced: readonly JscpdAcknowledgedFinding[],
+  ) => Effect.Effect<boolean>;
+}
+
+export const JscpdAcknowledgements = Context.GenericTag<JscpdAcknowledgementEffectService>(
+  "pi-jscpd/effect/Acknowledgements",
+);
+
 const EMPTY: JscpdPersistedAcknowledgements = Object.freeze({
   identityVersion: JSCPD_ACKNOWLEDGEMENT_IDENTITY_VERSION,
   findings: Object.freeze([]),
@@ -40,62 +67,139 @@ const EMPTY: JscpdPersistedAcknowledgements = Object.freeze({
 
 /** Keep acknowledgement identities conservative, bounded, and owned by one active branch. */
 export function createJscpdAcknowledgementTracker(): JscpdAcknowledgementTracker {
-  let scope = 0;
-  let revision = 0;
-  let findings = new Map<string, JscpdAcknowledgedFinding>();
+  return acknowledgementTrackerFor(new AcknowledgementOwner());
+}
 
+export function createJscpdAcknowledgementLayer() {
+  const owner = new AcknowledgementOwner();
+  return Layer.succeed(JscpdAcknowledgements, acknowledgementEffectServiceFor(owner));
+}
+
+class AcknowledgementOwner {
+  readonly #state = MutableRef.make<AcknowledgementState>(initialAcknowledgementState());
+
+  restore(value: JscpdPersistedAcknowledgements = EMPTY): void {
+    const current = MutableRef.get(this.#state);
+    MutableRef.set(this.#state, {
+      scope: current.scope + 1,
+      revision: current.revision + 1,
+      findings: new Map(value.findings.map((finding) => [finding.fingerprint, finding])),
+    });
+  }
+
+  reset(): void {
+    const current = MutableRef.get(this.#state);
+    MutableRef.set(this.#state, {
+      scope: current.scope + 1,
+      revision: current.revision + 1,
+      findings: new Map(),
+    });
+  }
+
+  scope(): number {
+    return MutableRef.get(this.#state).scope;
+  }
+
+  revision(): number {
+    return MutableRef.get(this.#state).revision;
+  }
+
+  findings(): readonly JscpdAcknowledgedFinding[] {
+    return Object.freeze([...MutableRef.get(this.#state).findings.values()].sort(compareFinding));
+  }
+
+  has(fingerprint: string): boolean {
+    return MutableRef.get(this.#state).findings.has(fingerprint);
+  }
+
+  invalidatePaths(paths: readonly string[]): boolean {
+    const current = MutableRef.get(this.#state);
+    const changed = new Set(paths);
+    const findings = new Map(
+      [...current.findings].filter(([, finding]) =>
+        finding.paths.every((path) => !changed.has(path)),
+      ),
+    );
+    if (findings.size === current.findings.size) return false;
+    MutableRef.set(this.#state, { ...current, revision: current.revision + 1, findings });
+    return true;
+  }
+
+  reconcile(
+    expectedRevision: number,
+    active: readonly JscpdAcknowledgedFinding[],
+    surfaced: readonly JscpdAcknowledgedFinding[],
+  ): boolean {
+    const current = MutableRef.get(this.#state);
+    if (current.revision !== expectedRevision) return false;
+    const findings = reconciledFindings(current.findings, active, surfaced);
+    MutableRef.set(this.#state, { ...current, revision: current.revision + 1, findings });
+    return true;
+  }
+}
+
+function initialAcknowledgementState(): AcknowledgementState {
+  return { scope: 0, revision: 0, findings: new Map() };
+}
+
+function reconciledFindings(
+  retained: ReadonlyMap<string, JscpdAcknowledgedFinding>,
+  active: readonly JscpdAcknowledgedFinding[],
+  surfaced: readonly JscpdAcknowledgedFinding[],
+): ReadonlyMap<string, JscpdAcknowledgedFinding> {
+  const surfacedFingerprints = new Set(
+    surfaced.slice(0, MAX_ACKNOWLEDGED_FINDINGS).map(({ fingerprint }) => fingerprint),
+  );
+  const wantedFingerprints = new Set([...surfacedFingerprints, ...retained.keys()]);
+  const activeByFingerprint = new Map(
+    active
+      .filter((finding) => wantedFingerprints.has(finding.fingerprint))
+      .map((finding) => [finding.fingerprint, finding]),
+  );
+  const next = new Map<string, JscpdAcknowledgedFinding>();
+  appendActiveFindings(next, surfacedFingerprints, activeByFingerprint);
+  appendActiveFindings(next, retained.keys(), activeByFingerprint);
+  return next;
+}
+
+function appendActiveFindings(
+  target: Map<string, JscpdAcknowledgedFinding>,
+  fingerprints: Iterable<string>,
+  active: ReadonlyMap<string, JscpdAcknowledgedFinding>,
+): void {
+  for (const fingerprint of fingerprints) {
+    if (target.size >= MAX_ACKNOWLEDGED_FINDINGS) break;
+    const finding = active.get(fingerprint);
+    if (finding) target.set(fingerprint, finding);
+  }
+}
+
+function acknowledgementTrackerFor(owner: AcknowledgementOwner): JscpdAcknowledgementTracker {
   return {
-    restore(value = EMPTY) {
-      scope += 1;
-      revision += 1;
-      findings = new Map(value.findings.map((finding) => [finding.fingerprint, finding]));
-    },
-    reset() {
-      scope += 1;
-      revision += 1;
-      findings = new Map();
-    },
-    scope: () => scope,
-    revision: () => revision,
-    findings: () => Object.freeze([...findings.values()].sort(compareFinding)),
-    has: (fingerprint) => findings.has(fingerprint),
-    invalidatePaths(paths) {
-      const changed = new Set(paths);
-      let removed = false;
-      for (const [fingerprint, finding] of findings) {
-        if (!finding.paths.some((path) => changed.has(path))) continue;
-        findings.delete(fingerprint);
-        removed = true;
-      }
-      if (removed) revision += 1;
-      return removed;
-    },
-    reconcile(expectedRevision, active, surfaced) {
-      if (revision !== expectedRevision) return false;
-      const surfacedFingerprints = new Set(
-        surfaced.slice(0, MAX_ACKNOWLEDGED_FINDINGS).map(({ fingerprint }) => fingerprint),
-      );
-      const wantedFingerprints = new Set([...surfacedFingerprints, ...findings.keys()]);
-      const activeByFingerprint = new Map<string, JscpdAcknowledgedFinding>();
-      for (const finding of active) {
-        if (wantedFingerprints.has(finding.fingerprint)) {
-          activeByFingerprint.set(finding.fingerprint, finding);
-        }
-      }
-      const next = new Map<string, JscpdAcknowledgedFinding>();
-      for (const fingerprint of surfacedFingerprints) {
-        const current = activeByFingerprint.get(fingerprint);
-        if (current) next.set(fingerprint, current);
-      }
-      for (const fingerprint of findings.keys()) {
-        if (next.size >= MAX_ACKNOWLEDGED_FINDINGS) break;
-        const current = activeByFingerprint.get(fingerprint);
-        if (current) next.set(fingerprint, current);
-      }
-      findings = next;
-      revision += 1;
-      return true;
-    },
+    restore: (value) => owner.restore(value),
+    reset: () => owner.reset(),
+    scope: () => owner.scope(),
+    revision: () => owner.revision(),
+    findings: () => owner.findings(),
+    has: (fingerprint) => owner.has(fingerprint),
+    invalidatePaths: (paths) => owner.invalidatePaths(paths),
+    reconcile: (revision, active, surfaced) => owner.reconcile(revision, active, surfaced),
+  };
+}
+
+function acknowledgementEffectServiceFor(
+  owner: AcknowledgementOwner,
+): JscpdAcknowledgementEffectService {
+  return {
+    restore: (value) => Effect.sync(() => owner.restore(value)),
+    reset: Effect.sync(() => owner.reset()),
+    scope: Effect.sync(() => owner.scope()),
+    revision: Effect.sync(() => owner.revision()),
+    findings: Effect.sync(() => owner.findings()),
+    has: (fingerprint) => Effect.sync(() => owner.has(fingerprint)),
+    invalidatePaths: (paths) => Effect.sync(() => owner.invalidatePaths(paths)),
+    reconcile: (revision, active, surfaced) =>
+      Effect.sync(() => owner.reconcile(revision, active, surfaced)),
   };
 }
 
@@ -115,7 +219,7 @@ export function snapshotJscpdAcknowledgements(
 export function parseJscpdAcknowledgements(
   value: unknown,
 ): JscpdPersistedAcknowledgements | undefined {
-  if (!isRecord(value) || !hasExactKeys(value, ["identityVersion", "findings"])) return undefined;
+  if (!hasExactKeys(value, ["identityVersion", "findings"])) return undefined;
   if (value.identityVersion !== JSCPD_ACKNOWLEDGEMENT_IDENTITY_VERSION) return undefined;
   if (!Array.isArray(value.findings) || value.findings.length > MAX_ACKNOWLEDGED_FINDINGS) {
     return undefined;
@@ -135,7 +239,7 @@ export function parseJscpdAcknowledgements(
 }
 
 function parseFinding(value: unknown): JscpdAcknowledgedFinding | undefined {
-  if (!isRecord(value) || !hasExactKeys(value, ["fingerprint", "paths"])) return undefined;
+  if (!hasExactKeys(value, ["fingerprint", "paths"])) return undefined;
   if (typeof value.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(value.fingerprint)) {
     return undefined;
   }
@@ -148,16 +252,4 @@ function parseFinding(value: unknown): JscpdAcknowledgedFinding | undefined {
 
 function compareFinding(first: JscpdAcknowledgedFinding, second: JscpdAcknowledgedFinding): number {
   return compareText(first.fingerprint, second.fingerprint);
-}
-
-function hasExactKeys<T extends readonly string[]>(
-  value: Record<string, unknown>,
-  expected: T,
-): value is Record<T[number], unknown> {
-  const keys = Object.keys(value);
-  return keys.length === expected.length && expected.every((key) => Object.hasOwn(value, key));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

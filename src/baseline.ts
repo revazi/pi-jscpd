@@ -1,12 +1,15 @@
+import { Cause, Context, Deferred, Effect, FiberId, Layer, MutableRef } from "effect";
 import {
   createJscpdExecutionPath,
   type JscpdCapabilityResult,
   type JscpdCapabilityService,
 } from "./capability.js";
-import { indexJscpdCloneReport, type JscpdCloneSnapshot } from "./clone-identity.js";
+import { indexJscpdCloneReportEffect, type JscpdCloneSnapshot } from "./clone-identity.js";
+import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import type { JscpdFileSystem } from "./effect/services.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReport } from "./jscpd-report.js";
-import { canonicalDirectory } from "./path-utils.js";
+import { canonicalDirectoryEffect } from "./path-utils.js";
 import { createJscpdScanArguments, JSCPD_CLONE_POSITIVE_EXIT_CODES } from "./scan.js";
 import type { JscpdReportErrorCode, JscpdScanReport } from "./types.js";
 
@@ -66,8 +69,28 @@ export interface JscpdBaselineOptions {
 interface ActiveCapture {
   readonly generation: number;
   readonly controller: AbortController;
-  readonly promise: Promise<JscpdBaselineState>;
+  readonly completion: Deferred.Deferred<JscpdBaselineState>;
 }
+
+interface BaselineOwnerState {
+  readonly generation: number;
+  readonly baseline: JscpdBaselineState;
+  readonly active?: ActiveCapture;
+}
+
+interface JscpdBaselineEffectService {
+  readonly start: (
+    context: JscpdBaselineStartContext,
+  ) => Effect.Effect<JscpdBaselineState, never, JscpdFileSystem>;
+  readonly wait: Effect.Effect<JscpdBaselineState>;
+  readonly disable: Effect.Effect<void>;
+  readonly invalidate: Effect.Effect<void>;
+  readonly current: Effect.Effect<JscpdBaselineState>;
+}
+
+export const JscpdBaseline = Context.GenericTag<JscpdBaselineEffectService>(
+  "pi-jscpd/effect/Baseline",
+);
 
 const UNSTARTED: JscpdBaselineState = Object.freeze({ status: "unstarted" });
 const PENDING: JscpdBaselineState = Object.freeze({ status: "pending" });
@@ -78,61 +101,158 @@ export function createJscpdBaselineService(
   adapterService: JscpdService,
   options: JscpdBaselineOptions = {},
 ): JscpdBaselineService {
-  let generation = 0;
-  let state: JscpdBaselineState = UNSTARTED;
-  let active: ActiveCapture | undefined;
+  return baselineServiceFor(new BaselineOwner(capabilityService, adapterService, options));
+}
 
-  const replaceState = (next: JscpdBaselineState): void => {
-    generation += 1;
-    active?.controller.abort();
-    active = undefined;
-    state = next;
-  };
+export function createJscpdBaselineLayer(
+  capabilityService: JscpdCapabilityService,
+  adapterService: JscpdService,
+  options: JscpdBaselineOptions = {},
+) {
+  return Layer.scoped(
+    JscpdBaseline,
+    Effect.acquireRelease(
+      Effect.sync(() => new BaselineOwner(capabilityService, adapterService, options)),
+      (owner) => Effect.sync(() => owner.invalidate()),
+    ).pipe(Effect.map(baselineEffectServiceFor)),
+  );
+}
 
-  return {
-    start(context) {
-      replaceState(initialState(context));
-      if (state.status !== "unstarted") return Promise.resolve(state);
+class BaselineOwner {
+  readonly #capability: JscpdCapabilityService;
+  readonly #adapter: JscpdService;
+  readonly #path: string | undefined;
+  readonly #state = MutableRef.make<BaselineOwnerState>({
+    generation: 0,
+    baseline: UNSTARTED,
+  });
 
-      state = PENDING;
-      const captureGeneration = generation;
-      const controller = new AbortController();
-      const promise = captureBaseline(
-        capabilityService,
-        adapterService,
-        context,
-        controller.signal,
-        options.path,
-      ).then(
-        (result) => settleCapture(result, captureGeneration),
-        () => settleCapture(failed("scan", "internal-error"), captureGeneration),
-      );
-      active = { generation: captureGeneration, controller, promise };
-      return promise;
-    },
-    wait() {
-      return active?.promise ?? Promise.resolve(state);
-    },
-    disable() {
-      replaceState(Object.freeze({ status: "unavailable", reason: "disabled" }));
-    },
-    invalidate() {
-      replaceState(UNSTARTED);
-    },
-    current: () => state,
-  };
-
-  function settleCapture(
-    result: JscpdBaselineState,
-    captureGeneration: number,
-  ): JscpdBaselineState {
-    if (captureGeneration !== generation || active?.generation !== captureGeneration) {
-      return Object.freeze({ status: "cancelled", stage: "lifecycle" });
-    }
-    active = undefined;
-    state = result;
-    return state;
+  constructor(
+    capability: JscpdCapabilityService,
+    adapter: JscpdService,
+    options: JscpdBaselineOptions,
+  ) {
+    this.#capability = capability;
+    this.#adapter = adapter;
+    this.#path = options.path;
   }
+
+  startEffect(
+    context: JscpdBaselineStartContext,
+  ): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem> {
+    return Effect.suspend(() => this.startPreparedEffect(context));
+  }
+
+  startPreparedEffect(
+    context: JscpdBaselineStartContext,
+  ): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem> {
+    const completion = Deferred.unsafeMake<JscpdBaselineState>(FiberId.none);
+    const started = this.#beginCapture(context, completion);
+    if (!started.active) return Effect.succeed(started.baseline);
+    const active = started.active;
+    const capture = captureBaselineEffect(
+      this.#capability,
+      this.#adapter,
+      context,
+      active.controller,
+      this.#path,
+    ).pipe(
+      Effect.catchAllCause((cause) =>
+        Cause.isInterruptedOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.succeed(failed("scan", "internal-error")),
+      ),
+      Effect.map((result) => this.#settleCapture(result, active)),
+      Effect.tap((result) => Deferred.succeed(completion, result)),
+      Effect.onInterrupt(() => Effect.sync(() => this.#interruptCapture(active))),
+    );
+    return Effect.raceFirst(capture, Deferred.await(completion));
+  }
+
+  waitEffect(): Effect.Effect<JscpdBaselineState> {
+    const state = MutableRef.get(this.#state);
+    return state.active ? Deferred.await(state.active.completion) : Effect.succeed(state.baseline);
+  }
+
+  disable(): void {
+    this.#replaceState(Object.freeze({ status: "unavailable", reason: "disabled" }));
+  }
+
+  invalidate(): void {
+    this.#replaceState(UNSTARTED);
+  }
+
+  current(): JscpdBaselineState {
+    return MutableRef.get(this.#state).baseline;
+  }
+
+  #beginCapture(
+    context: JscpdBaselineStartContext,
+    completion: Deferred.Deferred<JscpdBaselineState>,
+  ): BaselineOwnerState {
+    const baseline = initialState(context);
+    const generation = this.#replaceState(baseline);
+    if (baseline.status !== "unstarted") return MutableRef.get(this.#state);
+    const active = { generation, controller: new AbortController(), completion };
+    const started = { generation, baseline: PENDING, active };
+    MutableRef.set(this.#state, started);
+    return started;
+  }
+
+  #replaceState(baseline: JscpdBaselineState): number {
+    const current = MutableRef.get(this.#state);
+    cancelActiveCapture(current.active);
+    const generation = current.generation + 1;
+    MutableRef.set(this.#state, { generation, baseline });
+    return generation;
+  }
+
+  #interruptCapture(capture: ActiveCapture): void {
+    capture.controller.abort();
+    const result = this.#settleCapture(lifecycleCancelled(), capture);
+    Deferred.unsafeDone(capture.completion, Effect.succeed(result));
+  }
+
+  #settleCapture(result: JscpdBaselineState, capture: ActiveCapture): JscpdBaselineState {
+    const current = MutableRef.get(this.#state);
+    if (current.generation !== capture.generation || current.active !== capture) {
+      return lifecycleCancelled();
+    }
+    MutableRef.set(this.#state, { generation: current.generation, baseline: result });
+    return result;
+  }
+}
+
+function cancelActiveCapture(active: ActiveCapture | undefined): void {
+  if (!active) return;
+  active.controller.abort();
+  Deferred.unsafeDone(active.completion, Effect.succeed(lifecycleCancelled()));
+}
+
+function lifecycleCancelled(): JscpdBaselineState {
+  return Object.freeze({ status: "cancelled", stage: "lifecycle" });
+}
+
+function baselineServiceFor(owner: BaselineOwner): JscpdBaselineService {
+  const run = <A>(effect: Effect.Effect<A, never, JscpdFileSystem>) =>
+    runFileSystemEffectAtApplicationBoundary(effect);
+  return {
+    start: (context) => run(owner.startPreparedEffect(context)),
+    wait: () => run(owner.waitEffect()),
+    disable: () => owner.disable(),
+    invalidate: () => owner.invalidate(),
+    current: () => owner.current(),
+  };
+}
+
+function baselineEffectServiceFor(owner: BaselineOwner): JscpdBaselineEffectService {
+  return {
+    start: (context) => owner.startEffect(context),
+    wait: Effect.suspend(() => owner.waitEffect()),
+    disable: Effect.sync(() => owner.disable()),
+    invalidate: Effect.sync(() => owner.invalidate()),
+    current: Effect.sync(() => owner.current()),
+  };
 }
 
 function initialState(context: JscpdBaselineStartContext): JscpdBaselineState {
@@ -145,46 +265,85 @@ function initialState(context: JscpdBaselineStartContext): JscpdBaselineState {
   return UNSTARTED;
 }
 
-async function captureBaseline(
+function captureBaselineEffect(
   capabilityService: JscpdCapabilityService,
   adapterService: JscpdService,
   context: JscpdBaselineStartContext,
-  signal: AbortSignal,
+  controller: AbortController,
   path: string | undefined,
-): Promise<JscpdBaselineState> {
-  const cwd = await canonicalDirectory(context.cwd);
-  if (!cwd) return failed("project", "invalid-project");
+): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem> {
+  return Effect.gen(function* () {
+    const cwd = yield* canonicalDirectoryEffect(context.cwd).pipe(
+      Effect.catchAll(() => Effect.succeed(undefined)),
+    );
+    if (!cwd) return failed("project", "invalid-project");
 
-  const capability = await safeProbe(capabilityService, { cwd, path, signal });
-  if (capability.status !== "available") return stateFromCapability(capability);
+    const capability = yield* safeProbeEffect(capabilityService, { cwd, path }, controller);
+    if (capability.status !== "available") return stateFromCapability(capability);
 
-  let result: JscpdRunResult<JscpdScanReport>;
-  try {
-    result = await adapterService.run<JscpdScanReport>({
+    const result = yield* runBaselineAdapterEffect(
+      adapterService,
+      capability,
+      context,
+      cwd,
+      path,
+      controller,
+    );
+    return yield* stateFromRunResultEffect(result, cwd);
+  });
+}
+
+function safeProbeEffect(
+  capabilityService: JscpdCapabilityService,
+  request: Omit<Parameters<JscpdCapabilityService["probe"]>[0], "signal">,
+  controller: AbortController,
+): Effect.Effect<JscpdCapabilityResult> {
+  return abortablePromiseEffect(controller, () =>
+    capabilityService.probe({ ...request, signal: controller.signal }),
+  ).pipe(
+    Effect.catchAll(() =>
+      Effect.succeed({ status: "failed", executable: "jscpd", reason: "execution-error" } as const),
+    ),
+  );
+}
+
+function runBaselineAdapterEffect(
+  adapterService: JscpdService,
+  capability: Extract<JscpdCapabilityResult, { status: "available" }>,
+  context: JscpdBaselineStartContext,
+  cwd: string,
+  path: string | undefined,
+  controller: AbortController,
+): Effect.Effect<JscpdRunResult<JscpdScanReport>> {
+  return abortablePromiseEffect(controller, () =>
+    adapterService.run<JscpdScanReport>({
       executable: capability.executable,
       cwd,
       path: createJscpdExecutionPath(cwd, path, capability.source),
-      signal,
+      signal: controller.signal,
       timeoutMs: context.timeoutMs,
       reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
       createArguments: ({ directory }) => createJscpdScanArguments(directory, ["."]),
       consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, cwd),
-    });
-  } catch {
-    return failed("scan", "internal-error");
-  }
-  return stateFromRunResult(result, cwd);
+    }),
+  ).pipe(
+    Effect.catchAll(() => Effect.succeed({ status: "failed", reason: "internal-error" } as const)),
+  );
 }
 
-async function safeProbe(
-  capabilityService: JscpdCapabilityService,
-  request: Parameters<JscpdCapabilityService["probe"]>[0],
-): Promise<JscpdCapabilityResult> {
-  try {
-    return await capabilityService.probe(request);
-  } catch {
-    return { status: "failed", executable: "jscpd", reason: "execution-error" };
-  }
+function abortablePromiseEffect<A>(
+  controller: AbortController,
+  evaluate: () => Promise<A>,
+): Effect.Effect<A, unknown> {
+  return Effect.tryPromise({
+    try: (signal) => {
+      const cancel = () => controller.abort();
+      signal.addEventListener("abort", cancel, { once: true });
+      if (signal.aborted) cancel();
+      return evaluate().finally(() => signal.removeEventListener("abort", cancel));
+    },
+    catch: (error) => error,
+  });
 }
 
 function stateFromCapability(
@@ -208,35 +367,40 @@ function stateFromCapability(
   }
 }
 
-async function stateFromRunResult(
+function stateFromRunResultEffect(
   result: JscpdRunResult<JscpdScanReport>,
   cwd: string,
-): Promise<JscpdBaselineState> {
+): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem> {
   switch (result.status) {
     case "report":
-      return accepted("findings", result.value, cwd);
+      return acceptedEffect("findings", result.value, cwd);
     case "no-findings":
-      return result.value ? accepted("clean", result.value, cwd) : failed("scan", "invalid-report");
+      return result.value
+        ? acceptedEffect("clean", result.value, cwd)
+        : Effect.succeed(failed("scan", "invalid-report"));
     case "no-report":
-      return failed("scan", "missing-report");
+      return Effect.succeed(failed("scan", "missing-report"));
     case "cancelled":
-      return Object.freeze({ status: "cancelled", stage: "scan" });
+      return Effect.succeed(Object.freeze({ status: "cancelled", stage: "scan" }));
     case "invalidated":
-      return Object.freeze({ status: "cancelled", stage: "lifecycle" });
+      return Effect.succeed(lifecycleCancelled());
     case "timed-out":
-      return Object.freeze({ status: "timed-out", stage: "scan", timeoutMs: result.timeoutMs });
+      return Effect.succeed(
+        Object.freeze({ status: "timed-out", stage: "scan", timeoutMs: result.timeoutMs }),
+      );
     case "failed":
-      return failedFromRun(result.reason, result.reportError);
+      return Effect.succeed(failedFromRun(result.reason, result.reportError));
   }
 }
 
-async function accepted(
+function acceptedEffect(
   outcome: "clean" | "findings",
   report: JscpdScanReport,
   cwd: string,
-): Promise<JscpdBaselineState> {
-  const snapshot = await indexJscpdCloneReport(report, cwd);
-  return Object.freeze({ status: "accepted", outcome, report, snapshot });
+): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem> {
+  return indexJscpdCloneReportEffect(report, cwd).pipe(
+    Effect.map((snapshot) => Object.freeze({ status: "accepted", outcome, report, snapshot })),
+  );
 }
 
 function failedFromRun(

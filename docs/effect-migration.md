@@ -208,10 +208,17 @@ Step 4 can now proceed because Steps 2 and 3 are complete.
 
 ### Step 4 — Stateful domain services ([#67](https://github.com/revazi/pi-jscpd/issues/67))
 
-Migrate baseline state, changed-file attribution, acknowledgements, verification,
-and session snapshots. Replace lifecycle-bound mutable closures/classes with
-scoped services or state primitives where concurrency requires them. Preserve
-state versions and migration behavior.
+Implemented on the unreleased branch: Effect service layers now own baseline
+generations/deferred completion, changed-file project generations,
+acknowledgement revisions, and verification checkpoints. Immutable domain values
+and pure comparisons remain plain TypeScript. Versioned session snapshot parsing
+and migration stay deterministic, while persistence has a typed `JscpdPiPort`
+program. See [Effect-owned domain state](effect-domain-state.md).
+
+Temporary Promise-compatible facades delegate to the same Effect state owners;
+the superseded mutable closures and Promise-held baseline completion path are
+removed. State versions, capacity limits, stale completion, partial restoration,
+branch reset, and verification behavior remain unchanged.
 
 ### Step 5 — Scheduler and automatic checks ([#68](https://github.com/revazi/pi-jscpd/issues/68))
 

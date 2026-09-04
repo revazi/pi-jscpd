@@ -67,7 +67,9 @@ so jscpd remains this project's single duplication authority.
   layers with the conversion, and interruption/finalizer tests for resources.
   Filesystem changes must preserve trust gating, canonical containment,
   no-follow opens, exact byte bounds, atomic decode rejection, and body-free
-  diagnostics.
+  diagnostics. Stateful domain changes must use one owner per layer/facade,
+  preserve immutable snapshots and generation/revision checks, and test stale
+  completion plus competing updates.
 - Remove the superseded internal Promise path in the same slice; temporary
   adapters are allowed only at documented outer boundaries.
 - Do not combine a migration slice with unrelated public behavior changes.

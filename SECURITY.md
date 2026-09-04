@@ -70,7 +70,9 @@ to publish data. Security fixes must preserve those boundaries.
 The release-blocking [Effect migration](docs/effect-migration.md) must preserve
 and strengthen resource ownership. Child-process, temporary-report, and bounded
 filesystem resources now use typed Effect services and scoped file/process
-ownership. Trusted configuration, report paths, clone source ranges, and Fallow
+ownership. Baseline, changed-file, acknowledgement, verification, and session
+snapshot state now use generation/revision-checked Effect owners with bounded
+values. Trusted configuration, report paths, clone source ranges, and Fallow
 signals retain no-follow, containment, and byte-limit checks. The remaining
 slices must converge on one managed runtime/root scope with no unmanaged fibers,
 timers, or listeners. Migration must not turn defects or sensitive exception

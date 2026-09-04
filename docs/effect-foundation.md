@@ -4,9 +4,10 @@ Issue [#64](https://github.com/revazi/pi-jscpd/issues/64) establishes the first,
 behavior-preserving Effect migration slice. It declares contracts and test support
 only. M7.2 builds on these contracts for process and analyzer resources, and
 M7.3 provides the bounded filesystem layer used by configuration and external
-data boundaries. Domain, scheduler, application, Pi, and TUI workflows retain
-their characterized pre-migration paths. The single managed extension runtime
-still waits for M7.7.
+data boundaries, and M7.4 moves lifecycle-bound domain state to Effect-owned
+services. Scheduler, application, Pi, and TUI workflows retain their
+characterized pre-migration paths. The single managed extension runtime still
+waits for M7.7.
 
 ## Reviewed dependency
 
@@ -39,8 +40,10 @@ The interfaces return effects with expected typed failures. M7.2 provides the
 live process implementation and M7.3 provides `JscpdFileSystemLive`; clock and Pi
 ports remain declarative until their owning slices. Deterministic layer factories
 live only under `test/support/effect-layers.ts`; tests can inspect requests,
-files, time, and Pi writes without patching globals. See the
-[filesystem and decoding boundary](effect-filesystem.md).
+files, time, and Pi writes without patching globals. M7.4 adds domain tags beside
+their owning modules so pure domain contracts remain local. See the
+[filesystem and decoding boundary](effect-filesystem.md) and
+[Effect-owned domain state](effect-domain-state.md).
 
 ## Stable expected-error taxonomy
 

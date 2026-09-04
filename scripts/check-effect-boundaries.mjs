@@ -14,6 +14,7 @@ export const APPROVED_EFFECT_RUNTIME_BOUNDARIES = Object.freeze([
 ]);
 
 export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
+  "src/changed-files.ts",
   "src/clone-identity.ts",
   "src/config.ts",
   "src/effect/filesystem.ts",

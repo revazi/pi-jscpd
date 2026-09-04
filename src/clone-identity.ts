@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, join } from "node:path";
-import { Cause, Effect, Exit } from "effect";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { Effect } from "effect";
+import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
 import type { JscpdCloneOccurrence, JscpdClonePair, JscpdScanReport } from "./types.js";
@@ -65,11 +64,7 @@ export async function indexJscpdCloneReport(
   report: JscpdScanReport,
   cwd: string,
 ): Promise<JscpdCloneSnapshot> {
-  const exit = await runEffectExitAtApplicationBoundary(
-    indexJscpdCloneReportEffect(report, cwd).pipe(Effect.provide(JscpdFileSystemLive)),
-  );
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
+  return runFileSystemEffectAtApplicationBoundary(indexJscpdCloneReportEffect(report, cwd));
 }
 
 export function indexJscpdCloneReportEffect(

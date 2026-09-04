@@ -1,7 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import { Cause, Data, Effect, Exit } from "effect";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { Data, Effect } from "effect";
+import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import {
   canonicalDirectoryEffect,
@@ -111,11 +110,7 @@ export async function consumeJscpdV5JsonReport(
   bytes: Uint8Array,
   cwd: string,
 ): Promise<JscpdReportDecision<JscpdScanReport>> {
-  const exit = await runEffectExitAtApplicationBoundary(
-    consumeJscpdV5JsonReportEffect(bytes, cwd).pipe(Effect.provide(JscpdFileSystemLive)),
-  );
-  if (Exit.isSuccess(exit)) return exit.value;
-  throw Cause.squash(exit.cause);
+  return runFileSystemEffectAtApplicationBoundary(consumeJscpdV5JsonReportEffect(bytes, cwd));
 }
 
 export function consumeJscpdV5JsonReportEffect(
