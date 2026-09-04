@@ -23,6 +23,9 @@ until publication is approved.
 - A shared live bounded-filesystem layer for trusted configuration, canonical
   path validation, report normalization, exact clone-source ranges, and supported
   Fallow signal reads, with typed failures and deterministic test layers.
+- Effect-owned baseline generations, changed-file attribution, acknowledgement
+  transactions, verification checkpoints, and typed branch-snapshot persistence,
+  with immutable values and lifecycle-scoped state owners.
 - Strict normalized jscpd JSON report validation and scope-safe explicit scans.
 - Trusted extension configuration, session controls, branch-local state, and
   changed-file attribution.

@@ -1,7 +1,9 @@
-import { realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { Context, Effect, Layer, MutableRef } from "effect";
+import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { JscpdFileSystem } from "./effect/services.js";
 import { compareText, hasControlCharacters, isPathInside } from "./path-utils.js";
 
 export const MAX_CHANGED_FILES = 1_000;
@@ -39,54 +41,153 @@ interface TrackerSnapshot {
   readonly roots: ProjectRoots;
 }
 
+interface ChangedFileState {
+  readonly generation: number;
+  readonly roots?: ProjectRoots;
+  readonly files: ReadonlySet<string>;
+}
+
+interface JscpdChangedFilesEffectService {
+  readonly start: (
+    cwd: string,
+    restored?: readonly string[],
+  ) => Effect.Effect<void, never, JscpdFileSystem>;
+  readonly reset: Effect.Effect<void>;
+  readonly recordToolResult: (
+    event: JscpdMutationToolResult,
+    cwd: string,
+  ) => Effect.Effect<boolean, never, JscpdFileSystem>;
+  readonly recordToolResultPath: (
+    event: JscpdMutationToolResult,
+    cwd: string,
+  ) => Effect.Effect<string | undefined, never, JscpdFileSystem>;
+  readonly files: Effect.Effect<readonly string[]>;
+}
+
+export const JscpdChangedFiles = Context.GenericTag<JscpdChangedFilesEffectService>(
+  "pi-jscpd/effect/ChangedFiles",
+);
+
 /**
  * Track a bounded, append-only set of files attributed to successful built-in edit/write results.
  * Tool provenance must be verified by the caller; arbitrary result text and shell output are ignored.
  */
 export function createJscpdChangedFileTracker(): JscpdChangedFileTracker {
-  let generation = 0;
-  let roots: ProjectRoots | undefined;
-  let changedFiles = new Set<string>();
+  return changedFileTrackerFor(new ChangedFileOwner());
+}
 
-  const recordToolMutation = async (event: JscpdMutationToolResult, cwd: string) => {
-    const expectedGeneration = generation;
-    const expectedRoots = roots;
-    return recordMutation(
-      event,
-      cwd,
-      expectedGeneration,
-      expectedRoots,
-      changedFiles,
-      () => generation === expectedGeneration && roots === expectedRoots,
+export function createJscpdChangedFilesLayer() {
+  const owner = new ChangedFileOwner();
+  return Layer.succeed(JscpdChangedFiles, changedFilesEffectServiceFor(owner));
+}
+
+class ChangedFileOwner {
+  readonly #state = MutableRef.make<ChangedFileState>({ generation: 0, files: new Set<string>() });
+
+  startEffect(
+    cwd: string,
+    restored: readonly string[] = [],
+  ): Effect.Effect<void, never, JscpdFileSystem> {
+    return Effect.suspend(() => this.startPreparedEffect(cwd, restored));
+  }
+
+  startPreparedEffect(
+    cwd: string,
+    restored: readonly string[] = [],
+  ): Effect.Effect<void, never, JscpdFileSystem> {
+    const generation = this.#beginStart(restored);
+    return resolveProjectRootsEffect(cwd).pipe(
+      Effect.tap((roots) =>
+        Effect.sync(() => {
+          const current = MutableRef.get(this.#state);
+          if (current.generation === generation && roots) {
+            MutableRef.set(this.#state, { ...current, roots });
+          }
+        }),
+      ),
+      Effect.asVoid,
     );
-  };
+  }
 
+  reset(): void {
+    const current = MutableRef.get(this.#state);
+    MutableRef.set(this.#state, {
+      generation: current.generation + 1,
+      files: new Set<string>(),
+    });
+  }
+
+  recordEffect(
+    event: JscpdMutationToolResult,
+    cwd: string,
+  ): Effect.Effect<
+    { readonly path: string; readonly added: boolean } | undefined,
+    never,
+    JscpdFileSystem
+  > {
+    const state = MutableRef.get(this.#state);
+    const rawPath = successfulMutationPath(event);
+    const snapshot = activeTrackerSnapshot(state.generation, state.roots);
+    if (!rawPath || !snapshot) return Effect.succeed(undefined);
+    return canonicalChangedFileEffect(rawPath, cwd, snapshot.roots).pipe(
+      Effect.map((projectPath) => this.#commitMutation(snapshot, projectPath)),
+    );
+  }
+
+  files(): readonly string[] {
+    return Object.freeze([...MutableRef.get(this.#state).files].sort(compareText));
+  }
+
+  #beginStart(restored: readonly string[]): number {
+    const current = MutableRef.get(this.#state);
+    const generation = current.generation + 1;
+    MutableRef.set(this.#state, {
+      generation,
+      files: new Set(restored.slice(0, MAX_CHANGED_FILES).filter(isSafeChangedFilePath)),
+    });
+    return generation;
+  }
+
+  #commitMutation(
+    snapshot: TrackerSnapshot,
+    projectPath: string | undefined,
+  ): { readonly path: string; readonly added: boolean } | undefined {
+    const current = MutableRef.get(this.#state);
+    if (!projectPath || !isCurrentTrackerSnapshot(snapshot, current.generation, current.roots)) {
+      return undefined;
+    }
+    const alreadyTracked = current.files.has(projectPath);
+    const hasCapacity = alreadyTracked || current.files.size < MAX_CHANGED_FILES;
+    if (!alreadyTracked && hasCapacity) {
+      MutableRef.set(this.#state, { ...current, files: new Set([...current.files, projectPath]) });
+    }
+    return Object.freeze({ path: projectPath, added: !alreadyTracked && hasCapacity });
+  }
+}
+
+function changedFileTrackerFor(owner: ChangedFileOwner): JscpdChangedFileTracker {
+  const run = <A>(effect: Effect.Effect<A, never, JscpdFileSystem>) =>
+    runFileSystemEffectAtApplicationBoundary(effect);
   return {
-    async start(cwd, restored = []) {
-      generation += 1;
-      const currentGeneration = generation;
-      roots = undefined;
-      changedFiles = new Set(restored.slice(0, MAX_CHANGED_FILES).filter(isSafeChangedFilePath));
+    start: (cwd, restored) => run(owner.startPreparedEffect(cwd, restored)),
+    reset: () => owner.reset(),
+    recordToolResult: (event, cwd) =>
+      run(owner.recordEffect(event, cwd)).then((result) => result?.added ?? false),
+    recordToolResultPath: (event, cwd) =>
+      run(owner.recordEffect(event, cwd)).then((result) => result?.path),
+    files: () => owner.files(),
+  };
+}
 
-      const projectRoots = await resolveProjectRoots(cwd);
-      if (generation !== currentGeneration || !projectRoots) return;
-
-      roots = projectRoots;
-    },
-    reset() {
-      generation += 1;
-      roots = undefined;
-      changedFiles = new Set();
-    },
-    async recordToolResult(event, cwd) {
-      return (await recordToolMutation(event, cwd))?.added ?? false;
-    },
-    async recordToolResultPath(event, cwd) {
-      return (await recordToolMutation(event, cwd))?.path;
-    },
-    files() {
-      return Object.freeze([...changedFiles].sort(compareText));
-    },
+function changedFilesEffectServiceFor(owner: ChangedFileOwner): JscpdChangedFilesEffectService {
+  return {
+    start: (cwd, restored) => owner.startEffect(cwd, restored),
+    reset: Effect.sync(() => owner.reset()),
+    recordToolResult: (event, cwd) =>
+      owner.recordEffect(event, cwd).pipe(Effect.map((result) => result?.added ?? false)),
+    recordToolResultPath: (event, cwd) =>
+      owner.recordEffect(event, cwd).pipe(Effect.map((result) => result?.path)),
+    files: Effect.sync(() => owner.files()),
   };
 }
 
@@ -106,33 +207,40 @@ export function isSafeChangedFilePath(value: unknown): value is string {
   return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
-async function resolveProjectRoots(cwd: string): Promise<ProjectRoots | undefined> {
-  if (!isSafeRawPath(cwd) || !isAbsolute(cwd)) return undefined;
-  try {
-    const lexical = resolve(cwd);
-    const canonical = await realpath(lexical);
-    const metadata = await stat(canonical);
-    if (!metadata.isDirectory() || !isAbsolute(canonical) || !isSafeRawPath(canonical)) {
-      return undefined;
-    }
-    return Object.freeze({ lexical, canonical });
-  } catch {
-    return undefined;
-  }
+function resolveProjectRootsEffect(
+  cwd: string,
+): Effect.Effect<ProjectRoots | undefined, never, JscpdFileSystem> {
+  if (!isSafeRawPath(cwd) || !isAbsolute(cwd)) return Effect.succeed(undefined);
+  const lexical = resolve(cwd);
+  return Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    Effect.flatMap(filesystem.canonicalize(lexical), (canonical) =>
+      Effect.map(filesystem.metadata(canonical), (metadata) => ({ canonical, metadata })),
+    ),
+  ).pipe(
+    Effect.match({
+      onFailure: () => undefined,
+      onSuccess: ({ canonical, metadata }) =>
+        metadata.kind === "directory" && isAbsolute(canonical) && isSafeRawPath(canonical)
+          ? Object.freeze({ lexical, canonical })
+          : undefined,
+    }),
+  );
 }
 
-async function canonicalChangedFile(
+function canonicalChangedFileEffect(
   rawPath: string,
   cwd: string,
   roots: ProjectRoots,
-): Promise<string | undefined> {
+): Effect.Effect<string | undefined, never, JscpdFileSystem> {
   const candidate = lexicalChangedFileCandidate(rawPath, cwd, roots);
-  if (!candidate) return undefined;
-
-  const canonical = await canonicalRegularFile(candidate);
-  if (!canonical || !isPathInside(roots.canonical, canonical)) return undefined;
-
-  return portableProjectPath(roots.canonical, canonical);
+  if (!candidate) return Effect.succeed(undefined);
+  return canonicalRegularFileEffect(candidate).pipe(
+    Effect.map((canonical) =>
+      canonical && isPathInside(roots.canonical, canonical)
+        ? portableProjectPath(roots.canonical, canonical)
+        : undefined,
+    ),
+  );
 }
 
 function lexicalChangedFileCandidate(
@@ -172,13 +280,16 @@ function isInsideEitherProjectRoot(
   return isPathInside(lexicalRoot, candidate) || isPathInside(canonicalRoot, candidate);
 }
 
-async function canonicalRegularFile(candidate: string): Promise<string | undefined> {
-  try {
-    const canonical = await realpath(candidate);
-    return (await stat(canonical)).isFile() ? canonical : undefined;
-  } catch {
-    return undefined;
-  }
+function canonicalRegularFileEffect(
+  candidate: string,
+): Effect.Effect<string | undefined, never, JscpdFileSystem> {
+  return Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    Effect.flatMap(filesystem.canonicalize(candidate), (canonical) =>
+      Effect.map(filesystem.metadata(canonical), (metadata) =>
+        metadata.kind === "file" ? canonical : undefined,
+      ),
+    ),
+  ).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 }
 
 function portableProjectPath(projectRoot: string, canonical: string): string | undefined {
@@ -235,27 +346,6 @@ function isCurrentTrackerSnapshot(
   roots: ProjectRoots | undefined,
 ): boolean {
   return snapshot.generation === generation && snapshot.roots === roots;
-}
-
-async function recordMutation(
-  event: JscpdMutationToolResult,
-  cwd: string,
-  generation: number,
-  roots: ProjectRoots | undefined,
-  changedFiles: Set<string>,
-  isCurrent: () => boolean,
-): Promise<{ readonly path: string; readonly added: boolean } | undefined> {
-  const rawPath = successfulMutationPath(event);
-  const snapshot = activeTrackerSnapshot(generation, roots);
-  if (!rawPath || !snapshot) return undefined;
-  const projectPath = await canonicalChangedFile(rawPath, cwd, snapshot.roots);
-  if (!projectPath || !isCurrent() || !isCurrentTrackerSnapshot(snapshot, generation, roots)) {
-    return undefined;
-  }
-  const alreadyTracked = changedFiles.has(projectPath);
-  const hasCapacity = alreadyTracked || changedFiles.size < MAX_CHANGED_FILES;
-  if (!alreadyTracked && hasCapacity) changedFiles.add(projectPath);
-  return Object.freeze({ path: projectPath, added: !alreadyTracked && hasCapacity });
 }
 
 function isSafeRawPath(value: unknown): value is string {

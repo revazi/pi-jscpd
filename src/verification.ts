@@ -1,3 +1,4 @@
+import { Context, Effect, Layer, MutableRef } from "effect";
 import { compareJscpdCloneSnapshots, type JscpdCloneSnapshot } from "./clone-identity.js";
 import type { JscpdChangedResult, JscpdCompletedResult, JscpdVerificationResult } from "./types.js";
 
@@ -19,33 +20,97 @@ interface VerificationCheckpoint {
   readonly snapshot: JscpdCloneSnapshot;
 }
 
+interface VerificationState {
+  readonly scope: number;
+  readonly checkpoints: ReadonlyMap<JscpdVerificationKind, VerificationCheckpoint>;
+}
+
+interface JscpdVerificationEffectService {
+  readonly compareAndRemember: (
+    kind: JscpdVerificationKind,
+    scopeKey: string,
+    snapshot: JscpdCloneSnapshot,
+    expectedScope?: number,
+  ) => Effect.Effect<JscpdVerificationResult>;
+  readonly scope: Effect.Effect<number>;
+  readonly reset: Effect.Effect<void>;
+}
+
+export const JscpdVerification = Context.GenericTag<JscpdVerificationEffectService>(
+  "pi-jscpd/effect/Verification",
+);
+
 /** Keep one ephemeral pre-refactor checkpoint for each explicit scan kind. */
 export function createJscpdVerificationService(): JscpdVerificationService {
-  const checkpoints = new Map<JscpdVerificationKind, VerificationCheckpoint>();
-  let scope = 0;
+  return verificationServiceFor(new VerificationOwner());
+}
+
+export function createJscpdVerificationLayer() {
+  const owner = new VerificationOwner();
+  return Layer.succeed(JscpdVerification, verificationEffectServiceFor(owner));
+}
+
+class VerificationOwner {
+  readonly #state = MutableRef.make<VerificationState>({ scope: 0, checkpoints: new Map() });
+
+  compareAndRemember(
+    kind: JscpdVerificationKind,
+    scopeKey: string,
+    snapshot: JscpdCloneSnapshot,
+    expectedScope = this.scope(),
+  ): JscpdVerificationResult {
+    const state = MutableRef.get(this.#state);
+    if (state.scope !== expectedScope) return staleVerification(kind);
+    if (snapshot.status !== "accepted") return unavailableVerification(kind);
+    const previous = state.checkpoints.get(kind);
+    const checkpoints = new Map(state.checkpoints);
+    checkpoints.set(kind, Object.freeze({ scopeKey, snapshot }));
+    MutableRef.set(this.#state, { ...state, checkpoints });
+    return previous?.scopeKey === scopeKey
+      ? compareVerificationSnapshots(kind, previous.snapshot, snapshot)
+      : checkpointVerification(kind, snapshot.groups.length);
+  }
+
+  scope(): number {
+    return MutableRef.get(this.#state).scope;
+  }
+
+  reset(): void {
+    const state = MutableRef.get(this.#state);
+    MutableRef.set(this.#state, { scope: state.scope + 1, checkpoints: new Map() });
+  }
+}
+
+function compareVerificationSnapshots(
+  kind: JscpdVerificationKind,
+  previous: JscpdCloneSnapshot,
+  snapshot: JscpdCloneSnapshot,
+): JscpdVerificationResult {
+  const comparison = compareJscpdCloneSnapshots(previous, snapshot);
+  return comparedVerification(
+    kind,
+    comparison.removed.length,
+    comparison.existing.length,
+    comparison.new.length,
+    comparison.ambiguous.length,
+  );
+}
+
+function verificationServiceFor(owner: VerificationOwner): JscpdVerificationService {
   return {
-    compareAndRemember(kind, scopeKey, snapshot, expectedScope = scope) {
-      if (scope !== expectedScope) return staleVerification(kind);
-      if (snapshot.status !== "accepted") return unavailableVerification(kind);
-      const previous = checkpoints.get(kind);
-      checkpoints.set(kind, Object.freeze({ scopeKey, snapshot }));
-      if (!previous || previous.scopeKey !== scopeKey) {
-        return checkpointVerification(kind, snapshot.groups.length);
-      }
-      const comparison = compareJscpdCloneSnapshots(previous.snapshot, snapshot);
-      return comparedVerification(
-        kind,
-        comparison.removed.length,
-        comparison.existing.length,
-        comparison.new.length,
-        comparison.ambiguous.length,
-      );
-    },
-    scope: () => scope,
-    reset() {
-      scope += 1;
-      checkpoints.clear();
-    },
+    compareAndRemember: (kind, scopeKey, snapshot, expectedScope) =>
+      owner.compareAndRemember(kind, scopeKey, snapshot, expectedScope),
+    scope: () => owner.scope(),
+    reset: () => owner.reset(),
+  };
+}
+
+function verificationEffectServiceFor(owner: VerificationOwner): JscpdVerificationEffectService {
+  return {
+    compareAndRemember: (kind, scopeKey, snapshot, expectedScope) =>
+      Effect.sync(() => owner.compareAndRemember(kind, scopeKey, snapshot, expectedScope)),
+    scope: Effect.sync(() => owner.scope()),
+    reset: Effect.sync(() => owner.reset()),
   };
 }
 

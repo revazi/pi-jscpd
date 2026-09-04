@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import {
   emptyJscpdAcknowledgements,
   type JscpdAcknowledgementTracker,
@@ -10,8 +11,10 @@ import {
   type JscpdChangedFileTracker,
   MAX_CHANGED_FILES,
 } from "./changed-files.js";
+import { JscpdPiPort } from "./effect/services.js";
 import type { JscpdSessionModeService, JscpdStatusService } from "./status.js";
 import type { JscpdLastCheck, JscpdScanFailureReason, JscpdUnavailableReason } from "./types.js";
+import { hasExactKeys, isRecord } from "./value-utils.js";
 
 export const JSCPD_SESSION_STATE_TYPE = "pi-jscpd/session-state";
 export const JSCPD_SESSION_STATE_VERSION = 3;
@@ -64,6 +67,13 @@ export function snapshotJscpdSessionState(
     changedFiles: Object.freeze([...changedFiles.files()]),
     acknowledgements: snapshotJscpdAcknowledgements(acknowledgements),
   });
+}
+
+/** Persist one already-bounded snapshot through the injected branch-local Pi port. */
+export function persistJscpdSessionStateEffect(state: JscpdPersistedSessionState) {
+  return Effect.flatMap(JscpdPiPort, (pi) =>
+    pi.appendSessionEntry(JSCPD_SESSION_STATE_TYPE, state),
+  );
 }
 
 /**
@@ -216,17 +226,4 @@ function isFailureReason(value: unknown): value is JscpdScanFailureReason | Jscp
     SCAN_FAILURE_REASONS.has(value as JscpdScanFailureReason) ||
     UNAVAILABLE_REASONS.has(value as JscpdUnavailableReason)
   );
-}
-
-function hasExactKeys<T extends readonly string[]>(
-  value: unknown,
-  expected: T,
-): value is Record<T[number], unknown> {
-  if (!isRecord(value)) return false;
-  const keys = Object.keys(value);
-  return keys.length === expected.length && expected.every((key) => Object.hasOwn(value, key));
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

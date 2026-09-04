@@ -1,8 +1,7 @@
 import { isAbsolute, join, relative } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
-import { Cause, Context, Data, Effect, Exit, Layer } from "effect";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { Context, Data, Effect, Layer } from "effect";
+import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect } from "./path-utils.js";
 
@@ -99,12 +98,7 @@ const SOURCE_FILES: readonly [ConfigFileSource, string][] = [
 export function createJscpdConfigService(): JscpdConfigService {
   const owner = new DefaultJscpdConfigService();
   return {
-    async load(context) {
-      const program = owner.loadEffect(context).pipe(Effect.provide(JscpdFileSystemLive));
-      const exit = await runEffectExitAtApplicationBoundary(program);
-      if (Exit.isSuccess(exit)) return exit.value;
-      throw Cause.squash(exit.cause);
-    },
+    load: (context) => runFileSystemEffectAtApplicationBoundary(owner.loadEffect(context)),
     current: () => owner.currentValue(),
   };
 }
