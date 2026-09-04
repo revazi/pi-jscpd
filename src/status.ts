@@ -1,8 +1,13 @@
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
+import { Context, Effect, Layer, MutableRef } from "effect";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService, JscpdConfigSource } from "./config.js";
+import { runEffectPromiseAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import type { JscpdProcess } from "./effect/services.js";
 import type { JscpdFallowCoexistenceService } from "./fallow.js";
+import { JscpdProcessLive } from "./process.js";
 import { renderJscpdCommandHelp } from "./registry.js";
+import { capabilityProbeEffect } from "./scan.js";
 import type {
   JscpdCommandExecutor,
   JscpdExecutionContext,
@@ -13,9 +18,14 @@ import type {
 
 export interface JscpdStatusService {
   inspect(context: JscpdExecutionContext): Promise<JscpdStatusResult>;
-  record(result: JscpdExecutionResult): void;
+  inspectEffect?: (context: JscpdExecutionContext) => Effect.Effect<JscpdStatusResult>;
+  record(result: JscpdExecutionResult, expectedScope?: number): void;
+  recordEffect?: (result: JscpdExecutionResult, expectedScope?: number) => Effect.Effect<void>;
   restore(lastCheck?: JscpdLastCheck): void;
   lastCheck(): JscpdLastCheck;
+  /** Lifecycle generation used to reject results from a superseded branch. */
+  scope?(): number;
+  readonly scopeEffect?: Effect.Effect<number>;
 }
 
 export interface JscpdSessionModeService {
@@ -27,29 +37,107 @@ export interface JscpdSessionModeService {
   disable(): void;
 }
 
+interface SessionModeState {
+  readonly enabled: boolean;
+  readonly source: "configuration" | "session";
+  readonly modeOverride: "enabled" | "disabled" | null;
+}
+
+interface JscpdSessionModeEffectService {
+  readonly isEnabled: Effect.Effect<boolean>;
+  readonly source: Effect.Effect<"configuration" | "session">;
+  readonly override: Effect.Effect<"enabled" | "disabled" | null>;
+  readonly restore: (
+    configuredEnabled: boolean,
+    override?: "enabled" | "disabled" | null,
+  ) => Effect.Effect<void>;
+  readonly enable: Effect.Effect<void>;
+  readonly disable: Effect.Effect<void>;
+}
+
+export const JscpdSessionMode = Context.GenericTag<JscpdSessionModeEffectService>(
+  "pi-jscpd/effect/SessionMode",
+);
+
+interface JscpdStatusWorkflowService {
+  readonly inspect: (
+    context: JscpdExecutionContext,
+  ) => Effect.Effect<JscpdStatusResult, never, JscpdProcess>;
+  readonly record: (result: JscpdExecutionResult, expectedScope?: number) => Effect.Effect<void>;
+  readonly restore: (lastCheck?: JscpdLastCheck) => Effect.Effect<void>;
+  readonly lastCheck: Effect.Effect<JscpdLastCheck>;
+  readonly scope: Effect.Effect<number>;
+}
+
+export const JscpdStatusWorkflow = Context.GenericTag<JscpdStatusWorkflowService>(
+  "pi-jscpd/effect/StatusWorkflow",
+);
+
 export function createJscpdSessionModeService(): JscpdSessionModeService {
-  let enabled = true;
-  let source: "configuration" | "session" = "configuration";
-  let modeOverride: "enabled" | "disabled" | null = null;
+  return sessionModeServiceFor(new SessionModeOwner());
+}
+
+export function createJscpdSessionModeLayer(
+  service: JscpdSessionModeService = createJscpdSessionModeService(),
+) {
+  return Layer.succeed(JscpdSessionMode, {
+    isEnabled: Effect.sync(() => service.isEnabled()),
+    source: Effect.sync(() => service.source()),
+    override: Effect.sync(() => service.override()),
+    restore: (configuredEnabled, override) =>
+      Effect.sync(() => service.restore(configuredEnabled, override)),
+    enable: Effect.sync(() => service.enable()),
+    disable: Effect.sync(() => service.disable()),
+  });
+}
+
+class SessionModeOwner {
+  readonly #state = MutableRef.make<SessionModeState>({
+    enabled: true,
+    source: "configuration",
+    modeOverride: null,
+  });
+
+  isEnabled(): boolean {
+    return MutableRef.get(this.#state).enabled;
+  }
+
+  source(): "configuration" | "session" {
+    return MutableRef.get(this.#state).source;
+  }
+
+  override(): "enabled" | "disabled" | null {
+    return MutableRef.get(this.#state).modeOverride;
+  }
+
+  restore(
+    configuredEnabled: boolean,
+    restoredOverride: "enabled" | "disabled" | null = null,
+  ): void {
+    MutableRef.set(this.#state, {
+      modeOverride: restoredOverride,
+      enabled: restoredOverride === null ? configuredEnabled : restoredOverride === "enabled",
+      source: restoredOverride === null ? "configuration" : "session",
+    });
+  }
+
+  enable(): void {
+    MutableRef.set(this.#state, { enabled: true, source: "session", modeOverride: "enabled" });
+  }
+
+  disable(): void {
+    MutableRef.set(this.#state, { enabled: false, source: "session", modeOverride: "disabled" });
+  }
+}
+
+function sessionModeServiceFor(owner: SessionModeOwner): JscpdSessionModeService {
   return {
-    isEnabled: () => enabled,
-    source: () => source,
-    override: () => modeOverride,
-    restore(configuredEnabled, restoredOverride = null) {
-      modeOverride = restoredOverride;
-      enabled = restoredOverride === null ? configuredEnabled : restoredOverride === "enabled";
-      source = restoredOverride === null ? "configuration" : "session";
-    },
-    enable() {
-      enabled = true;
-      source = "session";
-      modeOverride = "enabled";
-    },
-    disable() {
-      enabled = false;
-      source = "session";
-      modeOverride = "disabled";
-    },
+    isEnabled: () => owner.isEnabled(),
+    source: () => owner.source(),
+    override: () => owner.override(),
+    restore: (configuredEnabled, override) => owner.restore(configuredEnabled, override),
+    enable: () => owner.enable(),
+    disable: () => owner.disable(),
   };
 }
 
@@ -61,41 +149,23 @@ export function createJscpdStatusAwareExecutor(
   stateChanged: () => void = () => {},
   changedExecutor: JscpdCommandExecutor = scanExecutor,
 ): JscpdCommandExecutor {
+  const executeEffect = (
+    invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
+    context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  ) =>
+    statusAwareExecutionEffect(
+      invocation,
+      context,
+      scanExecutor,
+      changedExecutor,
+      statusService,
+      sessionMode,
+      stateChanged,
+    );
   return {
-    async execute(invocation, context) {
-      switch (invocation.command) {
-        case "status":
-          return statusService.inspect(context);
-        case "off":
-          sessionMode.disable();
-          stateChanged();
-          return controlResult(
-            "disabled",
-            "jscpd behavior is disabled for this session. Run /jscpd on to re-enable it.",
-          );
-        case "on":
-          sessionMode.enable();
-          stateChanged();
-          return controlResult(
-            "enabled",
-            "jscpd behavior is enabled for this session. Project configuration was not changed.",
-          );
-        case "help":
-          return helpResult();
-        case "scan": {
-          const result = await scanExecutor.execute(invocation, context);
-          statusService.record(result);
-          stateChanged();
-          return result;
-        }
-        case "changed": {
-          const result = await changedExecutor.execute(invocation, context);
-          statusService.record(result);
-          stateChanged();
-          return result;
-        }
-      }
-    },
+    execute: (invocation, context) =>
+      runEffectPromiseAtApplicationBoundary(executeEffect(invocation, context)),
+    executeEffect,
   };
 }
 
@@ -105,30 +175,238 @@ export function createJscpdStatusService(
   sessionMode: JscpdSessionModeService,
   fallowCoexistence?: JscpdFallowCoexistenceService,
 ): JscpdStatusService {
-  let lastCheck: JscpdLastCheck = Object.freeze({ state: "never" });
+  const owner = new StatusOwner(capabilityService, configService, sessionMode, fallowCoexistence);
+  return statusServiceFor(owner);
+}
+
+export function createJscpdStatusWorkflowLayer(
+  capabilityService: JscpdCapabilityService,
+  configService: JscpdConfigService,
+  sessionMode: JscpdSessionModeService,
+  fallowCoexistence?: JscpdFallowCoexistenceService,
+) {
+  const owner = new StatusOwner(capabilityService, configService, sessionMode, fallowCoexistence);
+  return Layer.succeed(JscpdStatusWorkflow, statusWorkflowFor(owner));
+}
+
+interface StatusState {
+  readonly scope: number;
+  readonly lastCheck: JscpdLastCheck;
+}
+
+class StatusOwner {
+  readonly #capability: JscpdCapabilityService;
+  readonly #config: JscpdConfigService;
+  readonly #mode: JscpdSessionModeService;
+  readonly #fallow: JscpdFallowCoexistenceService | undefined;
+  readonly #state = MutableRef.make<StatusState>({
+    scope: 0,
+    lastCheck: Object.freeze({ state: "never" }),
+  });
+
+  constructor(
+    capability: JscpdCapabilityService,
+    config: JscpdConfigService,
+    mode: JscpdSessionModeService,
+    fallow: JscpdFallowCoexistenceService | undefined,
+  ) {
+    this.#capability = capability;
+    this.#config = config;
+    this.#mode = mode;
+    this.#fallow = fallow;
+  }
+
+  inspectEffect(
+    context: JscpdExecutionContext,
+  ): Effect.Effect<JscpdStatusResult, never, JscpdProcess> {
+    return capabilityProbeEffect(this.#capability, {
+      cwd: context.cwd,
+      signal: context.signal,
+    }).pipe(
+      Effect.map((capability) =>
+        presentStatus(
+          capability,
+          this.#config.current(),
+          this.#mode,
+          MutableRef.get(this.#state).lastCheck,
+          this.#fallow,
+        ),
+      ),
+    );
+  }
+
+  record(result: JscpdExecutionResult, expectedScope = this.scope()): void {
+    const current = MutableRef.get(this.#state);
+    if (current.scope !== expectedScope) return;
+    const recorded = lastCheckFromResult(result);
+    if (recorded) MutableRef.set(this.#state, { ...current, lastCheck: recorded });
+  }
+
+  restore(restored?: JscpdLastCheck): void {
+    const current = MutableRef.get(this.#state);
+    MutableRef.set(this.#state, {
+      scope: current.scope + 1,
+      lastCheck: restored ?? Object.freeze({ state: "never" }),
+    });
+  }
+
+  lastCheck(): JscpdLastCheck {
+    return MutableRef.get(this.#state).lastCheck;
+  }
+
+  scope(): number {
+    return MutableRef.get(this.#state).scope;
+  }
+}
+
+function statusServiceFor(owner: StatusOwner): JscpdStatusService {
+  const inspect = (context: JscpdExecutionContext) =>
+    owner.inspectEffect(context).pipe(Effect.provide(JscpdProcessLive));
   return {
-    async inspect(context) {
-      const capability = await capabilityService.probe({
-        cwd: context.cwd,
-        signal: context.signal,
-      });
-      return presentStatus(
-        capability,
-        configService.current(),
-        sessionMode,
-        lastCheck,
-        fallowCoexistence,
-      );
-    },
-    record(result) {
-      const recorded = lastCheckFromResult(result);
-      if (recorded) lastCheck = recorded;
-    },
-    restore(restored) {
-      lastCheck = restored ?? Object.freeze({ state: "never" });
-    },
-    lastCheck: () => lastCheck,
+    inspect: (context) => runEffectPromiseAtApplicationBoundary(inspect(context)),
+    inspectEffect: inspect,
+    record: (result, expectedScope) => owner.record(result, expectedScope),
+    recordEffect: (result, expectedScope) => Effect.sync(() => owner.record(result, expectedScope)),
+    restore: (lastCheck) => owner.restore(lastCheck),
+    lastCheck: () => owner.lastCheck(),
+    scope: () => owner.scope(),
+    scopeEffect: Effect.sync(() => owner.scope()),
   };
+}
+
+function statusWorkflowFor(owner: StatusOwner): JscpdStatusWorkflowService {
+  return {
+    inspect: (context) => owner.inspectEffect(context),
+    record: (result, expectedScope) => Effect.sync(() => owner.record(result, expectedScope)),
+    restore: (lastCheck) => Effect.sync(() => owner.restore(lastCheck)),
+    lastCheck: Effect.sync(() => owner.lastCheck()),
+    scope: Effect.sync(() => owner.scope()),
+  };
+}
+
+function statusAwareExecutionEffect(
+  invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
+  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  scanExecutor: JscpdCommandExecutor,
+  changedExecutor: JscpdCommandExecutor,
+  statusService: JscpdStatusService,
+  sessionMode: JscpdSessionModeService,
+  stateChanged: () => void,
+): Effect.Effect<JscpdExecutionResult> {
+  switch (invocation.command) {
+    case "status":
+      return statusInspectEffect(statusService, context);
+    case "off":
+      return Effect.sync(() => {
+        sessionMode.disable();
+        stateChanged();
+        return controlResult(
+          "disabled",
+          "jscpd behavior is disabled for this session. Run /jscpd on to re-enable it.",
+        );
+      });
+    case "on":
+      return Effect.sync(() => {
+        sessionMode.enable();
+        stateChanged();
+        return controlResult(
+          "enabled",
+          "jscpd behavior is enabled for this session. Project configuration was not changed.",
+        );
+      });
+    case "help":
+      return Effect.sync(helpResult);
+    case "scan":
+      return recordedExecutionEffect(
+        scanExecutor,
+        invocation,
+        context,
+        statusService,
+        stateChanged,
+      );
+    case "changed":
+      return recordedExecutionEffect(
+        changedExecutor,
+        invocation,
+        context,
+        statusService,
+        stateChanged,
+      );
+  }
+}
+
+function statusInspectEffect(
+  status: JscpdStatusService,
+  context: JscpdExecutionContext,
+): Effect.Effect<JscpdStatusResult> {
+  return (
+    status.inspectEffect?.(context) ??
+    Effect.tryPromise({
+      try: () => status.inspect(context),
+      catch: () => undefined,
+    }).pipe(Effect.catchAll(() => Effect.succeed(statusUnavailableResult())))
+  );
+}
+
+function recordedExecutionEffect(
+  executor: JscpdCommandExecutor,
+  invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
+  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  status: JscpdStatusService,
+  stateChanged: () => void,
+): Effect.Effect<JscpdExecutionResult> {
+  return Effect.gen(function* () {
+    const expectedScope = yield* statusScopeEffect(status);
+    const result = yield* commandExecutionEffect(executor, invocation, context);
+    yield* status.recordEffect?.(result, expectedScope) ??
+      Effect.sync(() => status.record(result, expectedScope));
+    yield* Effect.sync(stateChanged);
+    return result;
+  });
+}
+
+function commandExecutionEffect(
+  executor: JscpdCommandExecutor,
+  invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
+  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+): Effect.Effect<JscpdExecutionResult> {
+  if (executor.executeEffect) return executor.executeEffect(invocation, context);
+  return Effect.tryPromise({
+    try: () => executor.execute(invocation, context),
+    catch: () => processFailedResult(),
+  }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+}
+
+function statusScopeEffect(service: JscpdStatusService): Effect.Effect<number | undefined> {
+  return service.scopeEffect ?? Effect.sync(() => service.scope?.());
+}
+
+function statusUnavailableResult(): JscpdStatusResult {
+  const message = "jscpd status is temporarily unavailable.";
+  return Object.freeze({
+    status: "status",
+    message,
+    terminalMessage: message,
+    mode: "disabled",
+    modeSource: "configuration",
+    configSource: "defaults",
+    configSources: Object.freeze(["defaults"] as const),
+    configDiagnostics: 0,
+    capability: Object.freeze({
+      status: "failed" as const,
+      executable: "jscpd" as const,
+      reason: "execution-error" as const,
+    }),
+    lastCheck: Object.freeze({ state: "never" as const }),
+  });
+}
+
+function processFailedResult(): JscpdExecutionResult {
+  return Object.freeze({
+    status: "failed",
+    reason: "process-failed",
+    message: "The jscpd operation failed safely; no result was used.",
+  });
 }
 
 function presentStatus(
@@ -222,9 +500,7 @@ function stateLine(
   if (capability.status === "missing") {
     return "State: dormant — the bundled jscpd dependency is unavailable; reinstall pi-jscpd.";
   }
-  if (capability.status === "available") {
-    return "State: ready for explicit scans.";
-  }
+  if (capability.status === "available") return "State: ready for explicit scans.";
   return "State: dormant until the binary check succeeds with jscpd v5.";
 }
 

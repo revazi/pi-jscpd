@@ -29,6 +29,9 @@ until publication is approved.
 - Scoped Effect scheduling for dirty-generation coalescing, automatic changed
   checks, interruption-safe cancellation, and acknowledgement-after-delivery Pi
   transactions without unmanaged background promises or timers.
+- Effect-composed scan, changed, status/session-control, Fallow coexistence,
+  report-decoding, and verification workflows with one compatibility boundary
+  and unchanged bounded public results.
 - Strict normalized jscpd JSON report validation and scope-safe explicit scans.
 - Trusted extension configuration, session controls, branch-local state, and
   changed-file attribution.

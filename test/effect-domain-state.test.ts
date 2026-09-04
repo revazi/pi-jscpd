@@ -15,6 +15,7 @@ import { createJscpdVerificationLayer, JscpdVerification } from "../src/verifica
 import {
   createJscpdFileSystemTestLayer,
   createJscpdPiPortTestLayer,
+  createJscpdProcessTestLayer,
 } from "./support/effect-layers.js";
 
 const project = "/project";
@@ -165,7 +166,11 @@ describe("Effect domain state services", () => {
     ) as unknown as JscpdService["run"];
     const adapter = adapterService(run);
     const filesystem = createJscpdFileSystemTestLayer([{ path: project, kind: "directory" }]);
-    const layers = Layer.merge(createJscpdBaselineLayer(capability, adapter), filesystem.layer);
+    const layers = Layer.mergeAll(
+      createJscpdBaselineLayer(capability, adapter),
+      filesystem.layer,
+      createJscpdProcessTestLayer([]).layer,
+    );
     const program = Effect.gen(function* () {
       const baseline = yield* JscpdBaseline;
       const capture = yield* Effect.fork(
@@ -216,9 +221,10 @@ describe("Effect domain state services", () => {
         }),
     ) as unknown as JscpdService["run"];
     const filesystem = createJscpdFileSystemTestLayer([{ path: project, kind: "directory" }]);
-    const layers = Layer.merge(
+    const layers = Layer.mergeAll(
       createJscpdBaselineLayer(availableCapabilityService(), adapterService(run)),
       filesystem.layer,
+      createJscpdProcessTestLayer([]).layer,
     );
     const program = Effect.gen(function* () {
       const baseline = yield* JscpdBaseline;
@@ -239,9 +245,10 @@ describe("Effect domain state services", () => {
     const run = vi.fn(async () => ({ status: "no-findings", value: cleanReport }) as const);
     const adapter = adapterService(run as unknown as JscpdService["run"]);
     const filesystem = createJscpdFileSystemTestLayer([{ path: project, kind: "directory" }]);
-    const layers = Layer.merge(
+    const layers = Layer.mergeAll(
       createJscpdBaselineLayer(availableCapabilityService(), adapter),
       filesystem.layer,
+      createJscpdProcessTestLayer([]).layer,
     );
     const program = Effect.flatMap(JscpdBaseline, (baseline) =>
       baseline.start({ cwd: project, enabled: true, timeoutMs: 1_000, hasPriorChanges: false }),

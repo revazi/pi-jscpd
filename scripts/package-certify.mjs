@@ -90,7 +90,7 @@ export async function certifyPackage() {
     );
 
     console.log(
-      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; Effect process/filesystem/domain state/scheduling, bundled jscpd, RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
+      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; Effect process/filesystem/domain state/scheduling/application workflows, bundled jscpd, RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
     );
   } finally {
     for (const pid of cleanupPids) terminateProcess(pid);

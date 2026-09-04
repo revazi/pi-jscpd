@@ -71,7 +71,9 @@ so jscpd remains this project's single duplication authority.
   preserve immutable snapshots and generation/revision checks, and test stale
   completion plus competing updates. Scheduler and automatic-check changes must
   use scoped fibers, preserve explicit-work priority and retry eligibility, and
-  commit acknowledgements only after successful quiet Pi delivery.
+  commit acknowledgements only after successful quiet Pi delivery. Application
+  workflows must compose existing service effects, keep public result mapping at
+  one boundary, and leave deterministic comparison/presentation code pure.
 - Remove the superseded internal Promise path in the same slice; temporary
   adapters are allowed only at documented outer boundaries.
 - Do not combine a migration slice with unrelated public behavior changes.

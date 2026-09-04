@@ -231,9 +231,13 @@ signal. See [Effect-owned scheduling and automatic checks](effect-scheduler-auto
 
 ### Step 6 — Application workflows ([#69](https://github.com/revazi/pi-jscpd/issues/69))
 
-Compose scan, changed, status, Fallow coexistence, and verification through the
-new services. Map typed errors to existing public result objects once, near the
-host boundary. Remove nested Promise/`try` orchestration that Effect now owns.
+Implemented on the unreleased branch: scan, changed, status/session controls,
+Fallow coexistence, report decoding, and verification now compose as Effect
+application services. The default path uses native capability, adapter,
+filesystem, domain-state, and command effects; compatibility Promise conversion
+remains only at the temporary application edge. Public fail-open result objects
+and pure presentation/comparison functions are unchanged. See
+[Effect-composed application workflows](effect-application-workflows.md).
 
 ### Step 7 — Pi and TUI boundary ([#70](https://github.com/revazi/pi-jscpd/issues/70))
 

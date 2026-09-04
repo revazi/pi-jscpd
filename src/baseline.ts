@@ -5,12 +5,19 @@ import {
   type JscpdCapabilityService,
 } from "./capability.js";
 import { indexJscpdCloneReportEffect, type JscpdCloneSnapshot } from "./clone-identity.js";
-import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
-import type { JscpdFileSystem } from "./effect/services.js";
+import { JscpdFileSystemLive } from "./effect/filesystem.js";
+import { runEffectPromiseAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
-import { consumeJscpdV5JsonReport } from "./jscpd-report.js";
-import { canonicalDirectoryEffect } from "./path-utils.js";
-import { createJscpdScanArguments, JSCPD_CLONE_POSITIVE_EXIT_CODES } from "./scan.js";
+import { consumeJscpdV5JsonReport, consumeJscpdV5JsonReportEffect } from "./jscpd-report.js";
+import { optionalCanonicalDirectoryEffect } from "./path-utils.js";
+import { JscpdProcessLive } from "./process.js";
+import {
+  adapterRunEffect,
+  capabilityProbeEffect,
+  createJscpdScanArguments,
+  JSCPD_CLONE_POSITIVE_EXIT_CODES,
+} from "./scan.js";
 import type { JscpdReportErrorCode, JscpdScanReport } from "./types.js";
 
 export interface JscpdBaselineStartContext {
@@ -54,6 +61,7 @@ export interface JscpdBaselineService {
   start(context: JscpdBaselineStartContext): Promise<JscpdBaselineState>;
   /** Await the current capture, if any. Never rejects. */
   wait(): Promise<JscpdBaselineState>;
+  readonly waitEffect?: Effect.Effect<JscpdBaselineState>;
   /** Cancel current work and mark automatic capture disabled. */
   disable(): void;
   /** Cancel current work and clear ephemeral report state. */
@@ -81,7 +89,7 @@ interface BaselineOwnerState {
 interface JscpdBaselineEffectService {
   readonly start: (
     context: JscpdBaselineStartContext,
-  ) => Effect.Effect<JscpdBaselineState, never, JscpdFileSystem>;
+  ) => Effect.Effect<JscpdBaselineState, never, JscpdFileSystem | JscpdProcess>;
   readonly wait: Effect.Effect<JscpdBaselineState>;
   readonly disable: Effect.Effect<void>;
   readonly invalidate: Effect.Effect<void>;
@@ -139,13 +147,13 @@ class BaselineOwner {
 
   startEffect(
     context: JscpdBaselineStartContext,
-  ): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem> {
+  ): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem | JscpdProcess> {
     return Effect.suspend(() => this.startPreparedEffect(context));
   }
 
   startPreparedEffect(
     context: JscpdBaselineStartContext,
-  ): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem> {
+  ): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem | JscpdProcess> {
     const completion = Deferred.unsafeMake<JscpdBaselineState>(FiberId.none);
     const started = this.#beginCapture(context, completion);
     if (!started.active) return Effect.succeed(started.baseline);
@@ -234,11 +242,14 @@ function lifecycleCancelled(): JscpdBaselineState {
 }
 
 function baselineServiceFor(owner: BaselineOwner): JscpdBaselineService {
-  const run = <A>(effect: Effect.Effect<A, never, JscpdFileSystem>) =>
-    runFileSystemEffectAtApplicationBoundary(effect);
+  const run = <A>(effect: Effect.Effect<A, never, JscpdFileSystem | JscpdProcess>) =>
+    runEffectPromiseAtApplicationBoundary(
+      effect.pipe(Effect.provide(JscpdProcessLive), Effect.provide(JscpdFileSystemLive)),
+    );
   return {
     start: (context) => run(owner.startPreparedEffect(context)),
     wait: () => run(owner.waitEffect()),
+    waitEffect: Effect.suspend(() => owner.waitEffect()),
     disable: () => owner.disable(),
     invalidate: () => owner.invalidate(),
     current: () => owner.current(),
@@ -271,11 +282,9 @@ function captureBaselineEffect(
   context: JscpdBaselineStartContext,
   controller: AbortController,
   path: string | undefined,
-): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem> {
+): Effect.Effect<JscpdBaselineState, never, JscpdFileSystem | JscpdProcess> {
   return Effect.gen(function* () {
-    const cwd = yield* canonicalDirectoryEffect(context.cwd).pipe(
-      Effect.catchAll(() => Effect.succeed(undefined)),
-    );
+    const cwd = yield* optionalCanonicalDirectoryEffect(context.cwd);
     if (!cwd) return failed("project", "invalid-project");
 
     const capability = yield* safeProbeEffect(capabilityService, { cwd, path }, controller);
@@ -297,14 +306,11 @@ function safeProbeEffect(
   capabilityService: JscpdCapabilityService,
   request: Omit<Parameters<JscpdCapabilityService["probe"]>[0], "signal">,
   controller: AbortController,
-): Effect.Effect<JscpdCapabilityResult> {
-  return abortablePromiseEffect(controller, () =>
-    capabilityService.probe({ ...request, signal: controller.signal }),
-  ).pipe(
-    Effect.catchAll(() =>
-      Effect.succeed({ status: "failed", executable: "jscpd", reason: "execution-error" } as const),
-    ),
-  );
+): Effect.Effect<JscpdCapabilityResult, never, JscpdProcess> {
+  return capabilityProbeEffect(capabilityService, {
+    ...request,
+    signal: controller.signal,
+  });
 }
 
 function runBaselineAdapterEffect(
@@ -314,35 +320,17 @@ function runBaselineAdapterEffect(
   cwd: string,
   path: string | undefined,
   controller: AbortController,
-): Effect.Effect<JscpdRunResult<JscpdScanReport>> {
-  return abortablePromiseEffect(controller, () =>
-    adapterService.run<JscpdScanReport>({
-      executable: capability.executable,
-      cwd,
-      path: createJscpdExecutionPath(cwd, path, capability.source),
-      signal: controller.signal,
-      timeoutMs: context.timeoutMs,
-      reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
-      createArguments: ({ directory }) => createJscpdScanArguments(directory, ["."]),
-      consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, cwd),
-    }),
-  ).pipe(
-    Effect.catchAll(() => Effect.succeed({ status: "failed", reason: "internal-error" } as const)),
-  );
-}
-
-function abortablePromiseEffect<A>(
-  controller: AbortController,
-  evaluate: () => Promise<A>,
-): Effect.Effect<A, unknown> {
-  return Effect.tryPromise({
-    try: (signal) => {
-      const cancel = () => controller.abort();
-      signal.addEventListener("abort", cancel, { once: true });
-      if (signal.aborted) cancel();
-      return evaluate().finally(() => signal.removeEventListener("abort", cancel));
-    },
-    catch: (error) => error,
+): Effect.Effect<JscpdRunResult<JscpdScanReport>, never, JscpdFileSystem | JscpdProcess> {
+  return adapterRunEffect(adapterService, {
+    executable: capability.executable,
+    cwd,
+    path: createJscpdExecutionPath(cwd, path, capability.source),
+    signal: controller.signal,
+    timeoutMs: context.timeoutMs,
+    reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
+    createArguments: ({ directory }) => createJscpdScanArguments(directory, ["."]),
+    consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, cwd),
+    consumeReportEffect: (bytes) => consumeJscpdV5JsonReportEffect(bytes, cwd),
   });
 }
 

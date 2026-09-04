@@ -1,7 +1,5 @@
 import { isAbsolute, relative, sep } from "node:path";
-import { Effect, Exit } from "effect";
-import { JscpdFileSystemLive } from "./effect/filesystem.js";
-import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { Effect } from "effect";
 import { JscpdFileSystem } from "./effect/services.js";
 
 /** Resolve an existing absolute directory through the injected bounded filesystem. */
@@ -16,12 +14,11 @@ export function canonicalDirectoryEffect(cwd: string) {
   );
 }
 
-/** Temporary Promise facade retained until application workflows use the managed Effect runtime. */
-export async function canonicalDirectory(cwd: string): Promise<string | undefined> {
-  const exit = await runEffectExitAtApplicationBoundary(
-    canonicalDirectoryEffect(cwd).pipe(Effect.provide(JscpdFileSystemLive)),
+/** Resolve a canonical directory and collapse filesystem failures at the application edge. */
+export function optionalCanonicalDirectoryEffect(cwd: string) {
+  return canonicalDirectoryEffect(cwd).pipe(
+    Effect.catchAll(() => Effect.succeed<string | undefined>(undefined)),
   );
-  return Exit.isSuccess(exit) ? exit.value : undefined;
 }
 
 /** Reject control characters before paths or labels reach filesystem APIs. */

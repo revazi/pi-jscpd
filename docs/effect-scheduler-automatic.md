@@ -2,8 +2,8 @@
 
 Issue [#68](https://github.com/revazi/pi-jscpd/issues/68) moves dirty-generation
 scheduling, automatic changed checks, interruption, and delivery transactions to
-Effect. This is the fifth release-blocking migration slice; application workflow
-composition and the single managed extension runtime remain later ordered work.
+Effect. This is the fifth release-blocking migration slice; M7.6 composes the
+application workflows, while the single managed extension runtime remains M7.7.
 
 ## Scheduler ownership
 

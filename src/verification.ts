@@ -11,7 +11,14 @@ export interface JscpdVerificationService {
     snapshot: JscpdCloneSnapshot,
     expectedScope?: number,
   ): JscpdVerificationResult;
+  compareAndRememberEffect?: (
+    kind: JscpdVerificationKind,
+    scopeKey: string,
+    snapshot: JscpdCloneSnapshot,
+    expectedScope?: number,
+  ) => Effect.Effect<JscpdVerificationResult>;
   scope(): number;
+  readonly scopeEffect?: Effect.Effect<number>;
   reset(): void;
 }
 
@@ -100,9 +107,31 @@ function verificationServiceFor(owner: VerificationOwner): JscpdVerificationServ
   return {
     compareAndRemember: (kind, scopeKey, snapshot, expectedScope) =>
       owner.compareAndRemember(kind, scopeKey, snapshot, expectedScope),
+    compareAndRememberEffect: (kind, scopeKey, snapshot, expectedScope) =>
+      Effect.sync(() => owner.compareAndRemember(kind, scopeKey, snapshot, expectedScope)),
     scope: () => owner.scope(),
+    scopeEffect: Effect.sync(() => owner.scope()),
     reset: () => owner.reset(),
   };
+}
+
+export function jscpdVerificationScopeEffect(
+  service: JscpdVerificationService,
+): Effect.Effect<number> {
+  return service.scopeEffect ?? Effect.sync(() => service.scope());
+}
+
+export function compareAndRememberJscpdVerificationEffect(
+  service: JscpdVerificationService,
+  kind: JscpdVerificationKind,
+  scopeKey: string,
+  snapshot: JscpdCloneSnapshot,
+  expectedScope?: number,
+): Effect.Effect<JscpdVerificationResult> {
+  return (
+    service.compareAndRememberEffect?.(kind, scopeKey, snapshot, expectedScope) ??
+    Effect.sync(() => service.compareAndRemember(kind, scopeKey, snapshot, expectedScope))
+  );
 }
 
 function verificationEffectServiceFor(owner: VerificationOwner): JscpdVerificationEffectService {

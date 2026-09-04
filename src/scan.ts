@@ -1,15 +1,30 @@
-import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
+import { Context, Effect, Layer } from "effect";
 import {
   createJscpdExecutionPath,
+  type JscpdCapabilityRequest,
   type JscpdCapabilityResult,
   type JscpdCapabilityService,
 } from "./capability.js";
-import { indexJscpdCloneReport } from "./clone-identity.js";
+import { indexJscpdCloneReportEffect } from "./clone-identity.js";
 import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
-import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
-import { consumeJscpdV5JsonReport, JSCPD_STRUCTURED_REPORTER } from "./jscpd-report.js";
+import { JscpdFileSystemLive } from "./effect/filesystem.js";
+import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { JscpdFileSystem, type JscpdProcess } from "./effect/services.js";
+import type {
+  JscpdRunFailureReason,
+  JscpdRunRequest,
+  JscpdRunResult,
+  JscpdService,
+} from "./jscpd.js";
+import {
+  consumeJscpdV5JsonReport,
+  consumeJscpdV5JsonReportEffect,
+  JSCPD_STRUCTURED_REPORTER,
+} from "./jscpd-report.js";
+import { isPathInside, optionalCanonicalDirectoryEffect } from "./path-utils.js";
 import { presentJscpdScan } from "./presentation.js";
+import { JscpdProcessLive } from "./process.js";
 import type {
   JscpdCommandExecutor,
   JscpdExecutionResult,
@@ -19,7 +34,11 @@ import type {
   JscpdUnavailableResult,
 } from "./types.js";
 import type { JscpdVerificationService } from "./verification.js";
-import { withJscpdVerification } from "./verification.js";
+import {
+  compareAndRememberJscpdVerificationEffect,
+  jscpdVerificationScopeEffect,
+  withJscpdVerification,
+} from "./verification.js";
 
 export const JSCPD_CLONE_POSITIVE_EXIT_CODES = [1] as const;
 
@@ -41,57 +60,87 @@ type ScopeResolution =
   | { ok: true; value: ResolvedScanScopes }
   | { ok: false; result: JscpdExecutionResult };
 
+interface JscpdScanWorkflowService {
+  readonly execute: (
+    invocation: Parameters<JscpdCommandExecutor["execute"]>[0],
+    context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  ) => Effect.Effect<JscpdExecutionResult, never, JscpdFileSystem | JscpdProcess>;
+}
+
+export const JscpdScanWorkflow = Context.GenericTag<JscpdScanWorkflowService>(
+  "pi-jscpd/effect/ScanWorkflow",
+);
+
 /** Connect capability probing, safe scopes, the bounded adapter, strict report parsing, and views. */
 export function createJscpdScanExecutor(
   capabilityService: JscpdCapabilityService,
   service: JscpdService,
   options: JscpdScanExecutorOptions = {},
 ): JscpdCommandExecutor {
+  const workflow = scanWorkflowFor(capabilityService, service, options);
   return {
-    async execute(invocation, context): Promise<JscpdExecutionResult> {
-      const verificationScope = options.verification?.scope();
-      const config = options.config?.() ?? DEFAULT_JSCPD_CONFIG;
-      if (!config.enabled) {
-        return {
-          status: "unavailable",
-          reason: "disabled",
-          message: "jscpd scanning is disabled for this session. Run /jscpd on to re-enable it.",
-        };
-      }
+    execute: (invocation, context) =>
+      runFileSystemEffectAtApplicationBoundary(
+        workflow.execute(invocation, context).pipe(Effect.provide(JscpdProcessLive)),
+      ),
+    executeEffect: (invocation, context) =>
+      workflow
+        .execute(invocation, context)
+        .pipe(Effect.provide(JscpdProcessLive), Effect.provide(JscpdFileSystemLive)),
+  };
+}
 
-      const scopes = await resolveScanScopes(context.cwd, invocation.args);
-      if (!scopes.ok) {
-        return scopes.result;
-      }
+export function createJscpdScanWorkflowLayer(
+  capabilityService: JscpdCapabilityService,
+  service: JscpdService,
+  options: JscpdScanExecutorOptions = {},
+) {
+  return Layer.succeed(JscpdScanWorkflow, scanWorkflowFor(capabilityService, service, options));
+}
 
-      const capability = await capabilityService.probe({
-        cwd: scopes.value.cwd,
-        path: options.path,
-        signal: context.signal,
-      });
-      if (capability.status !== "available") {
-        return capabilityUnavailableResult(capability);
-      }
-
-      const scan = await service.run<JscpdScanReport>({
-        executable: capability.executable,
-        cwd: scopes.value.cwd,
-        path: createJscpdExecutionPath(scopes.value.cwd, options.path, capability.source),
-        signal: context.signal,
-        timeoutMs: options.config ? config.timeoutMs : undefined,
-        reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
-        createArguments: ({ directory }) =>
-          createJscpdScanArguments(directory, scopes.value.targets),
-        consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, scopes.value.cwd),
-      });
-      return executionResultWithVerification(
-        scan,
-        config.maxFindings,
-        scopes.value,
-        options.verification,
-        verificationScope,
-      );
-    },
+function scanWorkflowFor(
+  capabilityService: JscpdCapabilityService,
+  service: JscpdService,
+  options: JscpdScanExecutorOptions,
+): JscpdScanWorkflowService {
+  return {
+    execute: (invocation, context) =>
+      Effect.suspend(() => {
+        const config = options.config?.() ?? DEFAULT_JSCPD_CONFIG;
+        if (!config.enabled) return Effect.succeed(disabledResult());
+        return Effect.gen(function* () {
+          const verificationScope = options.verification
+            ? yield* jscpdVerificationScopeEffect(options.verification)
+            : undefined;
+          const scopes = yield* resolveScanScopesEffect(context.cwd, invocation.args);
+          if (!scopes.ok) return scopes.result;
+          const capability = yield* capabilityProbeEffect(capabilityService, {
+            cwd: scopes.value.cwd,
+            path: options.path,
+            signal: context.signal,
+          });
+          if (capability.status !== "available") return capabilityUnavailableResult(capability);
+          const scan = yield* adapterRunEffect(service, {
+            executable: capability.executable,
+            cwd: scopes.value.cwd,
+            path: createJscpdExecutionPath(scopes.value.cwd, options.path, capability.source),
+            signal: context.signal,
+            timeoutMs: options.config ? config.timeoutMs : undefined,
+            reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
+            createArguments: ({ directory }) =>
+              createJscpdScanArguments(directory, scopes.value.targets),
+            consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, scopes.value.cwd),
+            consumeReportEffect: (bytes) => consumeJscpdV5JsonReportEffect(bytes, scopes.value.cwd),
+          });
+          return yield* executionResultWithVerificationEffect(
+            scan,
+            config.maxFindings,
+            scopes.value,
+            options.verification,
+            verificationScope,
+          );
+        });
+      }),
   };
 }
 
@@ -111,117 +160,149 @@ export function createJscpdScanArguments(
   ];
 }
 
-async function resolveScanScopes(
+function resolveScanScopesEffect(
   cwd: string,
   requested: readonly string[],
-): Promise<ScopeResolution> {
-  if (!isAbsolute(cwd)) {
-    return pathFailure(
-      "unsupported-path",
-      "jscpd scan requires an available project working directory; no scan ran.",
-    );
-  }
-
-  let projectDirectory: string;
-  try {
-    const [canonical, metadata] = await Promise.all([realpath(cwd), stat(cwd)]);
-    if (!metadata.isDirectory()) {
-      return pathFailure(
-        "unsupported-path",
-        "jscpd scan requires an available project working directory; no scan ran.",
-      );
-    }
-    projectDirectory = canonical;
-  } catch {
-    return pathFailure(
-      "unsupported-path",
-      "jscpd scan requires an available project working directory; no scan ran.",
-    );
-  }
-
-  const requestedTargets = requested.length === 0 ? ["."] : requested;
-  const targets: string[] = [];
-  const seen = new Set<string>();
-  for (const token of requestedTargets) {
-    const resolved = await resolveScanScope(cwd, projectDirectory, token);
-    if (!resolved.ok) {
-      return resolved;
-    }
-    if (!seen.has(resolved.target)) {
-      seen.add(resolved.target);
-      targets.push(resolved.target);
-    }
-  }
-  return { ok: true, value: { cwd: projectDirectory, targets } };
+): Effect.Effect<ScopeResolution, never, JscpdFileSystem> {
+  if (!isAbsolute(cwd)) return Effect.succeed(unavailableProjectScope());
+  return optionalCanonicalDirectoryEffect(cwd).pipe(
+    Effect.flatMap((projectDirectory) => {
+      if (!projectDirectory) return Effect.succeed(unavailableProjectScope());
+      const requestedTargets = requested.length === 0 ? ["."] : requested;
+      return resolveScanTargetsEffect(cwd, projectDirectory, requestedTargets);
+    }),
+  );
 }
 
-async function resolveScanScope(
+function resolveScanTargetsEffect(
+  cwd: string,
+  projectDirectory: string,
+  requestedTargets: readonly string[],
+): Effect.Effect<ScopeResolution, never, JscpdFileSystem> {
+  return Effect.gen(function* () {
+    const targets: string[] = [];
+    const seen = new Set<string>();
+    for (const token of requestedTargets) {
+      const resolved = yield* resolveScanScopeEffect(cwd, projectDirectory, token);
+      if (!resolved.ok) return resolved;
+      if (!seen.has(resolved.target)) {
+        seen.add(resolved.target);
+        targets.push(resolved.target);
+      }
+    }
+    return { ok: true, value: { cwd: projectDirectory, targets } } as const;
+  });
+}
+
+function resolveScanScopeEffect(
   inputCwd: string,
   projectDirectory: string,
   token: string,
-): Promise<{ ok: true; target: string } | { ok: false; result: JscpdExecutionResult }> {
+): Effect.Effect<
+  { ok: true; target: string } | { ok: false; result: JscpdExecutionResult },
+  never,
+  JscpdFileSystem
+> {
   const lexicalCandidate = resolve(inputCwd, token);
   if (!isPathInside(resolve(inputCwd), lexicalCandidate)) {
-    return pathFailure(
-      "unsafe-path",
-      "The requested scan scope is outside the project; no scan ran.",
+    return Effect.succeed(
+      pathFailure("unsafe-path", "The requested scan scope is outside the project; no scan ran."),
     );
   }
-
-  let canonicalCandidate: string;
-  try {
-    canonicalCandidate = await realpath(lexicalCandidate);
-  } catch {
-    return pathFailure(
-      "unsupported-path",
-      "A requested scan scope does not exist or is not accessible; no scan ran.",
-    );
-  }
-  if (!isPathInside(projectDirectory, canonicalCandidate)) {
-    return pathFailure(
-      "unsafe-path",
-      "The requested scan scope resolves outside the project; no scan ran.",
-    );
-  }
-
-  try {
-    const metadata = await stat(canonicalCandidate);
-    if (!metadata.isFile() && !metadata.isDirectory()) {
-      return pathFailure(
-        "unsupported-path",
-        "A requested scan scope is not a regular file or directory; no scan ran.",
-      );
-    }
-  } catch {
-    return pathFailure(
-      "unsupported-path",
-      "A requested scan scope does not exist or is not accessible; no scan ran.",
-    );
-  }
-
-  const projectRelative = relative(projectDirectory, canonicalCandidate);
-  return { ok: true, target: projectRelative === "" ? "." : toPortablePath(projectRelative) };
+  return Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    filesystem.canonicalize(lexicalCandidate).pipe(
+      Effect.matchEffect({
+        onFailure: () =>
+          Effect.succeed(
+            pathFailure(
+              "unsupported-path",
+              "A requested scan scope does not exist or is not accessible; no scan ran.",
+            ),
+          ),
+        onSuccess: (canonicalCandidate) => {
+          if (!isPathInside(projectDirectory, canonicalCandidate)) {
+            return Effect.succeed(
+              pathFailure(
+                "unsafe-path",
+                "The requested scan scope resolves outside the project; no scan ran.",
+              ),
+            );
+          }
+          return filesystem.metadata(canonicalCandidate).pipe(
+            Effect.match({
+              onFailure: () =>
+                pathFailure(
+                  "unsupported-path",
+                  "A requested scan scope does not exist or is not accessible; no scan ran.",
+                ),
+              onSuccess: (metadata) => {
+                if (metadata.kind !== "file" && metadata.kind !== "directory") {
+                  return pathFailure(
+                    "unsupported-path",
+                    "A requested scan scope is not a regular file or directory; no scan ran.",
+                  );
+                }
+                const projectRelative = relative(projectDirectory, canonicalCandidate);
+                return {
+                  ok: true,
+                  target: projectRelative === "" ? "." : toPortablePath(projectRelative),
+                } as const;
+              },
+            }),
+          );
+        },
+      }),
+    ),
+  );
 }
 
-async function executionResultWithVerification(
+function executionResultWithVerificationEffect(
   scan: JscpdRunResult<JscpdScanReport>,
   maxFindings: number,
   scopes: ResolvedScanScopes,
   service: JscpdVerificationService | undefined,
   expectedScope: number | undefined,
-): Promise<JscpdExecutionResult> {
+): Effect.Effect<JscpdExecutionResult, never, JscpdFileSystem> {
   const result = executionResult(scan, maxFindings);
-  if (!service || expectedScope === undefined || result.status !== "completed") return result;
+  if (!service || expectedScope === undefined || result.status !== "completed") {
+    return Effect.succeed(result);
+  }
   const report = successfulReport(scan);
-  if (!report) return result;
-  const snapshot = await indexJscpdCloneReport(report, scopes.cwd);
-  const verification = service.compareAndRemember(
-    "project",
-    JSON.stringify(scopes.targets),
-    snapshot,
-    expectedScope,
+  if (!report) return Effect.succeed(result);
+  return indexJscpdCloneReportEffect(report, scopes.cwd).pipe(
+    Effect.flatMap((snapshot) =>
+      compareAndRememberJscpdVerificationEffect(
+        service,
+        "project",
+        JSON.stringify(scopes.targets),
+        snapshot,
+        expectedScope,
+      ),
+    ),
+    Effect.map((verification) => withJscpdVerification(result, verification)),
   );
-  return withJscpdVerification(result, verification);
+}
+
+export function capabilityProbeEffect(
+  service: JscpdCapabilityService,
+  request: JscpdCapabilityRequest,
+): Effect.Effect<JscpdCapabilityResult, never, JscpdProcess> {
+  if (service.probeEffect) return service.probeEffect(request);
+  return Effect.tryPromise({
+    try: () => service.probe(request),
+    catch: () => ({ status: "failed", executable: "jscpd", reason: "execution-error" }) as const,
+  }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+}
+
+export function adapterRunEffect<T>(
+  service: JscpdService,
+  request: JscpdRunRequest<T>,
+): Effect.Effect<JscpdRunResult<T>, never, JscpdProcess | JscpdFileSystem> {
+  if (service.runEffect) return service.runEffect(request);
+  return Effect.tryPromise({
+    try: () => service.run(request),
+    catch: () => ({ status: "failed", reason: "internal-error" }) as const,
+  }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
 }
 
 function successfulReport(result: JscpdRunResult<JscpdScanReport>): JscpdScanReport | undefined {
@@ -308,6 +389,21 @@ function scanFailure(reason: JscpdScanFailureReason, message: string): JscpdExec
   return { status: "failed", reason, message };
 }
 
+function disabledResult(): JscpdExecutionResult {
+  return Object.freeze({
+    status: "unavailable",
+    reason: "disabled",
+    message: "jscpd scanning is disabled for this session. Run /jscpd on to re-enable it.",
+  });
+}
+
+function unavailableProjectScope(): ScopeResolution {
+  return pathFailure(
+    "unsupported-path",
+    "jscpd scan requires an available project working directory; no scan ran.",
+  );
+}
+
 function pathFailure(
   reason: Extract<JscpdScanFailureReason, "unsafe-path" | "unsupported-path">,
   message: string,
@@ -358,16 +454,6 @@ export function capabilityUnavailableResult(
         capability,
       };
   }
-}
-
-function isPathInside(parent: string, candidate: string): boolean {
-  const pathFromParent = relative(parent, candidate);
-  return (
-    pathFromParent === "" ||
-    (pathFromParent !== ".." &&
-      !pathFromParent.startsWith(`..${sep}`) &&
-      !isAbsolute(pathFromParent))
-  );
 }
 
 function toPortablePath(path: string): string {

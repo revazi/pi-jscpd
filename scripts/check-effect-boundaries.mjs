@@ -21,6 +21,16 @@ export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
   "src/fallow.ts",
   "src/jscpd-report.ts",
   "src/path-utils.ts",
+  "src/scan.ts",
+]);
+
+export const MIGRATED_APPLICATION_BOUNDARIES = Object.freeze([
+  "src/baseline.ts",
+  "src/changed.ts",
+  "src/fallow.ts",
+  "src/scan.ts",
+  "src/status.ts",
+  "src/verification.ts",
 ]);
 
 export const MIGRATED_CONCURRENCY_BOUNDARIES = Object.freeze([
@@ -35,6 +45,7 @@ const UNMANAGED_ASYNC_CALLS = new Set([
   "setInterval",
   "setTimeout",
 ]);
+const PROMISE_CHAIN_METHODS = new Set(["catch", "finally", "then"]);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   checkEffectBoundaries();
@@ -44,6 +55,7 @@ export function checkEffectBoundaries() {
   const violations = [];
   const filesystemViolations = [];
   const concurrencyViolations = [];
+  const applicationViolations = [];
   let runtimeCalls = 0;
   for (const absolutePath of typescriptFiles(sourceRoot)) {
     const path = relative(root, absolutePath).replaceAll("\\", "/");
@@ -59,6 +71,9 @@ export function checkEffectBoundaries() {
     }
     if (MIGRATED_CONCURRENCY_BOUNDARIES.includes(path)) {
       concurrencyViolations.push(...findUnmanagedAsyncConstructs(sourceText, path));
+    }
+    if (MIGRATED_APPLICATION_BOUNDARIES.includes(path)) {
+      applicationViolations.push(...findPromiseWorkflowConstructs(sourceText, path));
     }
   }
   assert.deepEqual(
@@ -82,12 +97,62 @@ export function checkEffectBoundaries() {
       .map(({ path, line, name }) => `- ${path}:${line} ${name}`)
       .join("\n")}`,
   );
+  assert.deepEqual(
+    applicationViolations,
+    [],
+    `Migrated application modules must not retain async/Promise-chain orchestration:\n${applicationViolations
+      .map(({ path, line, name }) => `- ${path}:${line} ${name}`)
+      .join("\n")}`,
+  );
   console.log(
-    `Effect boundary check passed: ${runtimeCalls} runtime calls in src; approved boundaries: ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer; ${MIGRATED_CONCURRENCY_BOUNDARIES.length} migrated concurrency modules contain no unmanaged Promise/timer creation.`,
+    `Effect boundary check passed: ${runtimeCalls} runtime calls in src; approved boundaries: ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer; ${MIGRATED_CONCURRENCY_BOUNDARIES.length} migrated concurrency modules contain no unmanaged Promise/timer creation; ${MIGRATED_APPLICATION_BOUNDARIES.length} application modules contain no async/Promise-chain orchestration.`,
   );
 }
 
+export function findPromiseWorkflowConstructs(sourceText, path = "fixture.ts") {
+  return findNamedSyntax(sourceText, path, promiseWorkflowName);
+}
+
+function promiseWorkflowName(node) {
+  if (hasAsyncModifier(node)) return "async function";
+  if (isPromiseConstruction(node)) return "new Promise";
+  return ts.isCallExpression(node) ? promiseCallName(node.expression) : undefined;
+}
+
+function isPromiseConstruction(node) {
+  return (
+    ts.isNewExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "Promise"
+  );
+}
+
+function promiseCallName(expression) {
+  const member = memberParts(expression);
+  if (!member) return undefined;
+  if (PROMISE_CHAIN_METHODS.has(member.name)) return `Promise.${member.name}`;
+  return ts.isIdentifier(member.receiver) && member.receiver.text === "Promise"
+    ? `Promise.${member.name}`
+    : undefined;
+}
+
+function hasAsyncModifier(node) {
+  if (
+    !ts.isFunctionDeclaration(node) &&
+    !ts.isFunctionExpression(node) &&
+    !ts.isArrowFunction(node) &&
+    !ts.isMethodDeclaration(node)
+  ) {
+    return false;
+  }
+  return node.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false;
+}
+
 export function findUnmanagedAsyncConstructs(sourceText, path = "fixture.ts") {
+  return findNamedSyntax(sourceText, path, unmanagedAsyncName);
+}
+
+function findNamedSyntax(sourceText, path, classify) {
   const source = ts.createSourceFile(
     path,
     sourceText,
@@ -97,7 +162,7 @@ export function findUnmanagedAsyncConstructs(sourceText, path = "fixture.ts") {
   );
   const findings = [];
   walk(source, (node) => {
-    const name = unmanagedAsyncName(node);
+    const name = classify(node);
     if (!name) return;
     const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
     findings.push(Object.freeze({ path, line: line + 1, name }));

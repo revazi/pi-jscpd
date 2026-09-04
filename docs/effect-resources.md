@@ -23,8 +23,10 @@ facade maps them to its stable result union.
 `src/jscpd.ts` now uses an Effect semaphore instead of the Promise job queue.
 `JscpdAdapter` and `createJscpdLayer` expose the Effect-native scoped service.
 Each run acquires its restrictive out-of-project report workspace, executes one
-serialized analyzer process, consumes a bounded regular non-symlink report, and
-releases the workspace. Cleanup is itself time-bounded, and failure or timeout
+serialized analyzer process, consumes a bounded regular non-symlink report
+through the injected filesystem service, and releases the workspace. The adapter
+layer leaves process and filesystem requirements visible to its caller. Cleanup
+is itself time-bounded, and failure or timeout
 still overrides a scan result with `cleanup-failed`. Invalidation and disposal
 interrupt active or queued effects; disposal waits for the semaphore after
 finalizers settle.
@@ -37,12 +39,12 @@ and adapter seam.
 
 ## Temporary application bridge
 
-Application workflows still return Promises until their ordered migration
-slices. `src/effect/runtime-boundary.ts` is the only temporary production
-`Effect.run*` location. It does not create a private managed runtime; it executes
-short-lived effects on Effect's default runtime and bridges the existing Promise
-surface. The architecture checker allowlists this file and `src/extension.ts`
-only.
+Application workflows now expose native effects, while the Pi/TUI host adapters
+still use temporary Promise facades. `src/effect/runtime-boundary.ts` is the only
+temporary production `Effect.run*` location. It does not create a private managed
+runtime; it executes short-lived effects on Effect's default runtime and bridges
+the existing Promise surface. The architecture checker allowlists this file and
+`src/extension.ts` only.
 
 M7.7 removes the temporary bridge and routes these same effects through the one
 managed runtime/root scope owned by the extension instance. Lower process,

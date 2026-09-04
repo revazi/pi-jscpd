@@ -33,8 +33,9 @@ invalidation, layer release, or caller-fiber interruption aborts active work and
 settles that generation as lifecycle-cancelled. A completion can commit only when
 both its generation and active-capture identity still match.
 
-Capability and adapter Promise ports remain temporary application dependencies,
-but their cancellation is linked to the baseline fiber. Project canonicalization
+M7.6 exposes the capability and adapter effects directly to application
+workflows; temporary Promise facades remain only for host compatibility. Their
+cancellation is linked to the baseline fiber. Project canonicalization
 and content identity indexing now compose directly with `JscpdFileSystem` and the
 Effect identity program from M7.3. Public baseline states and failure reasons are
 unchanged.
