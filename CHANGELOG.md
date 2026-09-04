@@ -12,8 +12,8 @@ until publication is approved.
 ### Added
 
 - Pi-native `jscpd_run` tool and namespaced `/jscpd` command surface.
-- Lazy installed-jscpd v5 capability detection and bounded shell-free process
-  ownership.
+- Pinned jscpd `5.1.2` runtime dependency with project-local, `PATH`, and bundled
+  resolution, plus bounded shell-free process ownership and no runtime download.
 - Strict normalized jscpd JSON report validation and scope-safe explicit scans.
 - Trusted extension configuration, session controls, branch-local state, and
   changed-file attribution.

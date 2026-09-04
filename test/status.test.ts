@@ -139,9 +139,11 @@ describe("bounded jscpd status", () => {
 
     const result = await service.inspect({ cwd: "/private/project" });
 
-    expect(result.message).toContain("Binary: unavailable (checked jscpd and cpd)");
+    expect(result.message).toContain(
+      "Binary: unavailable (checked project, PATH, and bundled jscpd)",
+    );
     expect(result.message).toContain("State: dormant");
-    expect(result.message).toContain("install jscpd v5");
+    expect(result.message).toContain("reinstall pi-jscpd");
     expect(result.message).not.toContain("/private/project");
     expect(capability.probe).toHaveBeenCalledWith({
       cwd: "/private/project",

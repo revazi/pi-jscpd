@@ -305,7 +305,7 @@ Use /jscpd changed, /jscpd scan, /jscpd off|on, or /jscpd help.
 ```text
 pi-jscpd | unavailable
 jscpd v5 was not found (checked jscpd, then cpd).
-Install it yourself and ensure jscpd or cpd is on PATH.
+The bundled analyzer is unavailable. Reinstall pi-jscpd.
 > Refresh status
   Help
 No scan started.

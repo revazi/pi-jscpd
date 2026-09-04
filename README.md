@@ -13,21 +13,15 @@ languages, and statistics.
 
 ## Install
 
-### 1. Install jscpd v5
-
-Install jscpd v5 using its [upstream instructions](https://github.com/kucherenko/jscpd), then confirm that either `jscpd` or `cpd` is on `PATH`:
-
-```sh
-jscpd --version
-```
-
-`pi-jscpd` does not download or install the analyzer for you.
-
-### 2. Install the Pi package
-
 ```sh
 pi install npm:pi-jscpd
 ```
+
+The package includes a pinned jscpd v5 runtime dependency—there is no separate
+analyzer installation and no runtime download. If your project already installs
+a compatible jscpd locally, or `jscpd`/`cpd` is available on `PATH`, the
+extension uses that installation first and keeps the bundled version as a
+fallback.
 
 Start Pi in your project and verify the setup:
 
@@ -152,7 +146,7 @@ and limitations.
 ## Safety and privacy
 
 - Advisory and read-only by default.
-- Never installs jscpd or mutates source.
+- Never downloads packages at runtime or mutates source.
 - Invokes binaries with argument arrays, never a shell command string.
 - Keeps reports in restrictive temporary directories and removes them after
   success, failure, timeout, cancellation, or shutdown.
@@ -169,7 +163,7 @@ and limitations.
 | Node.js | `>=22.19.0 <23` or `>=24 <25` |
 | Pi packages | `>=0.84.4 <0.85.0` |
 | TypeBox | `>=1.3.7 <2` |
-| jscpd | v5 through `jscpd` or `cpd` on `PATH` |
+| jscpd | Bundled `5.1.2`; compatible project-local or `PATH` v5 installations are preferred |
 
 See the [compatibility policy](docs/compatibility.md) for the exact tested
 fixtures and certification matrix.

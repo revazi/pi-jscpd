@@ -15,6 +15,7 @@ interface PackageManifest {
   files?: string[];
   keywords?: string[];
   scripts?: Record<string, string>;
+  dependencies?: Record<string, string>;
   devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   engines?: { node?: string };
@@ -54,6 +55,12 @@ describe("Pi package manifest", () => {
     }
     expect(manifest.peerDependencies?.typebox).toBe(">=1.3.7 <2");
     expect(manifest.devDependencies?.typebox).toBe("1.3.7");
+  });
+
+  it("ships the supported jscpd analyzer as an exact runtime dependency", async () => {
+    const manifest = await readManifest();
+
+    expect(manifest.dependencies).toEqual({ jscpd: "5.1.2" });
   });
 
   it("pins development tooling fixtures", async () => {

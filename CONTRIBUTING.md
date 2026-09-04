@@ -41,9 +41,12 @@ non-publishing workflow. `pack:certify` installs and exercises the exact tarball
 CI repeats those checks on Node 22.19.0 and 24.12.0.
 
 Tests must not require network access, read or modify global Pi configuration,
-write reports into a source tree, or depend on a locally installed jscpd binary.
-Use deterministic fake executables and fixtures. A real jscpd v5 smoke test may
-be reported as additional local evidence, never as a replacement for tests.
+write reports into a source tree, or depend on a separately installed jscpd
+binary. Use deterministic fake executables for controlled reports and process
+lifecycle cases. Capability and packed-artifact checks also probe the exact
+jscpd runtime dependency declared by the package. The repository's Fallow
+configuration records that indirect CLI use and disables Fallow clone detection
+so jscpd remains this project's single duplication authority.
 
 ## Pull requests
 

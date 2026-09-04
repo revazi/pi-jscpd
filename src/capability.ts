@@ -1,3 +1,4 @@
+import { delimiter, dirname, join, parse, resolve } from "node:path";
 import { createProcessEnvironmentWithPath, runBoundedProcess } from "./process.js";
 
 export const JSCPD_SUPPORTED_MAJOR = 5;
@@ -6,11 +7,14 @@ export const JSCPD_VERSION_MAX_OUTPUT_BYTES = 4_096;
 
 const VERSION_ARGUMENTS = ["--version"] as const;
 const EXECUTABLES = ["jscpd", "cpd"] as const;
+const PACKAGE_ROOT = resolve(import.meta.dirname, "..");
+const MAX_PROJECT_BIN_DIRECTORIES = 64;
 const MAX_VERSION_LINE_LENGTH = 128;
 const VERSION_PATTERN =
   /^(?:(?:jscpd|cpd)(?:\s+version)?\s*[:=]?\s*)?v?((0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)$/i;
 
 export type JscpdExecutable = (typeof EXECUTABLES)[number];
+export type JscpdCapabilitySource = "project-or-path" | "bundled";
 
 export type JscpdProbeFailureReason =
   | "malformed-version"
@@ -25,6 +29,7 @@ export type JscpdCapabilityResult =
       executable: JscpdExecutable;
       version: string;
       major: typeof JSCPD_SUPPORTED_MAJOR;
+      source?: JscpdCapabilitySource;
     }
   | {
       status: "missing";
@@ -36,6 +41,7 @@ export type JscpdCapabilityResult =
       version: string;
       major: number;
       supportedMajor: typeof JSCPD_SUPPORTED_MAJOR;
+      source?: JscpdCapabilitySource;
     }
   | {
       status: "cancelled";
@@ -101,12 +107,14 @@ interface CachedCapability {
 interface CapabilityProbeContext {
   cwd: string;
   path: string;
+  executionPath: string;
   key: string;
 }
 
 interface VersionProbeContext {
   cwd: string;
   path: string;
+  executionPath: string;
   signal: AbortSignal;
 }
 
@@ -182,6 +190,7 @@ class DefaultJscpdCapabilityService implements JscpdCapabilityService {
       const result = await probeExecutables(this.#executor, {
         cwd: context.cwd,
         path: context.path,
+        executionPath: context.executionPath,
         signal: linkedAbort.controller.signal,
       });
       this.#cacheResult(context.key, generation, result);
@@ -245,28 +254,38 @@ async function probeExecutables(
   executor: JscpdProbeExecutor,
   context: VersionProbeContext,
 ): Promise<JscpdCapabilityResult> {
+  let externalFailure: JscpdCapabilityResult | undefined;
   for (const executable of EXECUTABLES) {
-    const execution = await runVersionProbe(executor, executable, context);
+    const execution = await runVersionProbe(executor, executable, context, context.path);
     if (execution.status === "missing") {
       continue;
     }
-    return capabilityFromStartedProbe(executable, execution);
+    const capability = capabilityFromStartedProbe(executable, execution, "project-or-path");
+    if (capability.status === "available" || capability.status === "cancelled") {
+      return capability;
+    }
+    externalFailure = capability;
+    break;
   }
 
-  return { status: "missing", checked: EXECUTABLES };
+  const bundled = await runVersionProbe(executor, "jscpd", context, context.executionPath);
+  return bundled.status === "missing"
+    ? (externalFailure ?? { status: "missing", checked: EXECUTABLES })
+    : capabilityFromStartedProbe("jscpd", bundled, "bundled");
 }
 
 async function runVersionProbe(
   executor: JscpdProbeExecutor,
   executable: JscpdExecutable,
   context: VersionProbeContext,
+  path: string,
 ): Promise<JscpdProbeExecutionResult> {
   try {
     return await executor.run({
       executable,
       args: VERSION_ARGUMENTS,
       cwd: context.cwd,
-      path: context.path,
+      path,
       signal: context.signal,
       timeoutMs: JSCPD_VERSION_TIMEOUT_MS,
       maxOutputBytes: JSCPD_VERSION_MAX_OUTPUT_BYTES,
@@ -279,10 +298,11 @@ async function runVersionProbe(
 function capabilityFromStartedProbe(
   executable: JscpdExecutable,
   execution: StartedProbeExecutionResult,
+  source: JscpdCapabilitySource,
 ): JscpdCapabilityResult {
   switch (execution.status) {
     case "completed":
-      return capabilityFromCompletedProbe(executable, execution);
+      return capabilityFromCompletedProbe(executable, execution, source);
     case "cancelled":
       return { status: "cancelled", executable };
     case "timed-out":
@@ -297,6 +317,7 @@ function capabilityFromStartedProbe(
 function capabilityFromCompletedProbe(
   executable: JscpdExecutable,
   execution: Extract<JscpdProbeExecutionResult, { status: "completed" }>,
+  source: JscpdCapabilitySource,
 ): JscpdCapabilityResult {
   if (execution.exitCode !== 0) {
     return {
@@ -314,12 +335,13 @@ function capabilityFromCompletedProbe(
   if (!parsed) {
     return { status: "failed", executable, reason: "malformed-version" };
   }
-  return capabilityFromParsedVersion(executable, parsed);
+  return capabilityFromParsedVersion(executable, parsed, source);
 }
 
 function capabilityFromParsedVersion(
   executable: JscpdExecutable,
   parsed: ParsedVersion,
+  source: JscpdCapabilitySource,
 ): JscpdCapabilityResult {
   if (parsed.major !== JSCPD_SUPPORTED_MAJOR) {
     return {
@@ -328,6 +350,7 @@ function capabilityFromParsedVersion(
       version: parsed.version,
       major: parsed.major,
       supportedMajor: JSCPD_SUPPORTED_MAJOR,
+      source,
     };
   }
   return {
@@ -335,6 +358,7 @@ function capabilityFromParsedVersion(
     executable,
     version: parsed.version,
     major: JSCPD_SUPPORTED_MAJOR,
+    source,
   };
 }
 
@@ -353,12 +377,46 @@ function serviceDisposedResult(): JscpdCapabilityResult {
 }
 
 function createCapabilityProbeContext(request: JscpdCapabilityRequest): CapabilityProbeContext {
-  const path = request.path ?? process.env.PATH ?? "";
+  const configuredPath = request.path ?? process.env.PATH ?? "";
   return {
     cwd: request.cwd,
-    path,
-    key: createResolutionKey(request.cwd, path),
+    path: createExternalJscpdPath(request.cwd, configuredPath),
+    executionPath: createJscpdExecutionPath(request.cwd, configuredPath, "bundled"),
+    key: createResolutionKey(request.cwd, configuredPath),
   };
+}
+
+/** Build the deterministic PATH used for scans after capability resolution. */
+export function createJscpdExecutionPath(
+  cwd: string,
+  configuredPath: string = process.env.PATH ?? "",
+  source: JscpdCapabilitySource = "project-or-path",
+): string {
+  const external = [...projectBinDirectories(cwd), configuredPath];
+  const bundled = [join(PACKAGE_ROOT, "node_modules", ".bin"), join(dirname(PACKAGE_ROOT), ".bin")];
+  return joinPathEntries(
+    source === "bundled" ? [...bundled, ...external] : [...external, ...bundled],
+  );
+}
+
+function createExternalJscpdPath(cwd: string, configuredPath: string): string {
+  return joinPathEntries([...projectBinDirectories(cwd), configuredPath]);
+}
+
+function projectBinDirectories(cwd: string): string[] {
+  const directories: string[] = [];
+  let current = resolve(cwd);
+  for (let depth = 0; depth < MAX_PROJECT_BIN_DIRECTORIES; depth += 1) {
+    directories.push(join(current, "node_modules", ".bin"));
+    const parent = dirname(current);
+    if (parent === current || current === parse(current).root) break;
+    current = parent;
+  }
+  return directories;
+}
+
+function joinPathEntries(entries: readonly string[]): string {
+  return entries.filter((entry) => entry.length > 0).join(delimiter);
 }
 
 function createLinkedAbortController(signal: AbortSignal | undefined): LinkedAbortController {

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
+  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -9,6 +10,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -38,7 +40,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
 export async function certifyPackage() {
   const workspace = mkdtempSync(join(tmpdir(), "pi-jscpd-package-certification-"));
   const packDirectory = join(workspace, "pack");
-  const installDirectory = join(workspace, "project");
+  const installDirectory = join(workspace, "install");
+  const runtimeDirectory = join(workspace, "project");
   const fakeBinDirectory = join(workspace, "bin");
   const cleanupPids = [];
 
@@ -48,27 +51,37 @@ export async function certifyPackage() {
     const tarball = join(packDirectory, packed.filename);
     installTarball(tarball, installDirectory);
     const packageRoot = validateInstalledPackage(installDirectory);
+    createRuntimeProject(runtimeDirectory);
     const host = resolveLockedPiHost();
     const fake = createFakeJscpd(fakeBinDirectory, workspace);
 
-    await validateRpcRuntime(packageRoot, installDirectory, host, fake, join(workspace, "rpc"));
+    await validateRpcRuntime(packageRoot, runtimeDirectory, host, fake, join(workspace, "rpc"));
     await validateToolAndTuiContract(
       packageRoot,
-      installDirectory,
+      runtimeDirectory,
       host,
       fake,
       join(workspace, "probe"),
+      "project-or-path",
+    );
+    await validateToolAndTuiContract(
+      packageRoot,
+      runtimeDirectory,
+      host,
+      createNodeOnlyEnvironment(join(workspace, "node-only")),
+      join(workspace, "bundled-probe"),
+      "bundled",
     );
     validateNonInteractiveModes(
       packageRoot,
-      installDirectory,
+      runtimeDirectory,
       host,
       fake,
       join(workspace, "non-interactive"),
     );
     await validateShutdownCleanup(
       packageRoot,
-      installDirectory,
+      runtimeDirectory,
       host,
       fake,
       join(workspace, "shutdown"),
@@ -76,7 +89,7 @@ export async function certifyPackage() {
     );
 
     console.log(
-      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; RPC/tool/TUI-contract/JSON/print and shutdown cleanup).`,
+      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; bundled jscpd, RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
     );
   } finally {
     for (const pid of cleanupPids) terminateProcess(pid);
@@ -163,6 +176,15 @@ function installTarball(tarball, directory) {
   );
 }
 
+function createRuntimeProject(directory) {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  writeFileSync(
+    join(directory, "package.json"),
+    `${JSON.stringify({ name: "pi-jscpd-certification-runtime", private: true })}\n`,
+    { flag: "wx", mode: 0o600 },
+  );
+}
+
 function validateInstalledPackage(projectDirectory) {
   const packageRoot = join(projectDirectory, "node_modules", "pi-jscpd");
   const manifest = readJson(join(packageRoot, "package.json"));
@@ -171,7 +193,11 @@ function validateInstalledPackage(projectDirectory) {
   assert.equal(manifest.private, true, "Certification must not remove the release guard.");
   assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
   assert.deepEqual(manifest.pi?.extensions, ["./src/index.ts"]);
-  assert.equal(manifest.dependencies, undefined, "The package must not own runtime dependencies.");
+  assert.deepEqual(
+    manifest.dependencies,
+    { jscpd: "5.1.2" },
+    "The package must own exactly the certified jscpd runtime dependency.",
+  );
   assert.equal(manifest.optionalDependencies, undefined);
   assert.equal(manifest.bundleDependencies, undefined);
   assert.equal(manifest.bundledDependencies, undefined);
@@ -181,6 +207,10 @@ function validateInstalledPackage(projectDirectory) {
     "@earendil-works/pi-tui": ">=0.84.4 <0.85.0",
     typebox: ">=1.3.7 <2",
   });
+
+  const installedJscpd = readJson(join(projectDirectory, "node_modules", "jscpd", "package.json"));
+  assert.equal(installedJscpd.version, "5.1.2", "Installed jscpd differs from the pinned runtime.");
+  assert.deepEqual(installedJscpd.bin, { jscpd: "./run-jscpd.js" });
 
   const installedFiles = listFiles(packageRoot);
   assert.deepEqual(
@@ -257,7 +287,14 @@ async function validateRpcRuntime(packageRoot, projectDirectory, host, fake, run
   await assertNoReportDirectories(join(runRoot, "tmp"));
 }
 
-async function validateToolAndTuiContract(packageRoot, projectDirectory, host, fake, runRoot) {
+async function validateToolAndTuiContract(
+  packageRoot,
+  projectDirectory,
+  host,
+  fake,
+  runRoot,
+  expectedCapabilitySource,
+) {
   const marker = join(runRoot, "probe-result.json");
   mkdirSync(runRoot, { recursive: true, mode: 0o700 });
   const probe = join(runRoot, "artifact-probe.ts");
@@ -284,6 +321,11 @@ async function validateToolAndTuiContract(packageRoot, projectDirectory, host, f
   assert.equal(result.commandRequired, true);
   assert.deepEqual(result.commands, ["scan", "changed", "status", "off", "on", "help"]);
   assert.equal(result.executionStatus, "status");
+  assert.equal(result.capabilitySource, expectedCapabilitySource);
+  assert.equal(
+    result.capabilityVersion,
+    expectedCapabilitySource === "bundled" ? "5.1.2" : "5.1.0",
+  );
   assert.match(result.executionText, /jscpd status/i);
   assert.equal(result.tuiLineCount > 0, true);
   assert.match(result.tuiText, /jscpd/i);
@@ -449,7 +491,9 @@ export function isolatedEnvironment(runRoot, fake, extra = {}) {
   mkdirSync(agent, { recursive: true, mode: 0o700 });
   mkdirSync(temporary, { recursive: true, mode: 0o700 });
   const environment = {
-    PATH: `${fake.binDirectory}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
+    PATH: fake.exclusivePath
+      ? fake.binDirectory
+      : `${fake.binDirectory}${process.platform === "win32" ? ";" : ":"}${process.env.PATH ?? ""}`,
     HOME: home,
     TMPDIR: temporary,
     TMP: temporary,
@@ -465,6 +509,19 @@ export function isolatedEnvironment(runRoot, fake, extra = {}) {
     if (process.env[name] !== undefined) environment[name] = process.env[name];
   }
   return environment;
+}
+
+function createNodeOnlyEnvironment(binDirectory) {
+  mkdirSync(binDirectory, { recursive: true, mode: 0o700 });
+  const nodeName = process.platform === "win32" ? "node.exe" : "node";
+  const nodePath = join(binDirectory, nodeName);
+  if (process.platform === "win32") copyFileSync(process.execPath, nodePath);
+  else symlinkSync(process.execPath, nodePath);
+  return {
+    binDirectory,
+    scanLog: join(binDirectory, "unused-scan.log"),
+    exclusivePath: true,
+  };
 }
 
 function createFakeJscpd(binDirectory, workspace) {
@@ -574,6 +631,8 @@ export default async function (pi) {
         commandRequired: schema.required?.includes("command") ?? false,
         commands,
         executionStatus: status.status,
+        capabilitySource: status.capability?.source,
+        capabilityVersion: status.capability?.version,
         executionText: execution.content?.[0]?.text ?? "",
         tuiLineCount: lines.length,
         tuiText: lines.join("\\n"),

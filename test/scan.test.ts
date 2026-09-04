@@ -274,11 +274,16 @@ describe("end-to-end explicit scans", () => {
   });
 
   it("reports missing and incompatible executables before creating a report workspace", async () => {
-    const emptyPath = join(root, "empty-bin");
-    await mkdir(emptyPath);
-    const missingExecutor = createJscpdScanExecutor(createJscpdCapabilityService(), service, {
-      path: emptyPath,
-    });
+    const missingExecutor = createJscpdScanExecutor(
+      {
+        async probe() {
+          return { status: "missing", checked: ["jscpd", "cpd"] } as const;
+        },
+        invalidate() {},
+        dispose() {},
+      },
+      service,
+    );
     const incompatibleExecutor = createJscpdScanExecutor(
       {
         async probe() {

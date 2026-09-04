@@ -1,0 +1,6 @@
+{
+  "ignoreDependencies": ["jscpd"],
+  "duplicates": {
+    "enabled": false
+  }
+}
