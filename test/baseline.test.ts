@@ -3,10 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JscpdBaselineStartContext } from "../src/baseline.js";
-import type { JscpdCapabilityResult, JscpdCapabilityService } from "../src/capability.js";
+import type { JscpdCapabilityResult } from "../src/capability.js";
 import type { JscpdRunRequest, JscpdRunResult } from "../src/jscpd.js";
 import type { JscpdScanReport } from "../src/types.js";
 import { createBaselineTestDriver as createJscpdBaselineService } from "./support/baseline.js";
+import { capabilityFromPromise, type TestCapabilityProbe } from "./support/capability.js";
 import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
 
 let root: string;
@@ -41,9 +42,9 @@ function context(overrides: Partial<JscpdBaselineStartContext> = {}): JscpdBasel
 }
 
 function capability(result: JscpdCapabilityResult = available) {
-  const probe = vi.fn<JscpdCapabilityService["probe"]>(async () => result);
+  const probe = vi.fn<TestCapabilityProbe>(async () => result);
   return {
-    service: { probe, invalidate() {}, dispose() {} } satisfies JscpdCapabilityService,
+    service: capabilityFromPromise(probe),
     probe,
   };
 }

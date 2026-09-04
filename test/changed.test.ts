@@ -101,9 +101,8 @@ function baseline(state: JscpdBaselineState): JscpdBaselineService {
 
 function capability(): JscpdCapabilityService {
   return {
-    async probe() {
-      return { status: "available", executable: "jscpd", version: "5.1.1", major: 5 };
-    },
+    probeEffect: () =>
+      Effect.succeed({ status: "available", executable: "jscpd", version: "5.1.1", major: 5 }),
     invalidate() {},
     dispose() {},
   };

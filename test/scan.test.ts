@@ -278,9 +278,8 @@ describe("end-to-end explicit scans", () => {
   it("reports missing and incompatible executables before creating a report workspace", async () => {
     const missingExecutor = createJscpdScanExecutor(
       {
-        async probe() {
-          return { status: "missing", checked: ["jscpd", "cpd"] } as const;
-        },
+        probeEffect: () =>
+          Effect.succeed({ status: "missing", checked: ["jscpd", "cpd"] } as const),
         invalidate() {},
         dispose() {},
       },
@@ -288,15 +287,14 @@ describe("end-to-end explicit scans", () => {
     );
     const incompatibleExecutor = createJscpdScanExecutor(
       {
-        async probe() {
-          return {
+        probeEffect: () =>
+          Effect.succeed({
             status: "incompatible",
             executable: "jscpd",
             version: "4.0.0",
             major: 4,
             supportedMajor: 5,
-          };
-        },
+          }),
         invalidate() {},
         dispose() {},
       },
@@ -320,7 +318,7 @@ describe("end-to-end explicit scans", () => {
       major: 5 as const,
     }));
     const disabledExecutor = createJscpdScanExecutor(
-      { probe, invalidate() {}, dispose() {} },
+      { probeEffect: () => Effect.promise(probe), invalidate() {}, dispose() {} },
       service,
       {
         config: () => ({ enabled: false, timeoutMs: 30_000, maxFindings: 10 }),
@@ -341,9 +339,8 @@ describe("end-to-end explicit scans", () => {
   it("surfaces cleanup uncertainty separately from scan process failures", async () => {
     const cleanupExecutor = createJscpdScanExecutor(
       {
-        async probe() {
-          return { status: "available", executable: "jscpd", version: "5.1.1", major: 5 };
-        },
+        probeEffect: () =>
+          Effect.succeed({ status: "available", executable: "jscpd", version: "5.1.1", major: 5 }),
         invalidate() {},
         dispose() {},
       },

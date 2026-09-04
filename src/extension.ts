@@ -109,7 +109,7 @@ export function registerJscpdExtension(
   const fallowCoexistence =
     options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService();
   if (!executor) {
-    capabilityService ??= createJscpdCapabilityService(undefined, runtime);
+    capabilityService ??= createJscpdCapabilityService();
     verificationService ??= createJscpdVerificationService();
     sessionMode = createJscpdSessionModeService();
     const scanExecutor = createJscpdScanExecutor(

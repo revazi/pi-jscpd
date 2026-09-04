@@ -1,10 +1,9 @@
 import { delimiter, dirname, join, parse, resolve } from "node:path";
-import { Context, Effect, Exit, Layer } from "effect";
-import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
+import { Cause, Context, Effect, Layer } from "effect";
 import type { JscpdProcess } from "./effect/services.js";
 import {
+  type BoundedProcessResult,
   createProcessEnvironmentWithPath,
-  runBoundedProcess,
   runBoundedProcessEffect,
 } from "./process.js";
 
@@ -85,9 +84,7 @@ export interface JscpdProbeExecutionRequest {
 }
 
 export interface JscpdProbeExecutor {
-  run(request: JscpdProbeExecutionRequest): Promise<JscpdProbeExecutionResult>;
-  /** Effect-native production route; injected compatibility executors may provide only run. */
-  runEffect?: (
+  runEffect: (
     request: JscpdProbeExecutionRequest,
   ) => Effect.Effect<JscpdProbeExecutionResult, never, JscpdProcess>;
 }
@@ -110,9 +107,7 @@ export const JscpdCapability = Context.GenericTag<JscpdCapabilityEffectService>(
 );
 
 export interface JscpdCapabilityService {
-  probe(request: JscpdCapabilityRequest): Promise<JscpdCapabilityResult>;
-  /** Effect-native application path; compatibility implementations may provide only probe. */
-  probeEffect?: (
+  probeEffect: (
     request: JscpdCapabilityRequest,
   ) => Effect.Effect<JscpdCapabilityResult, never, JscpdProcess>;
   invalidate(): void;
@@ -171,14 +166,13 @@ export function parseJscpdVersion(output: string): ParsedVersion | undefined {
 }
 
 export function createNodeProbeExecutor(): JscpdProbeExecutor {
-  return { run: executeNodeProbe, runEffect: executeNodeProbeEffect };
+  return { runEffect: executeNodeProbeEffect };
 }
 
 export function createJscpdCapabilityService(
   executor: JscpdProbeExecutor = createNodeProbeExecutor(),
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCapabilityService {
-  return new DefaultJscpdCapabilityService(executor, runtime);
+  return new DefaultJscpdCapabilityService(executor);
 }
 
 /** Scoped capability layer whose cache and active probes belong to one service instance. */
@@ -196,30 +190,14 @@ export function createJscpdCapabilityLayer(
 
 class DefaultJscpdCapabilityService implements JscpdCapabilityService {
   readonly #executor: JscpdProbeExecutor;
-  readonly #runtime: JscpdEffectRuntime;
   readonly #activeControllers = new Set<AbortController>();
   #cache: CachedCapability | undefined;
   #resolutionKey: string | undefined;
   #generation = 0;
   #disposed = false;
 
-  constructor(executor: JscpdProbeExecutor, runtime: JscpdEffectRuntime = JscpdTestEffectRuntime) {
+  constructor(executor: JscpdProbeExecutor) {
     this.#executor = executor;
-    this.#runtime = runtime;
-  }
-
-  async probe(request: JscpdCapabilityRequest): Promise<JscpdCapabilityResult> {
-    if (this.#disposed) return serviceDisposedResult();
-    const context = createCapabilityProbeContext(request);
-    this.#selectResolutionKey(context.key);
-    const cached = this.#cachedResult(context.key);
-    if (cached) return cached;
-
-    const program = this.#probeUncachedEffect(context, request.signal);
-    const exit = await this.#runtime.runPromiseExit(program);
-    return Exit.isSuccess(exit)
-      ? exit.value
-      : { status: "failed", executable: "jscpd", reason: "execution-error" };
   }
 
   probeEffect(
@@ -231,7 +209,17 @@ class DefaultJscpdCapabilityService implements JscpdCapabilityService {
       this.#selectResolutionKey(context.key);
       const cached = this.#cachedResult(context.key);
       return cached ? Effect.succeed(cached) : this.#probeUncachedEffect(context, request.signal);
-    });
+    }).pipe(
+      Effect.catchAllCause((cause) =>
+        Cause.isInterruptedOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.succeed({
+              status: "failed",
+              executable: "jscpd",
+              reason: "execution-error",
+            } as const),
+      ),
+    );
   }
 
   #probeUncachedEffect(
@@ -370,16 +358,7 @@ function runVersionProbeEffect(
     timeoutMs: JSCPD_VERSION_TIMEOUT_MS,
     maxOutputBytes: JSCPD_VERSION_MAX_OUTPUT_BYTES,
   } satisfies JscpdProbeExecutionRequest;
-  if (executor.runEffect) return executor.runEffect(request);
-  return Effect.tryPromise({
-    try: (signal) => {
-      const linkedAbort = createLinkedAbortController(context.signal, signal);
-      return executor
-        .run({ ...request, signal: linkedAbort.controller.signal })
-        .finally(linkedAbort.detach);
-    },
-    catch: () => undefined,
-  }).pipe(Effect.match({ onFailure: () => ({ status: "failed" }), onSuccess: (result) => result }));
+  return executor.runEffect(request);
 }
 
 function capabilityFromStartedProbe(
@@ -548,7 +527,7 @@ function normalizeExitCode(exitCode: number): number {
 function executeNodeProbeEffect(
   request: JscpdProbeExecutionRequest,
 ): Effect.Effect<JscpdProbeExecutionResult, never, JscpdProcess> {
-  return runBoundedProcessEffect({
+  const process = runBoundedProcessEffect({
     stage: "probe",
     executable: request.executable,
     args: request.args,
@@ -557,31 +536,18 @@ function executeNodeProbeEffect(
     timeoutMs: request.timeoutMs,
     maxOutputBytes: request.maxOutputBytes,
   }).pipe(Effect.map(probeExecutionResult));
-}
-
-async function executeNodeProbe(
-  request: JscpdProbeExecutionRequest,
-): Promise<JscpdProbeExecutionResult> {
-  const result = await runBoundedProcess(
-    {
-      stage: "probe",
-      executable: request.executable,
-      args: request.args,
-      cwd: request.cwd,
-      env: createProcessEnvironmentWithPath(request.path),
-      signal: request.signal,
-      timeoutMs: request.timeoutMs,
-      maxOutputBytes: request.maxOutputBytes,
-    },
-    JscpdTestEffectRuntime,
+  const cancelled = { status: "cancelled" } as const;
+  return Effect.suspend(() =>
+    request.signal.aborted
+      ? Effect.succeed(cancelled)
+      : Effect.raceFirst(
+          process,
+          awaitProbeCancellation(request.signal).pipe(Effect.as(cancelled)),
+        ),
   );
-
-  return probeExecutionResult(result);
 }
 
-function probeExecutionResult(
-  result: Awaited<ReturnType<typeof runBoundedProcess>>,
-): JscpdProbeExecutionResult {
+function probeExecutionResult(result: BoundedProcessResult): JscpdProbeExecutionResult {
   switch (result.status) {
     case "completed":
       return {

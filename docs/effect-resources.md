@@ -36,8 +36,10 @@ finalizers settle.
 `src/capability.ts` exposes `JscpdCapability` and a scoped layer. Route probing,
 fallback order, interruption, active-probe ownership, generation-aware caching,
 and disposal are composed as effects. The production executor calls
-`JscpdProcess` directly; injected compatibility executors remain a bounded test
-and adapter seam.
+`JscpdProcess` directly. Both the capability service and executor now require
+native effects; Promise executors exist only as characterization fixtures under
+`test/support/`. Native defects map to bounded non-cacheable failures, while
+fiber interruption remains distinct and waits for finalizers.
 
 ## Managed host boundary
 

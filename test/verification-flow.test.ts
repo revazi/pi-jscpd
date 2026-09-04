@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdRunRequest, JscpdService } from "../src/jscpd.js";
@@ -68,9 +69,8 @@ function report(...clonePairs: JscpdClonePair[]): JscpdScanReport {
 
 function capability(): JscpdCapabilityService {
   return {
-    async probe() {
-      return { status: "available", executable: "jscpd", version: "5.1.0", major: 5 };
-    },
+    probeEffect: () =>
+      Effect.succeed({ status: "available", executable: "jscpd", version: "5.1.0", major: 5 }),
     invalidate() {},
     dispose() {},
   };
