@@ -73,9 +73,11 @@ filesystem persistence was added.
 
 ## Compatibility bridge and tests
 
-Promise-facing compatibility callers submit the same Effect programs through
-the supplied `JscpdEffectRuntime`; isolated tests use the explicit runner in
-`src/effect/runtime-boundary.ts`. Synchronous acknowledgement and verification
+Baseline and changed-file services expose only native effects for asynchronous
+operations; Pi adapters submit those effects through the host-owned runtime.
+Characterization Promise runners live only under `test/support/`, while native
+service tests exercise injected layers and lazy state transitions directly.
+Synchronous acknowledgement and verification
 calls use the same `MutableRef` owners directly, so no duplicate mutable closure
 or Promise implementation remains. M7.5 consumes these acknowledgement owners
 through Effect delivery transactions without adding parallel state.

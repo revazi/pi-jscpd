@@ -21,6 +21,15 @@ export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
   "src/scan.ts",
 ]);
 
+export const EFFECT_ONLY_SERVICE_BOUNDARIES = Object.freeze([
+  "src/baseline.ts",
+  "src/changed-files.ts",
+  "src/clone-identity.ts",
+  "src/config.ts",
+  "src/fallow.ts",
+  "src/jscpd-report.ts",
+]);
+
 export const MIGRATED_APPLICATION_BOUNDARIES = Object.freeze([
   "src/baseline.ts",
   "src/changed.ts",
@@ -53,6 +62,7 @@ export function checkEffectBoundaries() {
   const filesystemViolations = [];
   const concurrencyViolations = [];
   const applicationViolations = [];
+  const serviceViolations = [];
   let runtimeCalls = 0;
   let managedRuntimeCreations = 0;
   for (const absolutePath of typescriptFiles(sourceRoot)) {
@@ -74,6 +84,10 @@ export function checkEffectBoundaries() {
     if (MIGRATED_APPLICATION_BOUNDARIES.includes(path)) {
       applicationViolations.push(...findPromiseWorkflowConstructs(sourceText, path));
     }
+    if (EFFECT_ONLY_SERVICE_BOUNDARIES.includes(path)) {
+      serviceViolations.push(...findServiceExecutionBridges(sourceText, path));
+      applicationViolations.push(...findPromiseWorkflowConstructs(sourceText, path));
+    }
   }
   assert.deepEqual(
     violations,
@@ -81,6 +95,11 @@ export function checkEffectBoundaries() {
     `Effect runtime calls are allowed only in ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}:\n${violations
       .map(({ path, line, name }) => `- ${path}:${line} ${name}`)
       .join("\n")}`,
+  );
+  assert.deepEqual(
+    serviceViolations,
+    [],
+    `Effect-only services must not depend on runners or Promise contracts: ${JSON.stringify(serviceViolations)}`,
   );
   assert.equal(
     managedRuntimeCreations,
@@ -110,6 +129,37 @@ export function checkEffectBoundaries() {
   );
   console.log(
     `Effect boundary check passed: ${runtimeCalls} direct test-runtime calls and ${managedRuntimeCreations} managed-runtime factory in ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer; ${MIGRATED_CONCURRENCY_BOUNDARIES.length} migrated concurrency modules contain no unmanaged Promise/timer creation; ${MIGRATED_APPLICATION_BOUNDARIES.length} application modules contain no async/Promise-chain orchestration.`,
+  );
+}
+
+export function findServiceExecutionBridges(sourceText, path = "fixture.ts") {
+  return findNamedSyntax(sourceText, path, (node) => {
+    if (isRuntimeDependency(node)) return "runtime dependency";
+    if (
+      ts.isTypeReferenceNode(node) &&
+      ts.isIdentifier(node.typeName) &&
+      node.typeName.text === "Promise"
+    ) {
+      return "Promise contract";
+    }
+    if (ts.isCallExpression(node)) {
+      const member = memberParts(node.expression);
+      if (member && ["runPromise", "runPromiseExit", "runSync", "runFork"].includes(member.name)) {
+        return `execution bridge: ${member.name}`;
+      }
+    }
+    return undefined;
+  });
+}
+
+function isRuntimeDependency(node) {
+  if (!ts.isStringLiteral(node) || !/(?:^|\/)runtime-(?:boundary|contract)\.[jt]s$/.test(node.text))
+    return false;
+  const parent = node.parent;
+  return (
+    ts.isImportDeclaration(parent) ||
+    ts.isExportDeclaration(parent) ||
+    (ts.isCallExpression(parent) && parent.expression.kind === ts.SyntaxKind.ImportKeyword)
   );
 }
 

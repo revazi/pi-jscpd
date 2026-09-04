@@ -251,10 +251,18 @@ and TUI rendering remain callback-driven. See
 
 ### Step 8 — Legacy removal and conformance ([#71](https://github.com/revazi/pi-jscpd/issues/71))
 
-Search the whole source tree for temporary adapters, duplicate factories,
-floating promises/fibers, unmanaged processes/timers/listeners, broad error
-erasure, forbidden `Effect.run*`, and obsolete tests/types. Remove them and make
-the architecture check authoritative.
+In progress: the analyzer, configuration, Fallow coexistence, baseline, and
+changed-file services now expose only native effects for asynchronous operations.
+Clone indexing and report decoding also no longer carry test-only Promise
+facades. Characterization runners live under `test/support/`; native tests cover
+lazy construction, injected filesystem access, and stale-start rejection.
+An AST gate rejects runtime dependencies, Promise contracts, and execution
+bridges in the migrated Effect-only service modules.
+
+The remaining audit must remove temporary capability, command/status, and
+scheduler/automatic adapters and test-runtime defaults; trace background work
+and finalizer ownership; and check the whole tree for unmanaged resources,
+broad error erasure, and obsolete tests/types. This step is not yet complete.
 
 ### Step 9 — Pre-release recertification ([#72](https://github.com/revazi/pi-jscpd/issues/72))
 

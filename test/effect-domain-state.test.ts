@@ -1,9 +1,18 @@
-import { Effect, Fiber, Layer } from "effect";
+import { Deferred, Effect, Fiber, Layer } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { createJscpdAcknowledgementLayer, JscpdAcknowledgements } from "../src/acknowledgements.js";
-import { createJscpdBaselineLayer, JscpdBaseline } from "../src/baseline.js";
+import {
+  createJscpdBaselineLayer,
+  createJscpdBaselineService,
+  JscpdBaseline,
+} from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
-import { createJscpdChangedFilesLayer, JscpdChangedFiles } from "../src/changed-files.js";
+import {
+  createJscpdChangedFilesLayer,
+  createJscpdChangedFileTracker,
+  JscpdChangedFiles,
+} from "../src/changed-files.js";
+import { JscpdFileSystem } from "../src/effect/services.js";
 import type { JscpdRunRequest, JscpdService } from "../src/jscpd.js";
 import {
   JSCPD_SESSION_STATE_VERSION,
@@ -70,6 +79,85 @@ function adapterService(run: JscpdPromiseRun): JscpdService {
 }
 
 describe("Effect domain state services", () => {
+  it("does not change baseline state until the native start effect executes", async () => {
+    const service = createJscpdBaselineService(availableCapabilityService(), {
+      runEffect: () => Effect.die("disabled capture must not run"),
+      invalidate() {},
+      disposeEffect: () => Effect.void,
+    });
+    const filesystem = createJscpdFileSystemTestLayer([]);
+    const process = createJscpdProcessTestLayer([]);
+    const start = service.startEffect({
+      cwd: project,
+      enabled: false,
+      timeoutMs: 100,
+      hasPriorChanges: false,
+    });
+    expect(service.current()).toEqual({ status: "unstarted" });
+    await expect(
+      Effect.runPromise(start.pipe(Effect.provide(Layer.merge(filesystem.layer, process.layer)))),
+    ).resolves.toEqual({ status: "unavailable", reason: "disabled" });
+    await expect(Effect.runPromise(service.waitEffect)).resolves.toEqual(service.current());
+    expect(filesystem.operations).toEqual([]);
+    expect(process.requests).toEqual([]);
+  });
+  it("keeps native tracker construction lazy and uses only the injected filesystem", async () => {
+    const tracker = createJscpdChangedFileTracker();
+    const filesystem = createJscpdFileSystemTestLayer([
+      { path: project, kind: "directory" },
+      { path: `${project}/a.ts`, bytes: new Uint8Array([1]) },
+    ]);
+    const start = tracker.startEffect(project, ["restored.ts"]);
+    expect(tracker.files()).toEqual([]);
+    expect(filesystem.operations).toEqual([]);
+    const result = await Effect.runPromise(
+      Effect.gen(function* () {
+        yield* start;
+        const added = yield* tracker.recordToolResultEffect(mutation("a.ts"), project);
+        const repeated = yield* tracker.recordToolResultEffect(mutation("a.ts"), project);
+        const path = yield* tracker.recordToolResultPathEffect(mutation("a.ts"), project);
+        return { added, repeated, path, files: yield* tracker.filesEffect };
+      }).pipe(Effect.provide(filesystem.layer)),
+    );
+    expect(result).toEqual({
+      added: true,
+      repeated: false,
+      path: "a.ts",
+      files: ["a.ts", "restored.ts"],
+    });
+  });
+
+  it("does not let pending native tracker startup restore roots after reset", async () => {
+    const tracker = createJscpdChangedFileTracker();
+    const filesystem = createJscpdFileSystemTestLayer([{ path: project, kind: "directory" }]);
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const live = yield* JscpdFileSystem;
+        const entered = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+        const delayed = {
+          ...live,
+          canonicalize: (path: string) =>
+            Deferred.succeed(entered, undefined).pipe(
+              Effect.zipRight(Deferred.await(release)),
+              Effect.zipRight(live.canonicalize(path)),
+            ),
+        };
+        const startup = yield* Effect.fork(
+          tracker
+            .startEffect(project, ["old.ts"])
+            .pipe(Effect.provideService(JscpdFileSystem, delayed)),
+        );
+        yield* Deferred.await(entered);
+        tracker.reset();
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(startup);
+        expect(tracker.files()).toEqual([]);
+        expect(yield* tracker.recordToolResultEffect(mutation("a.ts"), project)).toBe(false);
+        expect(filesystem.operations).not.toContain(`canonicalize:${project}/a.ts`);
+      }).pipe(Effect.provide(filesystem.layer)),
+    );
+  });
   it("serializes acknowledgement transactions against one revision", async () => {
     const first = finding(1);
     const second = finding(2);

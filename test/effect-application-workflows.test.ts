@@ -155,12 +155,7 @@ describe("Effect application workflows", () => {
 
   it("composes baseline comparison and acknowledgement reconciliation as one Effect", async () => {
     const baseline: JscpdBaselineService = {
-      async start() {
-        return this.current();
-      },
-      async wait() {
-        throw new Error("compatibility baseline wait must not run");
-      },
+      startEffect: () => Effect.sync(() => baseline.current()),
       waitEffect: Effect.succeed({
         status: "accepted",
         outcome: "clean",
@@ -179,14 +174,10 @@ describe("Effect application workflows", () => {
       },
     };
     const changedFiles: JscpdChangedFileTracker = {
-      async start() {},
+      startEffect: () => Effect.void,
       reset() {},
-      async recordToolResult() {
-        return false;
-      },
-      async recordToolResultPath() {
-        return undefined;
-      },
+      recordToolResultEffect: () => Effect.succeed(false),
+      recordToolResultPathEffect: () => Effect.succeed(undefined),
       files: () => {
         throw new Error("compatibility changed-files read must not run");
       },
@@ -229,8 +220,7 @@ describe("Effect application workflows", () => {
         }),
       } satisfies JscpdAcknowledgementTracker;
       const baseline: JscpdBaselineService = {
-        start: async () => baseline.current(),
-        wait: async () => baseline.current(),
+        startEffect: () => Effect.sync(() => baseline.current()),
         waitEffect: Effect.succeed({
           status: "accepted",
           outcome: "clean",
@@ -247,10 +237,10 @@ describe("Effect application workflows", () => {
         }),
       };
       const changedFiles: JscpdChangedFileTracker = {
-        start: async () => undefined,
+        startEffect: () => Effect.void,
         reset() {},
-        recordToolResult: async () => false,
-        recordToolResultPath: async () => undefined,
+        recordToolResultEffect: () => Effect.succeed(false),
+        recordToolResultPathEffect: () => Effect.succeed(undefined),
         files: () => ["src/a.ts"],
         filesEffect: Effect.succeed(["src/a.ts"]),
       };

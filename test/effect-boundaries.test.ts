@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 const {
   APPROVED_EFFECT_RUNTIME_BOUNDARIES,
+  EFFECT_ONLY_SERVICE_BOUNDARIES,
+  findServiceExecutionBridges,
   MIGRATED_APPLICATION_BOUNDARIES,
   MIGRATED_CONCURRENCY_BOUNDARIES,
   MIGRATED_FILESYSTEM_BOUNDARIES,
@@ -16,6 +18,29 @@ const {
 );
 
 describe("Effect runtime architecture boundary", () => {
+  it("rejects runtime dependencies and Promise contracts in Effect-only services", () => {
+    const source = `
+      import { runner as testRunner } from "./effect/runtime-boundary.js";
+      import type { JscpdEffectRuntime } from "./effect/runtime-contract.js";
+      const load = (): Promise<void> => testRunner["runPromise"](program);
+      const dynamic = import("./effect/runtime-boundary.js");
+      // testRunner.runSync(program)
+      const text = "./effect/runtime-boundary.js";
+    `;
+    expect(findServiceExecutionBridges(source).map(({ name }: { name: string }) => name)).toEqual([
+      "runtime dependency",
+      "runtime dependency",
+      "Promise contract",
+      "execution bridge: runPromise",
+      "runtime dependency",
+    ]);
+    expect(EFFECT_ONLY_SERVICE_BOUNDARIES).toContain("src/changed-files.ts");
+    expect(
+      findServiceExecutionBridges(
+        `import { Effect } from "effect"; const load = () => Effect.void;`,
+      ),
+    ).toEqual([]);
+  });
   it("recognizes aliases, namespace and element access, and direct named runners", () => {
     const source = `
       import { Effect as Fx } from "effect";

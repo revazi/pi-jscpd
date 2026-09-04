@@ -101,7 +101,7 @@ export function registerJscpdExtension(
   let baselineContext: JscpdBaselineStartContext | undefined;
   let shutdownPromise: Promise<void> | undefined;
   let persistSessionState = () => {};
-  const changedFiles = createJscpdChangedFileTracker(runtime);
+  const changedFiles = createJscpdChangedFileTracker();
   const acknowledgements = createJscpdAcknowledgementTracker();
   const scheduler = options.scheduler ?? createJscpdScanScheduler(runtime);
   const adapterService = options.adapterService ?? createJscpdService();
@@ -131,7 +131,7 @@ export function registerJscpdExtension(
       fallowCoexistence,
       runtime,
     );
-    baselineService ??= createJscpdBaselineService(capabilityService, adapterService, {}, runtime);
+    baselineService ??= createJscpdBaselineService(capabilityService, adapterService);
     persistSessionState = () => {
       if (!sessionMode || !statusService) return;
       try {
@@ -188,7 +188,7 @@ export function registerJscpdExtension(
       sessionMode,
       () => {
         persistSessionState();
-        synchronizeBaselineMode(baselineService, baselineContext, sessionMode);
+        synchronizeBaselineMode(runtime, baselineService, baselineContext, sessionMode);
       },
       changedExecutor,
       runtime,
@@ -223,6 +223,7 @@ export function registerJscpdExtension(
       }),
     );
     await restoreSessionState(
+      runtime,
       ctx.sessionManager.getBranch(),
       ctx.cwd,
       loaded.config.enabled,
@@ -237,7 +238,7 @@ export function registerJscpdExtension(
       changedFiles,
       sessionMode,
     );
-    startBaselineQuietly(baselineService, baselineContext);
+    startBaselineQuietly(runtime, baselineService, baselineContext);
     if (ctx.hasUI) {
       safeSetStatus(ctx.ui, undefined);
       for (const diagnostic of loaded.diagnostics) {
@@ -262,6 +263,7 @@ export function registerJscpdExtension(
       }),
     );
     await restoreSessionState(
+      runtime,
       ctx.sessionManager.getBranch(),
       ctx.cwd,
       config.enabled,
@@ -271,7 +273,7 @@ export function registerJscpdExtension(
       statusService,
     );
     baselineContext = createBaselineContext(ctx.cwd, config.timeoutMs, changedFiles, sessionMode);
-    startBaselineQuietly(baselineService, baselineContext);
+    startBaselineQuietly(runtime, baselineService, baselineContext);
     if (ctx.hasUI) {
       safeSetStatus(ctx.ui, undefined);
       const overlapNotice = fallowCoexistence.takeNotice();
@@ -298,13 +300,15 @@ export function registerJscpdExtension(
   });
   pi.on("tool_call", async (event) => {
     if (!isBuiltInMutationTool(pi, event.toolName)) return;
-    await baselineService?.wait();
+    if (baselineService) await runtime.runPromise(baselineService.waitEffect);
   });
   pi.on("tool_result", async (event, ctx) => {
     if (!isBuiltInMutationTool(pi, event.toolName)) return;
     try {
       const previouslyTracked = new Set(changedFiles.files());
-      const path = await changedFiles.recordToolResultPath(event, ctx.cwd);
+      const path = await runtime.runPromise(
+        changedFiles.recordToolResultPathEffect(event, ctx.cwd),
+      );
       if (path) {
         scheduler.markChanged();
         if (ctx.hasUI) safeSetStatus(ctx.ui, pendingAutomaticStatus(fallowCoexistence));
@@ -497,13 +501,15 @@ function createBaselineContext(
 }
 
 function startBaselineQuietly(
+  runtime: JscpdEffectRuntime,
   baselineService: JscpdBaselineService | undefined,
   context: JscpdBaselineStartContext,
 ): void {
-  void baselineService?.start(context).catch(() => undefined);
+  if (baselineService) void runtime.runPromiseExit(baselineService.startEffect(context));
 }
 
 function synchronizeBaselineMode(
+  runtime: JscpdEffectRuntime,
   baselineService: JscpdBaselineService | undefined,
   context: JscpdBaselineStartContext | undefined,
   sessionMode: JscpdSessionModeService | undefined,
@@ -518,7 +524,7 @@ function synchronizeBaselineMode(
     current.status === "unstarted" ||
     (current.status === "unavailable" && current.reason === "disabled")
   ) {
-    startBaselineQuietly(baselineService, {
+    startBaselineQuietly(runtime, baselineService, {
       ...context,
       enabled: true,
       hasPriorChanges: context.hasPriorChanges,
@@ -527,6 +533,7 @@ function synchronizeBaselineMode(
 }
 
 async function restoreSessionState(
+  runtime: JscpdEffectRuntime,
   activeBranch: readonly unknown[],
   cwd: string,
   configuredEnabled: boolean,
@@ -536,7 +543,7 @@ async function restoreSessionState(
   statusService?: JscpdStatusService,
 ): Promise<void> {
   const restored = restoreJscpdSessionState(activeBranch);
-  await changedFiles.start(cwd, restored?.changedFiles);
+  await runtime.runPromise(changedFiles.startEffect(cwd, restored?.changedFiles));
   acknowledgements.restore(restored?.acknowledgements);
   if (!sessionMode || !statusService) return;
   sessionMode.restore(configuredEnabled, restored?.modeOverride);

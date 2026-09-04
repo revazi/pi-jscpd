@@ -56,8 +56,8 @@ until publication is approved.
 
 ### Changed
 
-- Removed the superseded analyzer, configuration, and Fallow-coexistence Promise
-  facades, the parallel Promise report consumer, and filesystem-backed
+- Removed the superseded analyzer, configuration, Fallow-coexistence, baseline,
+  and changed-file Promise facades, the parallel Promise report consumer, and filesystem-backed
   clone/report test facades; these services now expose only their Effect-native
   production paths.
 - Locked existing command/tool, lifecycle, persistence, cancellation, and bounded
