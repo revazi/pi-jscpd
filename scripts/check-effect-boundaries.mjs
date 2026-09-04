@@ -13,18 +13,37 @@ export const APPROVED_EFFECT_RUNTIME_BOUNDARIES = Object.freeze([
   "src/extension.ts",
 ]);
 
+export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
+  "src/clone-identity.ts",
+  "src/config.ts",
+  "src/effect/filesystem.ts",
+  "src/fallow.ts",
+  "src/jscpd-report.ts",
+  "src/path-utils.ts",
+]);
+
+const APPROVED_NODE_FILESYSTEM_BOUNDARIES = Object.freeze(["src/effect/filesystem.ts"]);
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   checkEffectBoundaries();
 }
 
 export function checkEffectBoundaries() {
   const violations = [];
+  const filesystemViolations = [];
   let runtimeCalls = 0;
   for (const absolutePath of typescriptFiles(sourceRoot)) {
     const path = relative(root, absolutePath).replaceAll("\\", "/");
-    const calls = findEffectRuntimeCalls(readFileSync(absolutePath, "utf8"), path);
+    const sourceText = readFileSync(absolutePath, "utf8");
+    const calls = findEffectRuntimeCalls(sourceText, path);
     runtimeCalls += calls.length;
     if (!APPROVED_EFFECT_RUNTIME_BOUNDARIES.includes(path)) violations.push(...calls);
+    if (
+      MIGRATED_FILESYSTEM_BOUNDARIES.includes(path) &&
+      !APPROVED_NODE_FILESYSTEM_BOUNDARIES.includes(path)
+    ) {
+      filesystemViolations.push(...findNodeFileSystemImports(sourceText, path));
+    }
   }
   assert.deepEqual(
     violations,
@@ -33,9 +52,35 @@ export function checkEffectBoundaries() {
       .map(({ path, line, name }) => `- ${path}:${line} ${name}`)
       .join("\n")}`,
   );
-  console.log(
-    `Effect boundary check passed: ${runtimeCalls} runtime calls in src; approved boundaries: ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}.`,
+  assert.deepEqual(
+    filesystemViolations,
+    [],
+    `Migrated filesystem modules must use src/effect/filesystem.ts:\n${filesystemViolations
+      .map(({ path, line, moduleName }) => `- ${path}:${line} ${moduleName}`)
+      .join("\n")}`,
   );
+  console.log(
+    `Effect boundary check passed: ${runtimeCalls} runtime calls in src; approved boundaries: ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer.`,
+  );
+}
+
+export function findNodeFileSystemImports(sourceText, path = "fixture.ts") {
+  const source = ts.createSourceFile(
+    path,
+    sourceText,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const imports = [];
+  walk(source, (node) => {
+    if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) return;
+    const moduleName = node.moduleSpecifier.text;
+    if (moduleName !== "node:fs" && moduleName !== "node:fs/promises") return;
+    const { line } = source.getLineAndCharacterOfPosition(node.getStart(source));
+    imports.push(Object.freeze({ path, line: line + 1, moduleName }));
+  });
+  return imports;
 }
 
 /** Find actual Effect run calls through supported imports; comments and string literals are ignored. */

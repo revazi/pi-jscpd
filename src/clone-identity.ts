@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { constants as fsConstants } from "node:fs";
-import type { FileHandle } from "node:fs/promises";
-import { open, realpath } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
-import { canonicalDirectory, isPathInside } from "./path-utils.js";
+import { Cause, Effect, Exit } from "effect";
+import { JscpdFileSystemLive } from "./effect/filesystem.js";
+import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { JscpdFileSystem } from "./effect/services.js";
+import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
 import type { JscpdCloneOccurrence, JscpdClonePair, JscpdScanReport } from "./types.js";
 
 const MAX_IDENTITY_BLOCK_BYTES = 1024 * 1024;
@@ -52,6 +53,10 @@ interface OccurrenceIdentity {
   readonly contentDigest: string;
 }
 
+type OccurrenceIdentityResult =
+  | { readonly ok: true; readonly value: OccurrenceIdentity }
+  | { readonly ok: false; readonly issue: JscpdCloneIdentityIssue };
+
 /**
  * Derive content-aware identities immediately while report offsets still address this source tree.
  * Line, column, and byte positions are deliberately excluded from the final group fingerprint.
@@ -60,18 +65,37 @@ export async function indexJscpdCloneReport(
   report: JscpdScanReport,
   cwd: string,
 ): Promise<JscpdCloneSnapshot> {
-  const project = await canonicalDirectory(cwd);
-  const clonePairs = runtimeClonePairs(report);
-  if (!project || !clonePairs) {
-    return partialSnapshot([], clonePairs ? clonePairs.length : 0);
-  }
+  const exit = await runEffectExitAtApplicationBoundary(
+    indexJscpdCloneReportEffect(report, cwd).pipe(Effect.provide(JscpdFileSystemLive)),
+  );
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw Cause.squash(exit.cause);
+}
 
-  const groups = await Promise.all(clonePairs.map((clone) => indexCloneGroup(clone, project)));
-  return Object.freeze({
-    status: groups.some((group) => group.issue) ? "partial" : "accepted",
-    groups: Object.freeze(groups),
-    omittedGroups: 0,
-  });
+export function indexJscpdCloneReportEffect(
+  report: JscpdScanReport,
+  cwd: string,
+): Effect.Effect<JscpdCloneSnapshot, never, JscpdFileSystem> {
+  const clonePairs = runtimeClonePairs(report);
+  if (!clonePairs) return Effect.succeed(partialSnapshot([], 0));
+  return canonicalDirectoryEffect(cwd).pipe(
+    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.flatMap((project) =>
+      project
+        ? Effect.forEach(clonePairs, (clone) => indexCloneGroupEffect(clone, project), {
+            concurrency: "unbounded",
+          }).pipe(
+            Effect.map((groups) =>
+              Object.freeze({
+                status: groups.some((group) => group.issue) ? "partial" : "accepted",
+                groups: Object.freeze(groups),
+                omittedGroups: 0,
+              }),
+            ),
+          )
+        : Effect.succeed(partialSnapshot([], clonePairs.length)),
+    ),
+  );
 }
 
 /** Compare opaque identities conservatively; duplicate or unavailable identities stay ambiguous. */
@@ -118,29 +142,37 @@ function runtimeClonePairs(report: JscpdScanReport): readonly JscpdClonePair[] |
   return report.clonePairs;
 }
 
-async function indexCloneGroup(
+function indexCloneGroupEffect(
   clone: JscpdClonePair,
   project: string,
-): Promise<JscpdIndexedCloneGroup> {
-  if (!isClonePair(clone)) return Object.freeze({ clone, issue: "malformed-group" });
-  const [first, second] = await Promise.all([
-    occurrenceIdentity(clone.occurrences[0], project),
-    occurrenceIdentity(clone.occurrences[1], project),
-  ]);
-  if (!first.ok) return Object.freeze({ clone, issue: first.issue });
-  if (!second.ok) return Object.freeze({ clone, issue: second.issue });
-  const occurrenceFingerprints = Object.freeze([
-    fingerprintOccurrence(first.value),
-    fingerprintOccurrence(second.value),
-  ] as const);
-  const sortedOccurrences = [...occurrenceFingerprints].sort();
-  return Object.freeze({
-    clone,
-    fingerprint: digest(
-      JSON.stringify([clone.format, clone.lines, clone.tokens, sortedOccurrences]),
-    ),
-    occurrenceFingerprints,
-  });
+): Effect.Effect<JscpdIndexedCloneGroup, never, JscpdFileSystem> {
+  if (!isClonePair(clone)) {
+    return Effect.succeed(Object.freeze({ clone, issue: "malformed-group" }));
+  }
+  return Effect.all(
+    [
+      occurrenceIdentityEffect(clone.occurrences[0], project),
+      occurrenceIdentityEffect(clone.occurrences[1], project),
+    ],
+    { concurrency: "unbounded" },
+  ).pipe(
+    Effect.map(([first, second]) => {
+      if (!first.ok) return Object.freeze({ clone, issue: first.issue });
+      if (!second.ok) return Object.freeze({ clone, issue: second.issue });
+      const occurrenceFingerprints = Object.freeze([
+        fingerprintOccurrence(first.value),
+        fingerprintOccurrence(second.value),
+      ] as const);
+      const sortedOccurrences = [...occurrenceFingerprints].sort();
+      return Object.freeze({
+        clone,
+        fingerprint: digest(
+          JSON.stringify([clone.format, clone.lines, clone.tokens, sortedOccurrences]),
+        ),
+        occurrenceFingerprints,
+      });
+    }),
+  );
 }
 
 function isClonePair(value: unknown): value is JscpdClonePair {
@@ -155,34 +187,62 @@ function isClonePair(value: unknown): value is JscpdClonePair {
   );
 }
 
-async function occurrenceIdentity(
+function occurrenceIdentityEffect(
   occurrence: JscpdCloneOccurrence,
   project: string,
-): Promise<
-  { ok: true; value: OccurrenceIdentity } | { ok: false; issue: JscpdCloneIdentityIssue }
-> {
-  if (!isOccurrence(occurrence)) return { ok: false, issue: "malformed-group" };
-  const candidate = join(project, occurrence.path);
-  if (!isPathInside(project, candidate)) return { ok: false, issue: "unsafe-path" };
-
-  let canonical: string;
-  try {
-    canonical = await realpath(candidate);
-  } catch {
-    return { ok: false, issue: "missing-source" };
+): Effect.Effect<OccurrenceIdentityResult, never, JscpdFileSystem> {
+  if (!isOccurrence(occurrence)) {
+    return Effect.succeed({ ok: false, issue: "malformed-group" });
   }
-  if (!isPathInside(project, canonical)) return { ok: false, issue: "unsafe-path" };
+  const candidate = join(project, occurrence.path);
+  if (!isPathInside(project, candidate)) return Effect.succeed({ ok: false, issue: "unsafe-path" });
 
+  return Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    filesystem.canonicalize(candidate).pipe(
+      Effect.matchEffect({
+        onFailure: () => Effect.succeed({ ok: false, issue: "missing-source" } as const),
+        onSuccess: (canonical) =>
+          occurrenceIdentityFromCanonical(filesystem, occurrence, project, canonical),
+      }),
+    ),
+  );
+}
+
+function occurrenceIdentityFromCanonical(
+  filesystem: JscpdFileSystem,
+  occurrence: JscpdCloneOccurrence,
+  project: string,
+  canonical: string,
+): Effect.Effect<OccurrenceIdentityResult> {
+  if (!isPathInside(project, canonical)) {
+    return Effect.succeed({ ok: false, issue: "unsafe-path" } as const);
+  }
   const length = occurrence.end.offset - occurrence.start.offset;
-  if (!Number.isSafeInteger(length) || length <= 0) return { ok: false, issue: "invalid-range" };
-  if (length > MAX_IDENTITY_BLOCK_BYTES) return { ok: false, issue: "block-too-large" };
-
-  const content = await readExactBlock(canonical, occurrence.start.offset, length);
-  if (!content) return { ok: false, issue: "read-failed" };
-  return {
-    ok: true,
-    value: Object.freeze({ path: occurrence.path, contentDigest: digest(content) }),
-  };
+  if (!Number.isSafeInteger(length) || length <= 0) {
+    return Effect.succeed({ ok: false, issue: "invalid-range" } as const);
+  }
+  if (length > MAX_IDENTITY_BLOCK_BYTES) {
+    return Effect.succeed({ ok: false, issue: "block-too-large" } as const);
+  }
+  return filesystem
+    .read({
+      path: canonical,
+      maxBytes: MAX_IDENTITY_BLOCK_BYTES,
+      regularFileOnly: true,
+      noFollow: true,
+      offset: occurrence.start.offset,
+      length,
+      limitSubject: "report",
+    })
+    .pipe(
+      Effect.match({
+        onFailure: () => ({ ok: false, issue: "read-failed" }) as const,
+        onSuccess: (content) => ({
+          ok: true,
+          value: Object.freeze({ path: occurrence.path, contentDigest: digest(content) }),
+        }),
+      }),
+    );
 }
 
 function isOccurrence(value: unknown): value is JscpdCloneOccurrence {
@@ -203,31 +263,6 @@ function hasSafeOffset(
 ): value is JscpdCloneOccurrence["start"] {
   if (!value || !Number.isSafeInteger(value.offset)) return false;
   return value.offset >= 0;
-}
-
-async function readExactBlock(
-  path: string,
-  offset: number,
-  length: number,
-): Promise<Buffer | undefined> {
-  let file: FileHandle | undefined;
-  try {
-    file = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-    const metadata = await file.stat();
-    if (!metadata.isFile() || offset + length > metadata.size) return undefined;
-    const buffer = Buffer.alloc(length);
-    let total = 0;
-    while (total < length) {
-      const read = await file.read(buffer, total, length - total, offset + total);
-      if (read.bytesRead === 0) return undefined;
-      total += read.bytesRead;
-    }
-    return buffer;
-  } catch {
-    return undefined;
-  } finally {
-    await file?.close().catch(() => undefined);
-  }
 }
 
 function hasUnrepresentedPartialInput(snapshot: JscpdCloneSnapshot): boolean {

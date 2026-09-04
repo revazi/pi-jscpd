@@ -1,8 +1,9 @@
-import { constants as fsConstants } from "node:fs";
-import type { FileHandle } from "node:fs/promises";
-import { open, realpath } from "node:fs/promises";
 import { join } from "node:path";
-import { canonicalDirectory, isPathInside } from "./path-utils.js";
+import { Cause, Effect, Exit } from "effect";
+import { JscpdFileSystemLive } from "./effect/filesystem.js";
+import { runEffectExitAtApplicationBoundary } from "./effect/runtime-boundary.js";
+import { JscpdFileSystem } from "./effect/services.js";
+import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
 
 const MAX_SIGNAL_FILE_BYTES = 64 * 1024;
 const CONFIG_FILES = [".fallowrc", ".fallowrc.json", ".fallowrc.jsonc", "fallow.toml"] as const;
@@ -75,18 +76,47 @@ export function createJscpdFallowCoexistenceService(): JscpdFallowCoexistenceSer
 export async function evaluateJscpdFallowCoexistence(
   context: JscpdFallowCoexistenceContext,
 ): Promise<JscpdFallowCoexistenceState> {
+  const exit = await runEffectExitAtApplicationBoundary(
+    evaluateJscpdFallowCoexistenceEffect(context).pipe(Effect.provide(JscpdFileSystemLive)),
+  );
+  if (Exit.isSuccess(exit)) return exit.value;
+  throw Cause.squash(exit.cause);
+}
+
+export function evaluateJscpdFallowCoexistenceEffect(
+  context: JscpdFallowCoexistenceContext,
+): Effect.Effect<JscpdFallowCoexistenceState, never, JscpdFileSystem> {
   const policy = context.policy ?? "auto";
-  if (policy === "on-demand") return explicitOnDemandState();
-  if (policy === "allow") return explicitAllowState();
+  if (policy === "on-demand") return Effect.succeed(explicitOnDemandState());
+  if (policy === "allow") return Effect.succeed(explicitAllowState());
 
-  const project = context.trusted ? await canonicalDirectory(context.cwd) : undefined;
-  const projectSignals = project
-    ? await inspectProjectSignals(project)
-    : context.trusted
-      ? unreadableProjectSignals()
-      : emptyProjectSignals();
-  const signals = collectSignals(projectSignals, context.fallowToolAvailable);
+  return Effect.gen(function* () {
+    const project = context.trusted
+      ? yield* canonicalDirectoryEffect(context.cwd).pipe(
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        )
+      : undefined;
+    const projectSignals = project
+      ? yield* inspectProjectSignalsEffect(project)
+      : context.trusted
+        ? unreadableProjectSignals()
+        : emptyProjectSignals();
+    return coexistenceStateFromSignals(
+      projectSignals,
+      context.fallowToolAvailable,
+      context.trusted,
+      policy,
+    );
+  });
+}
 
+function coexistenceStateFromSignals(
+  projectSignals: ProjectSignals,
+  fallowToolAvailable: boolean,
+  trusted: boolean,
+  policy: JscpdFallowCoexistencePolicy,
+): JscpdFallowCoexistenceState {
+  const signals = collectSignals(projectSignals, fallowToolAvailable);
   if (projectSignals.duplicationConfig === "disabled") {
     return frozenState({
       status: "absent",
@@ -96,66 +126,74 @@ export async function evaluateJscpdFallowCoexistence(
       statusText: "Fallow overlap: duplication explicitly disabled in Fallow configuration",
     });
   }
-  if (projectSignals.unreadable) {
-    return frozenState({
-      status: "ambiguous",
-      policy,
-      automaticAllowed: true,
-      signals,
-      statusText: "Fallow overlap: ambiguous; automatic jscpd checks remain enabled",
-    });
-  }
-  if (
-    projectSignals.duplicationConfig === "enabled" ||
-    projectSignals.script ||
-    (context.fallowToolAvailable && (projectSignals.configPresent || projectSignals.dependency))
-  ) {
-    return detectedState(signals);
-  }
-  if (
-    !context.trusted ||
-    context.fallowToolAvailable ||
-    projectSignals.configPresent ||
-    projectSignals.dependency
-  ) {
-    return frozenState({
-      status: "ambiguous",
-      policy,
-      automaticAllowed: true,
-      signals,
-      statusText: "Fallow overlap: ambiguous; automatic jscpd checks remain enabled",
-    });
+  if (projectSignals.unreadable) return ambiguousState(policy, signals);
+  if (hasActiveDuplication(projectSignals, fallowToolAvailable)) return detectedState(signals);
+  if (hasAmbiguousPresence(projectSignals, fallowToolAvailable, trusted)) {
+    return ambiguousState(policy, signals);
   }
   return absentState(signals);
 }
 
-async function inspectProjectSignals(project: string): Promise<ProjectSignals> {
-  const config = await inspectFallowConfig(project);
-  const packageSignals = await inspectPackageJson(project);
-  return Object.freeze({
-    duplicationConfig: config.duplicationConfig,
-    script: packageSignals.script,
-    configPresent: config.present,
-    dependency: packageSignals.dependency,
-    unreadable: config.unreadable || packageSignals.unreadable,
+function hasActiveDuplication(project: ProjectSignals, fallowToolAvailable: boolean): boolean {
+  return (
+    project.duplicationConfig === "enabled" ||
+    project.script ||
+    (fallowToolAvailable && (project.configPresent || project.dependency))
+  );
+}
+
+function hasAmbiguousPresence(
+  project: ProjectSignals,
+  fallowToolAvailable: boolean,
+  trusted: boolean,
+): boolean {
+  return !trusted || fallowToolAvailable || project.configPresent || project.dependency;
+}
+
+function ambiguousState(
+  policy: JscpdFallowCoexistencePolicy,
+  signals: readonly JscpdFallowOverlapSignal[],
+): JscpdFallowCoexistenceState {
+  return frozenState({
+    status: "ambiguous",
+    policy,
+    automaticAllowed: true,
+    signals,
+    statusText: "Fallow overlap: ambiguous; automatic jscpd checks remain enabled",
   });
 }
 
-async function inspectFallowConfig(project: string): Promise<{
-  duplicationConfig?: "enabled" | "disabled";
-  present: boolean;
-  unreadable: boolean;
-}> {
-  for (const name of CONFIG_FILES) {
-    const file = await readBoundedProjectFile(project, name);
-    if (file.status === "missing") continue;
-    if (file.status !== "bytes") return { present: true, unreadable: true };
-    if (name === ".fallowrc.jsonc" || name === "fallow.toml") {
-      return { present: true, unreadable: true };
+function inspectProjectSignalsEffect(
+  project: string,
+): Effect.Effect<ProjectSignals, never, JscpdFileSystem> {
+  return Effect.all([inspectFallowConfigEffect(project), inspectPackageJsonEffect(project)], {
+    concurrency: "unbounded",
+  }).pipe(
+    Effect.map(([config, packageSignals]) =>
+      Object.freeze({
+        duplicationConfig: config.duplicationConfig,
+        script: packageSignals.script,
+        configPresent: config.present,
+        dependency: packageSignals.dependency,
+        unreadable: config.unreadable || packageSignals.unreadable,
+      }),
+    ),
+  );
+}
+
+function inspectFallowConfigEffect(project: string) {
+  return Effect.gen(function* () {
+    for (const name of CONFIG_FILES) {
+      const file = yield* readBoundedProjectFileEffect(project, name);
+      if (file.status === "missing") continue;
+      if (file.status !== "bytes") return { present: true, unreadable: true };
+      if (name === ".fallowrc.jsonc" || name === "fallow.toml") {
+        return { present: true, unreadable: true };
+      }
+      return inspectJsonFallowConfig(file.value);
     }
-    return inspectJsonFallowConfig(file.value);
-  }
-  return { present: false, unreadable: false };
+    return { present: false, unreadable: false };
+  });
 }
 
 function inspectJsonFallowConfig(bytes: Uint8Array): {
@@ -180,25 +218,34 @@ function inspectJsonFallowConfig(bytes: Uint8Array): {
   }
 }
 
-async function inspectPackageJson(project: string): Promise<{
-  script: boolean;
-  dependency: boolean;
-  unreadable: boolean;
-}> {
-  const file = await readBoundedProjectFile(project, "package.json");
-  if (file.status === "missing") return { script: false, dependency: false, unreadable: false };
-  if (file.status !== "bytes") return { script: false, dependency: false, unreadable: true };
+function inspectPackageJsonEffect(project: string) {
+  return Effect.map(readBoundedProjectFileEffect(project, "package.json"), (file) => {
+    if (file.status === "missing") return emptyPackageSignals();
+    if (file.status !== "bytes") return unreadablePackageSignals();
+    return inspectPackageJsonBytes(file.value);
+  });
+}
+
+function inspectPackageJsonBytes(bytes: Uint8Array) {
   try {
-    const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(file.value));
-    if (!isRecord(value)) return { script: false, dependency: false, unreadable: true };
+    const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+    if (!isRecord(value)) return unreadablePackageSignals();
     return {
       script: hasDuplicationScript(value.scripts),
       dependency: hasFallowDependency(value),
       unreadable: false,
     };
   } catch {
-    return { script: false, dependency: false, unreadable: true };
+    return unreadablePackageSignals();
   }
+}
+
+function emptyPackageSignals() {
+  return { script: false, dependency: false, unreadable: false };
+}
+
+function unreadablePackageSignals() {
+  return { script: false, dependency: false, unreadable: true };
 }
 
 function hasDuplicationScript(value: unknown): boolean {
@@ -240,43 +287,42 @@ type BoundedFile =
   | { status: "bytes"; value: Uint8Array }
   | { status: "unsafe" | "failed" | "too-large" };
 
-async function readBoundedProjectFile(project: string, relativePath: string): Promise<BoundedFile> {
-  let canonical: string;
-  try {
-    canonical = await realpath(join(project, relativePath));
-  } catch (error) {
-    return isMissing(error) ? { status: "missing" } : { status: "failed" };
-  }
-  if (!isPathInside(project, canonical)) return { status: "unsafe" };
-
-  let file: FileHandle;
-  try {
-    file = await open(canonical, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  } catch {
-    return { status: "failed" };
-  }
-  try {
-    const metadata = await file.stat();
-    if (!metadata.isFile()) return { status: "failed" };
-    if (metadata.size > MAX_SIGNAL_FILE_BYTES) return { status: "too-large" };
-    return await readSignalBytes(file, metadata.size);
-  } catch {
-    return { status: "failed" };
-  } finally {
-    await file.close().catch(() => undefined);
-  }
-}
-
-async function readSignalBytes(file: FileHandle, initialSize: number): Promise<BoundedFile> {
-  const buffer = Buffer.alloc(initialSize + 1);
-  let total = 0;
-  while (total < buffer.length) {
-    const read = await file.read(buffer, total, buffer.length - total, total);
-    if (read.bytesRead === 0) break;
-    total += read.bytesRead;
-  }
-  if (total > MAX_SIGNAL_FILE_BYTES) return { status: "too-large" };
-  return { status: "bytes", value: buffer.subarray(0, total) };
+function readBoundedProjectFileEffect(
+  project: string,
+  relativePath: string,
+): Effect.Effect<BoundedFile, never, JscpdFileSystem> {
+  return Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    filesystem.canonicalize(join(project, relativePath)).pipe(
+      Effect.matchEffect({
+        onFailure: (error) =>
+          Effect.succeed<BoundedFile>(
+            error.reason === "missing" ? { status: "missing" } : { status: "failed" },
+          ),
+        onSuccess: (canonical) => {
+          if (!isPathInside(project, canonical)) {
+            return Effect.succeed<BoundedFile>({ status: "unsafe" });
+          }
+          return filesystem
+            .read({
+              path: canonical,
+              maxBytes: MAX_SIGNAL_FILE_BYTES,
+              regularFileOnly: true,
+              noFollow: true,
+              limitSubject: "configuration",
+            })
+            .pipe(
+              Effect.match({
+                onFailure: (error): BoundedFile =>
+                  error._tag === "JscpdLimitExceeded"
+                    ? { status: "too-large" }
+                    : { status: "failed" },
+                onSuccess: (value): BoundedFile => ({ status: "bytes", value }),
+              }),
+            );
+        },
+      }),
+    ),
+  );
 }
 
 function collectSignals(
@@ -366,13 +412,4 @@ function frozenState(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isMissing(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
 }

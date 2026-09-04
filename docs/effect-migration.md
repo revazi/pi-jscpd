@@ -193,12 +193,18 @@ shutdown.
 
 ### Step 3 — Filesystem and decoding boundaries ([#66](https://github.com/revazi/pi-jscpd/issues/66))
 
-Migrate effectful portions of configuration, path handling, report decoding,
-clone identity, and Fallow signal inspection. Preserve pure normalization and
-comparison functions. Retain trust gates, no-follow checks, containment, strict
-schemas, and all byte limits.
+Implemented on the unreleased branch: one live bounded-filesystem layer now owns
+trusted configuration and Fallow signal reads, canonical path/metadata access,
+report source-path resolution, and exact clone-identity source ranges. Typed
+filesystem/limit failures are mapped to the unchanged bounded diagnostics and
+rejections, while deterministic parsing, normalization, comparison, and
+rendering remain ordinary TypeScript. See the
+[filesystem and decoding boundary](effect-filesystem.md).
 
-This may proceed beside Step 2 after Step 1, but Step 4 waits for both.
+Trust gates, no-follow checks, canonical containment, strict schemas, atomic
+configuration rejection, source-fragment omission, and byte limits remain
+unchanged. Existing Promise callers cross the same temporary application bridge;
+Step 4 can now proceed because Steps 2 and 3 are complete.
 
 ### Step 4 — Stateful domain services ([#67](https://github.com/revazi/pi-jscpd/issues/67))
 

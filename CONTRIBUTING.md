@@ -59,12 +59,15 @@ so jscpd remains this project's single duplication authority.
   shared service state—not to decorate pure functions.
 - Declare capabilities with services/layers and build one production runtime in
   the Pi composition boundary only when the ordered Pi-boundary slice is reached.
-  The foundation contracts create no runtime and provide no live production layer.
+  The process and filesystem slices provide live layers but create no independent runtime.
 - Keep `Effect.run*` out of infrastructure, domain, and application modules.
   Until M7.7, only `src/effect/runtime-boundary.ts` may bridge migrated services
   to the existing Promise application surface; do not add another runtime bridge.
 - Add characterization tests before converting a boundary, deterministic test
   layers with the conversion, and interruption/finalizer tests for resources.
+  Filesystem changes must preserve trust gating, canonical containment,
+  no-follow opens, exact byte bounds, atomic decode rejection, and body-free
+  diagnostics.
 - Remove the superseded internal Promise path in the same slice; temporary
   adapters are allowed only at documented outer boundaries.
 - Do not combine a migration slice with unrelated public behavior changes.

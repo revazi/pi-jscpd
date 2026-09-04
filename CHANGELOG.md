@@ -20,6 +20,9 @@ until publication is approved.
 - Effect-owned bounded child processes, process-tree escalation, serialized jscpd
   execution, temporary report workspaces, capability probing/caching, scoped
   service layers, and one explicitly temporary Promise application bridge.
+- A shared live bounded-filesystem layer for trusted configuration, canonical
+  path validation, report normalization, exact clone-source ranges, and supported
+  Fallow signal reads, with typed failures and deterministic test layers.
 - Strict normalized jscpd JSON report validation and scope-safe explicit scans.
 - Trusted extension configuration, session controls, branch-local state, and
   changed-file attribution.
