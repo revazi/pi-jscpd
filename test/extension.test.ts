@@ -6,6 +6,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
   JSCPD_AUTOMATIC_MESSAGE_TYPE,
@@ -140,7 +141,10 @@ function createAdapterService() {
   const invalidate = vi.fn();
   const dispose = vi.fn(async () => undefined);
   return {
-    service: { invalidate, dispose } as unknown as JscpdService,
+    service: {
+      invalidate,
+      disposeEffect: () => Effect.promise(dispose),
+    } as unknown as JscpdService,
     invalidate,
     dispose,
   };
@@ -856,9 +860,10 @@ describe("Pi extension registration", () => {
       value: cleanScanReport,
     }));
     const adapter = {
-      run: run as unknown as JscpdService["run"],
+      runEffect: ((request: JscpdRunRequest<JscpdScanReport>) =>
+        Effect.promise(() => run(request))) as JscpdService["runEffect"],
       invalidate: vi.fn(),
-      dispose: vi.fn(async () => undefined),
+      disposeEffect: () => Effect.void,
     } satisfies JscpdService;
     const acceptedBaseline: JscpdBaselineState = {
       status: "accepted",
@@ -954,9 +959,10 @@ describe("Pi extension registration", () => {
         value: report,
       }));
       const adapter = {
-        run: run as unknown as JscpdService["run"],
+        runEffect: ((request: JscpdRunRequest<JscpdScanReport>) =>
+          Effect.promise(() => run(request))) as JscpdService["runEffect"],
         invalidate: vi.fn(),
-        dispose: vi.fn(async () => undefined),
+        disposeEffect: () => Effect.void,
       } satisfies JscpdService;
       const acceptedBaseline: JscpdBaselineState = {
         status: "accepted",

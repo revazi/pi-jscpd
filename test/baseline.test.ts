@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJscpdBaselineService, type JscpdBaselineStartContext } from "../src/baseline.js";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "../src/capability.js";
-import type { JscpdRunRequest, JscpdRunResult, JscpdService } from "../src/jscpd.js";
+import type { JscpdRunRequest, JscpdRunResult } from "../src/jscpd.js";
 import type { JscpdScanReport } from "../src/types.js";
+import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
 
 let root: string;
 let project: string;
@@ -48,9 +49,9 @@ function capability(result: JscpdCapabilityResult = available) {
 
 function adapter(result: JscpdRunResult<JscpdScanReport>) {
   const runMock = vi.fn(async (_request: JscpdRunRequest<JscpdScanReport>) => result);
-  const run = runMock as unknown as JscpdService["run"];
+  const run = runMock as unknown as JscpdPromiseRun;
   return {
-    service: { run, invalidate() {}, async dispose() {} } satisfies JscpdService,
+    service: jscpdServiceFromPromise(run),
     run: runMock,
   };
 }
@@ -131,16 +132,15 @@ describe("initial jscpd baseline", () => {
     const bytes = await readFile(join(process.cwd(), "test/fixtures/jscpd-v5/findings.json"));
     const cap = capability();
     const run = vi.fn(async (request: JscpdRunRequest<JscpdScanReport>) => {
-      const decision = await request.consumeReport(bytes);
+      const decision = await import("../src/effect/runtime-boundary.js").then(
+        ({ JscpdTestEffectRuntime }) =>
+          JscpdTestEffectRuntime.runPromise(request.consumeReportEffect(bytes)),
+      );
       return decision.status === "accepted"
         ? ({ status: "report", value: decision.value } as const)
         : ({ status: "failed", reason: "invalid-report" } as const);
-    }) as unknown as JscpdService["run"];
-    const service = createJscpdBaselineService(cap.service, {
-      run,
-      invalidate() {},
-      async dispose() {},
-    });
+    }) as unknown as JscpdPromiseRun;
+    const service = createJscpdBaselineService(cap.service, jscpdServiceFromPromise(run));
 
     await expect(service.start(context())).resolves.toMatchObject({
       status: "accepted",
@@ -229,12 +229,8 @@ describe("initial jscpd baseline", () => {
     let resolveRun!: (value: JscpdRunResult<JscpdScanReport>) => void;
     const run = vi.fn(
       () => new Promise<JscpdRunResult<JscpdScanReport>>((resolve) => (resolveRun = resolve)),
-    ) as unknown as JscpdService["run"];
-    const service = createJscpdBaselineService(capability().service, {
-      run,
-      invalidate() {},
-      async dispose() {},
-    });
+    ) as unknown as JscpdPromiseRun;
+    const service = createJscpdBaselineService(capability().service, jscpdServiceFromPromise(run));
 
     const started = service.start(context());
     const waiting = service.wait();
@@ -260,12 +256,8 @@ describe("initial jscpd baseline", () => {
           once: true,
         });
       });
-    }) as unknown as JscpdService["run"];
-    const service = createJscpdBaselineService(capability().service, {
-      run,
-      invalidate() {},
-      async dispose() {},
-    });
+    }) as unknown as JscpdPromiseRun;
+    const service = createJscpdBaselineService(capability().service, jscpdServiceFromPromise(run));
     const started = service.start(context());
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
 

@@ -16,11 +16,7 @@ import type {
   JscpdRunResult,
   JscpdService,
 } from "./jscpd.js";
-import {
-  consumeJscpdV5JsonReport,
-  consumeJscpdV5JsonReportEffect,
-  JSCPD_STRUCTURED_REPORTER,
-} from "./jscpd-report.js";
+import { consumeJscpdV5JsonReportEffect, JSCPD_STRUCTURED_REPORTER } from "./jscpd-report.js";
 import { isPathInside, optionalCanonicalDirectoryEffect } from "./path-utils.js";
 import { presentJscpdScan } from "./presentation.js";
 import type {
@@ -122,7 +118,6 @@ function scanWorkflowFor(
             reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
             createArguments: ({ directory }) =>
               createJscpdScanArguments(directory, scopes.value.targets),
-            consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, scopes.value.cwd),
             consumeReportEffect: (bytes) => consumeJscpdV5JsonReportEffect(bytes, scopes.value.cwd),
           });
           return yield* executionResultWithVerificationEffect(
@@ -291,11 +286,7 @@ export function adapterRunEffect<T>(
   service: JscpdService,
   request: JscpdRunRequest<T>,
 ): Effect.Effect<JscpdRunResult<T>, never, JscpdProcess | JscpdFileSystem> {
-  if (service.runEffect) return service.runEffect(request);
-  return Effect.tryPromise({
-    try: () => service.run(request),
-    catch: () => ({ status: "failed", reason: "internal-error" }) as const,
-  }).pipe(Effect.catchAll((result) => Effect.succeed(result)));
+  return service.runEffect(request);
 }
 
 function successfulReport(result: JscpdRunResult<JscpdScanReport>): JscpdScanReport | undefined {

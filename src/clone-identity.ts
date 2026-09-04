@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { isAbsolute, join } from "node:path";
 import { Effect } from "effect";
-import { runFileSystemEffectForTest } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
 import type { JscpdCloneOccurrence, JscpdClonePair, JscpdScanReport } from "./types.js";
@@ -60,13 +59,6 @@ type OccurrenceIdentityResult =
  * Derive content-aware identities immediately while report offsets still address this source tree.
  * Line, column, and byte positions are deliberately excluded from the final group fingerprint.
  */
-export async function indexJscpdCloneReport(
-  report: JscpdScanReport,
-  cwd: string,
-): Promise<JscpdCloneSnapshot> {
-  return runFileSystemEffectForTest(indexJscpdCloneReportEffect(report, cwd));
-}
-
 export function indexJscpdCloneReportEffect(
   report: JscpdScanReport,
   cwd: string,

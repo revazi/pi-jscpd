@@ -3,8 +3,7 @@ import type { FileHandle } from "node:fs/promises";
 import { chmod, lstat, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { Cause, Context, Effect, Exit, Layer } from "effect";
-import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
+import { Cause, Context, Effect, Layer } from "effect";
 import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
 import { isJscpdReportErrorCode, JSCPD_STRUCTURED_REPORT_FILE_NAME } from "./jscpd-report.js";
 import {
@@ -55,9 +54,7 @@ export interface JscpdRunRequest<T> {
   /** Nonzero clone-positive exits accepted only when they also yield an accepted findings report. */
   reportExitCodes?: readonly number[];
   /** Validate and consume bounded report bytes before their temporary directory is removed. */
-  consumeReport(report: Uint8Array): JscpdReportDecision<T> | Promise<JscpdReportDecision<T>>;
-  /** Effect-native report decoder; application workflows prefer this when supplied. */
-  consumeReportEffect?: (
+  consumeReportEffect: (
     report: Uint8Array,
   ) => Effect.Effect<JscpdReportDecision<T>, never, JscpdFileSystem>;
 }
@@ -104,14 +101,11 @@ interface JscpdEffectService {
 export const JscpdAdapter = Context.GenericTag<JscpdEffectService>("pi-jscpd/effect/JscpdAdapter");
 
 export interface JscpdService {
-  run<T>(request: JscpdRunRequest<T>): Promise<JscpdRunResult<T>>;
-  /** Effect-native application path; compatibility implementations may provide only run. */
-  runEffect?: <T>(
+  runEffect<T>(
     request: JscpdRunRequest<T>,
-  ) => Effect.Effect<JscpdRunResult<T>, never, JscpdProcess | JscpdFileSystem>;
+  ): Effect.Effect<JscpdRunResult<T>, never, JscpdProcess | JscpdFileSystem>;
   invalidate(): void;
-  dispose(): Promise<void>;
-  disposeEffect?(): Effect.Effect<void>;
+  disposeEffect(): Effect.Effect<void>;
 }
 
 export interface JscpdServiceOptions {
@@ -167,11 +161,8 @@ type ConsumptionResult<T> =
   | { status: "failed" }
   | { status: "timed-out" };
 
-export function createJscpdService(
-  options: JscpdServiceOptions = {},
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
-): JscpdService {
-  return new DefaultJscpdService(resolveServiceOptions(options), runtime);
+export function createJscpdService(options: JscpdServiceOptions = {}): JscpdService {
+  return new DefaultJscpdService(resolveServiceOptions(options));
 }
 
 /** Scoped Effect service used by later application slices without a Promise facade. */
@@ -187,37 +178,12 @@ export function createJscpdLayer(options: JscpdServiceOptions = {}) {
 
 class DefaultJscpdService implements JscpdService {
   readonly #options: ResolvedServiceOptions;
-  readonly #runtime: JscpdEffectRuntime;
   readonly #semaphore = Effect.unsafeMakeSemaphore(1);
   readonly #jobs = new Set<EffectJob>();
   #disposed = false;
-  #disposePromise: Promise<void> | undefined;
 
-  constructor(
-    options: ResolvedServiceOptions,
-    runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
-  ) {
+  constructor(options: ResolvedServiceOptions) {
     this.#options = options;
-    this.#runtime = runtime;
-  }
-
-  run<T>(request: JscpdRunRequest<T>): Promise<JscpdRunResult<T>> {
-    if (this.#disposed) return Promise.resolve(serviceDisposedResult());
-    if (!isValidRunRequest(request)) {
-      return Promise.resolve({ status: "failed", reason: "invalid-request" });
-    }
-    if (request.signal?.aborted) return Promise.resolve({ status: "cancelled" });
-
-    const job = this.#createJob(request as JscpdRunRequest<unknown>);
-    this.#jobs.add(job);
-    const program = this.#runJobEffect(job);
-    return this.#runtime
-      .runPromiseExit(program)
-      .then((exit) =>
-        Exit.isSuccess(exit)
-          ? (exit.value as JscpdRunResult<T>)
-          : ({ status: "failed", reason: "internal-error" } as JscpdRunResult<T>),
-      );
   }
 
   runEffect<T>(
@@ -272,15 +238,6 @@ class DefaultJscpdService implements JscpdService {
 
   invalidateEffect(): Effect.Effect<void> {
     return Effect.sync(() => this.invalidate());
-  }
-
-  dispose(): Promise<void> {
-    if (!this.#disposePromise) {
-      this.#disposePromise = this.#runtime
-        .runPromiseExit(this.disposeEffect())
-        .then(() => undefined);
-    }
-    return this.#disposePromise;
   }
 
   disposeEffect(): Effect.Effect<void> {
@@ -399,7 +356,6 @@ class DefaultJscpdService implements JscpdService {
       if (report.status !== "bytes") return reportReadResult(report, reportExitCode);
 
       const consumed = yield* consumeReportEffect(
-        job.request.consumeReport,
         job.request.consumeReportEffect,
         report.bytes,
         this.#options.reportConsumptionTimeoutMs,
@@ -485,7 +441,7 @@ function isValidRunRequest<T>(request: JscpdRunRequest<T>): boolean {
     (request.path === undefined || isSafeBoundedText(request.path, MAX_PATH_BYTES, true)) &&
     hasValidRunControls(request) &&
     typeof request.createArguments === "function" &&
-    typeof request.consumeReport === "function"
+    typeof request.consumeReportEffect === "function"
   );
 }
 
@@ -648,29 +604,15 @@ async function readReportChunks(
 }
 
 function consumeReportEffect<T>(
-  consumer: JscpdRunRequest<T>["consumeReport"],
-  effectConsumer: JscpdRunRequest<T>["consumeReportEffect"],
+  consumer: JscpdRunRequest<T>["consumeReportEffect"],
   report: Buffer,
   timeoutMs: number,
 ): Effect.Effect<ConsumptionResult<T>, never, JscpdFileSystem> {
-  const consumed = effectConsumer
-    ? effectConsumer(report).pipe(
-        Effect.map(
-          (decision): ConsumptionResult<T> =>
-            isReportDecision(decision) ? { status: "completed", decision } : { status: "failed" },
-        ),
-      )
-    : Effect.tryPromise({
-        try: () => Promise.resolve().then(() => consumer(report)),
-        catch: () => undefined,
-      }).pipe(
-        Effect.match({
-          onFailure: (): ConsumptionResult<T> => ({ status: "failed" }),
-          onSuccess: (decision): ConsumptionResult<T> =>
-            isReportDecision(decision) ? { status: "completed", decision } : { status: "failed" },
-        }),
-      );
-  return consumed.pipe(
+  return consumer(report).pipe(
+    Effect.map(
+      (decision): ConsumptionResult<T> =>
+        isReportDecision(decision) ? { status: "completed", decision } : { status: "failed" },
+    ),
     Effect.timeoutTo({
       duration: timeoutMs,
       onSuccess: (result) => result,

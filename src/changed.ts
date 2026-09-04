@@ -12,7 +12,7 @@ import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
 import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
 import type { JscpdRunResult, JscpdService } from "./jscpd.js";
-import { consumeJscpdV5JsonReport, consumeJscpdV5JsonReportEffect } from "./jscpd-report.js";
+import { consumeJscpdV5JsonReportEffect } from "./jscpd-report.js";
 import { compareText, optionalCanonicalDirectoryEffect } from "./path-utils.js";
 import { presentJscpdChanged } from "./presentation.js";
 import {
@@ -274,7 +274,6 @@ function scanCurrentChangesEffect(
       timeoutMs: options.config ? config.timeoutMs : undefined,
       reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
       createArguments: ({ directory }) => createJscpdScanArguments(directory, ["."]),
-      consumeReport: (bytes) => consumeJscpdV5JsonReport(bytes, cwd),
       consumeReportEffect: (bytes) => consumeJscpdV5JsonReportEffect(bytes, cwd),
     });
     if ((yield* acknowledgementScopeEffect(acknowledgements)) !== scope) {

@@ -17,6 +17,7 @@ import {
   createJscpdPiPortTestLayer,
   createJscpdProcessTestLayer,
 } from "./support/effect-layers.js";
+import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
 
 const project = "/project";
 const cleanReport: JscpdScanReport = {
@@ -64,8 +65,8 @@ function availableCapabilityService(): JscpdCapabilityService {
   };
 }
 
-function adapterService(run: JscpdService["run"]): JscpdService {
-  return { run, invalidate() {}, async dispose() {} };
+function adapterService(run: JscpdPromiseRun): JscpdService {
+  return jscpdServiceFromPromise(run);
 }
 
 describe("Effect domain state services", () => {
@@ -163,7 +164,7 @@ describe("Effect domain state services", () => {
             once: true,
           });
         }),
-    ) as unknown as JscpdService["run"];
+    ) as unknown as JscpdPromiseRun;
     const adapter = adapterService(run);
     const filesystem = createJscpdFileSystemTestLayer([{ path: project, kind: "directory" }]);
     const layers = Layer.mergeAll(
@@ -219,7 +220,7 @@ describe("Effect domain state services", () => {
             once: true,
           });
         }),
-    ) as unknown as JscpdService["run"];
+    ) as unknown as JscpdPromiseRun;
     const filesystem = createJscpdFileSystemTestLayer([{ path: project, kind: "directory" }]);
     const layers = Layer.mergeAll(
       createJscpdBaselineLayer(availableCapabilityService(), adapterService(run)),
@@ -243,7 +244,7 @@ describe("Effect domain state services", () => {
 
   it("captures an accepted baseline through the Effect service", async () => {
     const run = vi.fn(async () => ({ status: "no-findings", value: cleanReport }) as const);
-    const adapter = adapterService(run as unknown as JscpdService["run"]);
+    const adapter = adapterService(run as unknown as JscpdPromiseRun);
     const filesystem = createJscpdFileSystemTestLayer([{ path: project, kind: "directory" }]);
     const layers = Layer.mergeAll(
       createJscpdBaselineLayer(availableCapabilityService(), adapter),
