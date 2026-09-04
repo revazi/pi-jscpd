@@ -317,6 +317,12 @@ function executeAutomaticChangedEffect<R, E>(
   executor: JscpdCommandExecutor,
   context: JscpdAutomaticCheckEffectContext<R, E>,
 ): Effect.Effect<JscpdExecutionResult> {
+  if (executor.executeEffect) {
+    return executor.executeEffect(
+      { command: "changed", args: [] },
+      { cwd: context.cwd, signal: context.signal },
+    );
+  }
   return Effect.tryPromise({
     try: () =>
       executor.execute(

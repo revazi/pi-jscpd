@@ -276,6 +276,11 @@ export interface JscpdCommandExecutor {
     invocation: JscpdCommandInvocation,
     context: JscpdExecutionContext,
   ): Promise<JscpdExecutionResult>;
+  /** Temporary Effect-native application path used before the managed Pi boundary lands. */
+  executeEffect?: (
+    invocation: JscpdCommandInvocation,
+    context: JscpdExecutionContext,
+  ) => import("effect").Effect.Effect<JscpdExecutionResult>;
 }
 
 export type JscpdInputErrorCode =

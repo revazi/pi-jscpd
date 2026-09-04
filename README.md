@@ -27,9 +27,10 @@ dependencies—there is no separate analyzer installation and no runtime downloa
 Effect owns bounded process execution, analyzer probing, temporary report
 workspaces, adapter serialization, trusted configuration and signal reads,
 canonical source-path validation, baseline generations, changed-file attribution,
-acknowledgement transactions, verification checkpoints, scoped scheduling, and
-automatic finding delivery. Application and Pi workflows are still migrating in
-ordered slices. If your project already installs
+acknowledgement transactions, verification checkpoints, scoped scheduling,
+automatic finding delivery, and scan/changed/status/Fallow application workflows.
+The managed Pi and TUI boundary is the next ordered migration slice. If your
+project already installs
 a compatible jscpd locally, or `jscpd`/`cpd` is available on `PATH`, the
 extension uses that installation first and keeps the bundled version as a
 fallback.
@@ -203,6 +204,7 @@ Useful documentation:
 - [Effect filesystem and decoding boundaries](docs/effect-filesystem.md)
 - [Effect-owned domain state](docs/effect-domain-state.md)
 - [Effect-owned scheduling and automatic checks](docs/effect-scheduler-automatic.md)
+- [Effect-composed application workflows](docs/effect-application-workflows.md)
 - [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
 - [`/jscpd` overlay contract](docs/overlay-interaction.md)
 - [Fallow coexistence](docs/fallow-coexistence.md)

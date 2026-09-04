@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 const {
   APPROVED_EFFECT_RUNTIME_BOUNDARIES,
+  MIGRATED_APPLICATION_BOUNDARIES,
   MIGRATED_CONCURRENCY_BOUNDARIES,
   MIGRATED_FILESYSTEM_BOUNDARIES,
   findEffectRuntimeCalls,
   findNodeFileSystemImports,
+  findPromiseWorkflowConstructs,
   findUnmanagedAsyncConstructs,
 } = await import(
   // @ts-expect-error The executable architecture script intentionally has no published type surface.
@@ -123,6 +125,29 @@ describe("Effect runtime architecture boundary", () => {
       { path: "src/scheduler.ts", line: 4, name: "setTimeout" },
     ]);
     expect(MIGRATED_CONCURRENCY_BOUNDARIES).toEqual(["src/automatic.ts", "src/scheduler.ts"]);
+  });
+
+  it("detects async and Promise-chain orchestration in migrated application modules", () => {
+    const source = `
+      async function workflow() { return await operation(); }
+      const chained = operation().then(onSuccess).catch(onFailure).finally(cleanup);
+      const effect = Effect.flatMap(operation, onSuccess);
+    `;
+
+    expect(findPromiseWorkflowConstructs(source, "src/scan.ts")).toEqual([
+      { path: "src/scan.ts", line: 2, name: "async function" },
+      { path: "src/scan.ts", line: 3, name: "Promise.finally" },
+      { path: "src/scan.ts", line: 3, name: "Promise.catch" },
+      { path: "src/scan.ts", line: 3, name: "Promise.then" },
+    ]);
+    expect(MIGRATED_APPLICATION_BOUNDARIES).toEqual([
+      "src/baseline.ts",
+      "src/changed.ts",
+      "src/fallow.ts",
+      "src/scan.ts",
+      "src/status.ts",
+      "src/verification.ts",
+    ]);
   });
 
   it("keeps runtime execution at the temporary application bridge and Pi adapter", () => {

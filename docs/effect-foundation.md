@@ -5,10 +5,10 @@ behavior-preserving Effect migration slice. It declares contracts and test suppo
 only. M7.2 builds on these contracts for process and analyzer resources, M7.3
 provides the bounded filesystem layer used by configuration and external data
 boundaries, M7.4 moves lifecycle-bound domain state to Effect-owned services,
-and M7.5 moves scheduling and automatic delivery to scoped fibers and Effect
-transactions. Application, Pi, and TUI workflows retain their remaining
-characterized migration boundaries. The single managed extension runtime still
-waits for M7.7.
+M7.5 moves scheduling and automatic delivery to scoped fibers and Effect
+transactions, and M7.6 composes the application workflows. Pi and TUI adapters
+retain the final characterized migration boundary. The single managed extension
+runtime still waits for M7.7.
 
 ## Reviewed dependency
 
@@ -45,9 +45,11 @@ live only under `test/support/effect-layers.ts`; tests can inspect requests,
 files, time, and Pi writes without patching globals. M7.4 adds domain tags beside
 their owning modules so pure domain contracts remain local. M7.5 adds scoped
 scheduler and automatic-check tags while retaining the same deterministic Pi
-port. See the [filesystem and decoding boundary](effect-filesystem.md),
-[Effect-owned domain state](effect-domain-state.md), and
-[Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md).
+port. M7.6 adds scan, changed, status/session-mode, and Fallow application tags.
+See the [filesystem and decoding boundary](effect-filesystem.md),
+[Effect-owned domain state](effect-domain-state.md),
+[Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md),
+and [Effect-composed application workflows](effect-application-workflows.md).
 
 ## Stable expected-error taxonomy
 

@@ -112,6 +112,10 @@ export const JscpdCapability = Context.GenericTag<JscpdCapabilityEffectService>(
 
 export interface JscpdCapabilityService {
   probe(request: JscpdCapabilityRequest): Promise<JscpdCapabilityResult>;
+  /** Effect-native application path; compatibility implementations may provide only probe. */
+  probeEffect?: (
+    request: JscpdCapabilityRequest,
+  ) => Effect.Effect<JscpdCapabilityResult, never, JscpdProcess>;
   invalidate(): void;
   dispose(): void;
 }

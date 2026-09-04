@@ -1,5 +1,6 @@
 import { join } from "node:path";
-import { Effect } from "effect";
+import { Context, Effect, Layer, MutableRef } from "effect";
+import { JscpdFileSystemLive } from "./effect/filesystem.js";
 import { runFileSystemEffectAtApplicationBoundary } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect, isPathInside } from "./path-utils.js";
@@ -36,11 +37,27 @@ export interface JscpdFallowCoexistenceContext {
 
 export interface JscpdFallowCoexistenceService {
   evaluate(context: JscpdFallowCoexistenceContext): Promise<JscpdFallowCoexistenceState>;
+  evaluateEffect?: (
+    context: JscpdFallowCoexistenceContext,
+  ) => Effect.Effect<JscpdFallowCoexistenceState>;
   current(): JscpdFallowCoexistenceState;
   automaticAllowed(): boolean;
   takeNotice(): string | undefined;
   reset(): void;
 }
+
+interface JscpdFallowWorkflowService {
+  readonly evaluate: (
+    context: JscpdFallowCoexistenceContext,
+  ) => Effect.Effect<JscpdFallowCoexistenceState, never, JscpdFileSystem>;
+  readonly current: Effect.Effect<JscpdFallowCoexistenceState>;
+  readonly takeNotice: Effect.Effect<string | undefined>;
+  readonly reset: Effect.Effect<void>;
+}
+
+export const JscpdFallowWorkflow = Context.GenericTag<JscpdFallowWorkflowService>(
+  "pi-jscpd/effect/FallowWorkflow",
+);
 
 interface ProjectSignals {
   readonly duplicationConfig?: "enabled" | "disabled";
@@ -51,28 +68,69 @@ interface ProjectSignals {
 }
 
 export function createJscpdFallowCoexistenceService(): JscpdFallowCoexistenceService {
-  let state = absentState();
-  let noticeDelivered = false;
+  const owner = new FallowWorkflowOwner();
   return {
-    async evaluate(context) {
-      state = await evaluateJscpdFallowCoexistence(context);
-      return state;
-    },
-    current: () => state,
-    automaticAllowed: () => state.automaticAllowed,
-    takeNotice() {
-      if (noticeDelivered || !state.notice) return undefined;
-      noticeDelivered = true;
-      return state.notice;
-    },
-    reset() {
-      state = absentState();
-      noticeDelivered = false;
-    },
+    evaluate: (context) => runFileSystemEffectAtApplicationBoundary(owner.evaluateEffect(context)),
+    evaluateEffect: (context) =>
+      owner.evaluateEffect(context).pipe(Effect.provide(JscpdFileSystemLive)),
+    current: () => owner.current(),
+    automaticAllowed: () => owner.current().automaticAllowed,
+    takeNotice: () => owner.takeNotice(),
+    reset: () => owner.reset(),
   };
 }
 
-export async function evaluateJscpdFallowCoexistence(
+export function createJscpdFallowCoexistenceLayer() {
+  const owner = new FallowWorkflowOwner();
+  return Layer.succeed(JscpdFallowWorkflow, {
+    evaluate: (context) => owner.evaluateEffect(context),
+    current: Effect.sync(() => owner.current()),
+    takeNotice: Effect.sync(() => owner.takeNotice()),
+    reset: Effect.sync(() => owner.reset()),
+  });
+}
+
+interface FallowOwnerState {
+  readonly value: JscpdFallowCoexistenceState;
+  readonly noticeDelivered: boolean;
+}
+
+class FallowWorkflowOwner {
+  readonly #state = MutableRef.make<FallowOwnerState>({
+    value: absentState(),
+    noticeDelivered: false,
+  });
+
+  evaluateEffect(
+    context: JscpdFallowCoexistenceContext,
+  ): Effect.Effect<JscpdFallowCoexistenceState, never, JscpdFileSystem> {
+    return evaluateJscpdFallowCoexistenceEffect(context).pipe(
+      Effect.tap((value) =>
+        Effect.sync(() => {
+          const current = MutableRef.get(this.#state);
+          MutableRef.set(this.#state, { ...current, value });
+        }),
+      ),
+    );
+  }
+
+  current(): JscpdFallowCoexistenceState {
+    return MutableRef.get(this.#state).value;
+  }
+
+  takeNotice(): string | undefined {
+    const current = MutableRef.get(this.#state);
+    if (current.noticeDelivered || !current.value.notice) return undefined;
+    MutableRef.set(this.#state, { ...current, noticeDelivered: true });
+    return current.value.notice;
+  }
+
+  reset(): void {
+    MutableRef.set(this.#state, { value: absentState(), noticeDelivered: false });
+  }
+}
+
+export function evaluateJscpdFallowCoexistence(
   context: JscpdFallowCoexistenceContext,
 ): Promise<JscpdFallowCoexistenceState> {
   return runFileSystemEffectAtApplicationBoundary(evaluateJscpdFallowCoexistenceEffect(context));
