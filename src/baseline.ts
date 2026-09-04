@@ -1,4 +1,8 @@
-import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
+import {
+  createJscpdExecutionPath,
+  type JscpdCapabilityResult,
+  type JscpdCapabilityService,
+} from "./capability.js";
 import { indexJscpdCloneReport, type JscpdCloneSnapshot } from "./clone-identity.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReport } from "./jscpd-report.js";
@@ -159,7 +163,7 @@ async function captureBaseline(
     result = await adapterService.run<JscpdScanReport>({
       executable: capability.executable,
       cwd,
-      path,
+      path: createJscpdExecutionPath(cwd, path, capability.source),
       signal,
       timeoutMs: context.timeoutMs,
       reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,

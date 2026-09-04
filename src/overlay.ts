@@ -509,7 +509,7 @@ export class JscpdOverlayComponent {
     const capability = this.#status.capability;
     const binary =
       capability.status === "available"
-        ? `${capability.executable} ${capability.version} ready`
+        ? `${capability.executable} ${capability.version}${capability.source === "bundled" ? " bundled" : ""} ready`
         : capability.status === "missing"
           ? "jscpd v5 not found"
           : `binary ${capability.status}`;
@@ -591,7 +591,7 @@ export class JscpdOverlayComponent {
       "Advisory only: the overlay never edits source or jscpd configuration.",
       "After normal edits/tests, r compares with the prior matching explicit check.",
       "For intentional duplication, update normal jscpd ignore/exclusion policy.",
-      "If missing, install jscpd v5 yourself and ensure jscpd or cpd is on PATH.",
+      "If the bundled analyzer is missing, reinstall pi-jscpd.",
       "Use explicit /jscpd scan <target> for scoped paths.",
     ];
   }

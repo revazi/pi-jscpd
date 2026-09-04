@@ -195,9 +195,9 @@ function configSourceLabel(source: JscpdConfigSource): string {
 function capabilityLine(capability: JscpdCapabilityResult): string {
   switch (capability.status) {
     case "available":
-      return `Binary: ${capability.executable} v${capability.version}`;
+      return `Binary: ${capability.executable} v${capability.version}${capability.source === "bundled" ? " (bundled)" : ""}`;
     case "missing":
-      return "Binary: unavailable (checked jscpd and cpd)";
+      return "Binary: unavailable (checked project, PATH, and bundled jscpd)";
     case "incompatible":
       return `Binary: ${capability.executable} v${capability.version} (requires v5)`;
     case "cancelled":
@@ -220,7 +220,7 @@ function stateLine(
       : "State: disabled by trusted extension configuration.";
   }
   if (capability.status === "missing") {
-    return "State: dormant — install jscpd v5 and ensure jscpd or cpd is on PATH.";
+    return "State: dormant — the bundled jscpd dependency is unavailable; reinstall pi-jscpd.";
   }
   if (capability.status === "available") {
     return "State: ready for explicit scans.";

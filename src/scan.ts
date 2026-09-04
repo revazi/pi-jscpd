@@ -1,6 +1,10 @@
 import { realpath, stat } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
-import type { JscpdCapabilityResult, JscpdCapabilityService } from "./capability.js";
+import {
+  createJscpdExecutionPath,
+  type JscpdCapabilityResult,
+  type JscpdCapabilityService,
+} from "./capability.js";
 import { indexJscpdCloneReport } from "./clone-identity.js";
 import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
 import type { JscpdRunFailureReason, JscpdRunResult, JscpdService } from "./jscpd.js";
@@ -72,7 +76,7 @@ export function createJscpdScanExecutor(
       const scan = await service.run<JscpdScanReport>({
         executable: capability.executable,
         cwd: scopes.value.cwd,
-        path: options.path,
+        path: createJscpdExecutionPath(scopes.value.cwd, options.path, capability.source),
         signal: context.signal,
         timeoutMs: options.config ? config.timeoutMs : undefined,
         reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,
@@ -321,7 +325,8 @@ export function capabilityUnavailableResult(
       return {
         status: "unavailable",
         reason: "missing-binary",
-        message: "jscpd scan is unavailable: install jscpd v5 and ensure jscpd or cpd is on PATH.",
+        message:
+          "jscpd scan is unavailable because the bundled analyzer could not be resolved; reinstall pi-jscpd.",
         capability,
       };
     case "incompatible":

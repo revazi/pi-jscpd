@@ -6,6 +6,7 @@ const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = await readJson(join(projectRoot, "package.json"));
 const expectedNodeRange = ">=22.19.0 <23 || >=24 <25";
 const expectedPiVersion = "0.84.4";
+const expectedJscpdVersion = "5.1.2";
 const expectedPeerRanges = Object.freeze({
   "@earendil-works/pi-ai": ">=0.84.4 <0.85.0",
   "@earendil-works/pi-coding-agent": ">=0.84.4 <0.85.0",
@@ -48,8 +49,18 @@ for (const name of [
   }
 }
 
+if (manifest.dependencies?.jscpd !== expectedJscpdVersion) {
+  fail(`The bundled jscpd dependency must remain pinned at ${expectedJscpdVersion}.`);
+}
+const installedJscpd = await readJson(join(projectRoot, "node_modules", "jscpd", "package.json"));
+if (installedJscpd.version !== expectedJscpdVersion) {
+  fail(
+    `Installed jscpd ${installedJscpd.version} does not match the ${expectedJscpdVersion} runtime dependency.`,
+  );
+}
+
 console.log(
-  `Compatibility check passed: Node ${process.versions.node}, Pi ${expectedPiVersion}, TypeBox ${manifest.devDependencies.typebox}.`,
+  `Compatibility check passed: Node ${process.versions.node}, Pi ${expectedPiVersion}, TypeBox ${manifest.devDependencies.typebox}, jscpd ${expectedJscpdVersion}.`,
 );
 
 function supportsNode(version) {

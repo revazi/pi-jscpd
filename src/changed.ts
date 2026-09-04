@@ -1,6 +1,10 @@
 import type { JscpdAcknowledgedFinding, JscpdAcknowledgementTracker } from "./acknowledgements.js";
 import type { JscpdBaselineService, JscpdBaselineState } from "./baseline.js";
-import type { JscpdCapabilityService } from "./capability.js";
+import {
+  createJscpdExecutionPath,
+  type JscpdCapabilityService,
+  type JscpdCapabilitySource,
+} from "./capability.js";
 import type { JscpdChangedFileTracker } from "./changed-files.js";
 import {
   compareJscpdCloneSnapshots,
@@ -186,7 +190,15 @@ async function scanCurrentChanges(
   if (capability.status !== "available") {
     return resultStep(capabilityUnavailableResult(capability));
   }
-  const run = await safeCurrentScan(service, capability.executable, cwd, context, options, config);
+  const run = await safeCurrentScan(
+    service,
+    capability.executable,
+    capability.source,
+    cwd,
+    context,
+    options,
+    config,
+  );
   if (!run) return resultStep(processFailedResult());
   if (acknowledgements.scope() !== scope) return resultStep(lifecycleChanged());
   const report = reportFromRun(run);
@@ -260,6 +272,7 @@ async function safeCapabilityProbe(
 async function safeCurrentScan(
   service: JscpdService,
   executable: string,
+  source: JscpdCapabilitySource | undefined,
   cwd: string,
   context: Parameters<JscpdCommandExecutor["execute"]>[1],
   options: JscpdChangedExecutorOptions,
@@ -269,7 +282,7 @@ async function safeCurrentScan(
     return await service.run<JscpdScanReport>({
       executable,
       cwd,
-      path: options.path,
+      path: createJscpdExecutionPath(cwd, options.path, source),
       signal: context.signal,
       timeoutMs: options.config ? config.timeoutMs : undefined,
       reportExitCodes: JSCPD_CLONE_POSITIVE_EXIT_CODES,

@@ -28,12 +28,15 @@ licensed regardless of publication state; see the
 | `@earendil-works/pi-ai` | `>=0.84.4 <0.85.0` | `0.84.4` | Kept on the same tested Pi release line. |
 | `@earendil-works/pi-tui` | `>=0.84.4 <0.85.0` | `0.84.4` | Required by the interactive overlay. |
 | `typebox` | `>=1.3.7 <2` | `1.3.7` | Required by the agent-tool schema. |
+| `jscpd` | Compatible v5 | `5.1.2` | Exact runtime dependency and fallback analyzer. |
 
 The Pi and TypeBox packages remain peer dependencies so the extension uses the
 host Pi installation instead of bundling a second runtime. Development
-dependencies pin the exact tested fixtures. `npm run compatibility:check`
-verifies the active Node version, peer ranges, aligned Pi fixture versions, and
-installed fixture versions before type checking and tests.
+dependencies pin the exact tested fixtures. jscpd is a normal, exact runtime
+dependency so installing `pi-jscpd` also installs the analyzer without a later
+network request. `npm run compatibility:check` verifies the active Node version,
+peer ranges, aligned Pi fixture versions, installed fixture versions, and the
+pinned jscpd runtime before type checking and tests.
 
 The supported ranges cover the Node 22 and 24 LTS lines, not the intervening
 non-LTS Node 23 line. They are a contract, not a claim that every patch
@@ -45,28 +48,30 @@ and range update rather than being accepted automatically.
 ## Packed-artifact certification
 
 `npm run pack:certify` tests the artifact that would be published, not the source
-checkout alone. It runs without network access or a real jscpd installation and:
+checkout alone. Its disposable install resolves the exact declared jscpd version
+through npm just as a user installation would; runtime checks remain offline. It:
 
 - compares `npm pack --json` output with the complete tracked runtime, license,
   and public-document allowlist, including regular-file modes and unsafe/private
   path rejection;
 - installs that exact tarball with lifecycle scripts disabled in a restrictive
-  disposable project;
+  disposable location and verifies the exact jscpd dependency;
 - uses the locked Pi `0.84.4` CLI with isolated home, agent, session, and
   temporary directories and all resource discovery disabled except the explicit
   installed package;
 - verifies `/jscpd` discovery and provider-free help/status behavior through RPC,
   exercises the registered `jscpd_run` contract and installed overlay component,
-  and checks JSON, print, and non-TUI fallback paths; and
-- places a deterministic fake jscpd v5 executable on the disposable `PATH`, then
-  stops Pi during an active scan and asserts that the process tree and every
-  `pi-jscpd-*` report directory are gone.
+  proves the installed artifact resolves and probes bundled jscpd `5.1.2`, and
+  checks JSON, print, and non-TUI fallback paths; and
+- separately places a deterministic fake jscpd v5 executable on the disposable
+  `PATH`, then stops Pi during an active scan and asserts that the process tree
+  and every `pi-jscpd-*` report directory are gone.
 
-The generated probe and fake executable are certification fixtures only. They do
-not replace the normal test suite or claim that a real jscpd release was
-executed. CI runs this certification on both supported Node fixtures. The
-certification script itself is development tooling and is deliberately excluded
-from the publishable file allowlist.
+The generated probe and fake executable remain certification fixtures for
+controlled output and process-tree behavior; the bundled capability check runs
+the real pinned jscpd release. CI runs this certification on both supported Node
+fixtures. The certification script itself is development tooling and is
+deliberately excluded from the publishable file allowlist.
 
 ## Unsupported-version behavior
 
@@ -79,10 +84,10 @@ from the publishable file allowlist.
 - Once the extension loads on a supported host, its ordinary operational errors
   remain advisory and fail open. That runtime policy does not turn an
   unsupported host into a supported one.
-- jscpd is an external executable, not an npm dependency of this package. The
-  adapter independently requires an installed jscpd v5-compatible `jscpd` or
-  `cpd` command and reports missing or incompatible binaries without breaking
-  the Pi session.
+- The adapter first checks compatible project-local and `PATH` installations,
+  then falls back to the package-owned jscpd `5.1.2` dependency. A missing or
+  damaged bundled dependency is reported without breaking the Pi session; the
+  extension never invokes `npx` or downloads an analyzer at runtime.
 
 ## Updating compatibility
 

@@ -280,7 +280,7 @@ describe("jscpd overlay component", () => {
     expect(overlay.instance.render(80).join("\n")).toContain("Refresh status");
     expect(overlay.instance.render(80).join("\n")).not.toContain("Scan project");
     overlay.instance.handleInput("?");
-    expect(overlay.instance.render(100).join("\n")).toContain("install jscpd v5 yourself");
+    expect(overlay.instance.render(100).join("\n")).toContain("reinstall pi-jscpd");
     overlay.instance.dispose();
   });
 

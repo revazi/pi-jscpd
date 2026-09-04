@@ -1,6 +1,10 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   createJscpdCapabilityService,
+  createJscpdExecutionPath,
   createNodeProbeExecutor,
   JSCPD_SUPPORTED_MAJOR,
   JSCPD_VERSION_MAX_OUTPUT_BYTES,
@@ -74,13 +78,13 @@ describe("jscpd capability probing", () => {
       executable: "jscpd",
       version: "5.2.1",
       major: 5,
+      source: "project-or-path",
     });
     expect(fake.calls).toHaveLength(1);
     expect(fake.calls[0]).toMatchObject({
       executable: "jscpd",
       args: ["--version"],
       cwd: project.cwd,
-      path: project.path,
       timeoutMs: JSCPD_VERSION_TIMEOUT_MS,
       maxOutputBytes: JSCPD_VERSION_MAX_OUTPUT_BYTES,
     });
@@ -95,23 +99,76 @@ describe("jscpd capability probing", () => {
       executable: "cpd",
       version: "5.4.0",
       major: 5,
+      source: "project-or-path",
     });
     expect(fake.calls.map(({ executable }) => executable)).toEqual(["jscpd", "cpd"]);
   });
 
-  it("reports both supported command names missing without searching elsewhere", async () => {
-    const fake = fakeExecutor({ status: "missing" }, { status: "missing" });
+  it("uses the bundled dependency after project and PATH commands are missing", async () => {
+    const fake = fakeExecutor(
+      { status: "missing" },
+      { status: "missing" },
+      completed("jscpd 5.1.2"),
+    );
+    const service = createJscpdCapabilityService(fake.executor);
+
+    await expect(service.probe(project)).resolves.toEqual({
+      status: "available",
+      executable: "jscpd",
+      version: "5.1.2",
+      major: 5,
+      source: "bundled",
+    });
+    expect(fake.calls.map(({ executable }) => executable)).toEqual(["jscpd", "cpd", "jscpd"]);
+    expect(fake.calls[2]?.path).toBe(
+      createJscpdExecutionPath(project.cwd, project.path, "bundled"),
+    );
+  });
+
+  it("resolves the installed bundled analyzer without a project or PATH jscpd", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-jscpd-bundled-capability-"));
+    const service = createJscpdCapabilityService();
+    try {
+      await expect(service.probe({ cwd, path: dirname(process.execPath) })).resolves.toMatchObject({
+        status: "available",
+        executable: "jscpd",
+        version: "5.1.2",
+        major: 5,
+        source: "bundled",
+      });
+    } finally {
+      service.dispose();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  it("reports the analyzer missing only after checking the bundled dependency", async () => {
+    const fake = fakeExecutor({ status: "missing" }, { status: "missing" }, { status: "missing" });
     const service = createJscpdCapabilityService(fake.executor);
 
     await expect(service.probe(project)).resolves.toEqual({
       status: "missing",
       checked: ["jscpd", "cpd"],
     });
-    expect(fake.calls.map(({ executable }) => executable)).toEqual(["jscpd", "cpd"]);
+    expect(fake.calls.map(({ executable }) => executable)).toEqual(["jscpd", "cpd", "jscpd"]);
   });
 
-  it("reports an incompatible major and does not try a fallback", async () => {
-    const fake = fakeExecutor(completed("jscpd 4.2.0"));
+  it("uses bundled v5 when an external analyzer has an incompatible major", async () => {
+    const fake = fakeExecutor(completed("jscpd 4.2.0"), completed("jscpd 5.1.2"));
+    const service = createJscpdCapabilityService(fake.executor);
+
+    await expect(service.probe(project)).resolves.toEqual({
+      status: "available",
+      executable: "jscpd",
+      version: "5.1.2",
+      major: 5,
+      source: "bundled",
+    });
+    expect(fake.calls.map(({ executable }) => executable)).toEqual(["jscpd", "jscpd"]);
+  });
+
+  it("reports an incompatible external major when the bundled fallback is unavailable", async () => {
+    const fake = fakeExecutor(completed("jscpd 4.2.0"), { status: "missing" });
     const service = createJscpdCapabilityService(fake.executor);
 
     await expect(service.probe(project)).resolves.toEqual({
@@ -120,8 +177,9 @@ describe("jscpd capability probing", () => {
       version: "4.2.0",
       major: 4,
       supportedMajor: 5,
+      source: "project-or-path",
     });
-    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls.map(({ executable }) => executable)).toEqual(["jscpd", "jscpd"]);
   });
 
   it("accepts a version emitted on stderr when stdout is empty", async () => {
@@ -133,6 +191,7 @@ describe("jscpd capability probing", () => {
       executable: "jscpd",
       version: "5.6.0",
       major: 5,
+      source: "project-or-path",
     });
   });
 
@@ -171,13 +230,16 @@ describe("jscpd capability probing", () => {
       execution: { status: "failed" } as const,
       expected: { status: "failed", executable: "jscpd", reason: "execution-error" },
     },
-  ])("stops after $name from a probe that started", async ({ execution, expected }) => {
-    const fake = fakeExecutor(execution);
-    const service = createJscpdCapabilityService(fake.executor);
+  ])(
+    "uses only the bundled fallback after $name from an external probe",
+    async ({ execution, expected }) => {
+      const fake = fakeExecutor(execution, { status: "missing" });
+      const service = createJscpdCapabilityService(fake.executor);
 
-    await expect(service.probe(project)).resolves.toEqual(expected);
-    expect(fake.calls.map(({ executable }) => executable)).toEqual(["jscpd"]);
-  });
+      await expect(service.probe(project)).resolves.toEqual(expected);
+      expect(fake.calls.map(({ executable }) => executable)).toEqual(["jscpd", "jscpd"]);
+    },
+  );
 
   it("propagates cancellation and does not try a fallback", async () => {
     const controller = new AbortController();
@@ -201,7 +263,7 @@ describe("jscpd capability probing", () => {
 
   it("converts oversized injected output to a bounded diagnostic without returning it", async () => {
     const oversized = `5.0.0${"private".repeat(JSCPD_VERSION_MAX_OUTPUT_BYTES)}`;
-    const fake = fakeExecutor(completed(oversized));
+    const fake = fakeExecutor(completed(oversized), { status: "missing" });
     const service = createJscpdCapabilityService(fake.executor);
 
     const result = await service.probe(project);
@@ -212,10 +274,10 @@ describe("jscpd capability probing", () => {
       reason: "output-limit",
     });
     expect(JSON.stringify(result)).not.toContain("private");
-    expect(fake.calls).toHaveLength(1);
+    expect(fake.calls).toHaveLength(2);
   });
 
-  it("normalizes thrown executor errors without exposing them or falling back", async () => {
+  it("normalizes thrown executor errors without exposing them", async () => {
     const run = vi.fn<JscpdProbeExecutor["run"]>(async () => {
       throw new Error("private environment and output");
     });
@@ -229,7 +291,7 @@ describe("jscpd capability probing", () => {
       reason: "execution-error",
     });
     expect(JSON.stringify(result)).not.toContain("private");
-    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it("detaches caller cancellation listeners after a completed probe", async () => {
