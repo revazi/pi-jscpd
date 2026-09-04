@@ -56,9 +56,10 @@ until publication is approved.
 
 ### Changed
 
-- Removed the superseded analyzer Promise facade, Promise report consumer, and
-  filesystem-backed clone/report test facades; analyzer execution and decoding
-  now expose only their Effect-native production paths.
+- Removed the superseded analyzer, configuration, and Fallow-coexistence Promise
+  facades, the parallel Promise report consumer, and filesystem-backed
+  clone/report test facades; these services now expose only their Effect-native
+  production paths.
 - Locked existing command/tool, lifecycle, persistence, cancellation, and bounded
   presentation behavior before production Effect workflow migration.
 - Postponed the first release and any `0.1.0` proposal until the ordered Effect

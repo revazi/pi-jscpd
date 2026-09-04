@@ -81,7 +81,7 @@ describe("M7.1 observable behavior characterization", () => {
       executor: { execute: async () => cancelled },
       adapterService: adapter as never,
       configService: {
-        load: async () => configResult,
+        loadEffect: () => Effect.succeed(configResult),
         current: () => configResult,
       },
       scheduler,

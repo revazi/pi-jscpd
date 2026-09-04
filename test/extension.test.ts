@@ -15,7 +15,7 @@ import {
 } from "../src/automatic.js";
 import type { JscpdBaselineService, JscpdBaselineState } from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
-import type { JscpdConfigService } from "../src/config.js";
+import type { JscpdConfigLoadContext, JscpdConfigService } from "../src/config.js";
 import {
   createJscpdSlashCommandDefinition,
   createJscpdToolDefinition,
@@ -164,9 +164,12 @@ function createConfigService(
     })),
     trusted: true,
   };
-  const load = vi.fn<JscpdConfigService["load"]>(async () => result);
+  const load = vi.fn(async (_context: JscpdConfigLoadContext) => result);
   return {
-    service: { load, current: () => result } satisfies JscpdConfigService,
+    service: {
+      loadEffect: (context) => Effect.promise(() => load(context)),
+      current: () => result,
+    } satisfies JscpdConfigService,
     load,
   };
 }

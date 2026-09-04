@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { createJscpdAcknowledgementTracker } from "../src/acknowledgements.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
@@ -61,9 +62,7 @@ function services() {
     trusted: true,
   };
   const config = {
-    async load() {
-      return current;
-    },
+    loadEffect: () => Effect.succeed(current),
     current() {
       return current;
     },

@@ -1,7 +1,6 @@
 import { isAbsolute, join, relative } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Context, Data, Effect, Layer } from "effect";
-import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import { JscpdFileSystem } from "./effect/services.js";
 import { canonicalDirectoryEffect } from "./path-utils.js";
 
@@ -58,8 +57,7 @@ export interface JscpdConfigLoadContext {
 }
 
 export interface JscpdConfigService {
-  load(context: JscpdConfigLoadContext): Promise<JscpdConfigLoadResult>;
-  loadEffect?: (
+  loadEffect: (
     context: JscpdConfigLoadContext,
   ) => Effect.Effect<JscpdConfigLoadResult, never, JscpdFileSystem>;
   current(): JscpdConfigLoadResult;
@@ -98,12 +96,9 @@ const SOURCE_FILES: readonly [ConfigFileSource, string][] = [
   ["local", LOCAL_CONFIG_FILE_NAME],
 ];
 
-export function createJscpdConfigService(
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
-): JscpdConfigService {
+export function createJscpdConfigService(): JscpdConfigService {
   const owner = new DefaultJscpdConfigService();
   return {
-    load: (context) => runtime.runPromise(owner.loadEffect(context)),
     loadEffect: (context) => owner.loadEffect(context),
     current: () => owner.currentValue(),
   };

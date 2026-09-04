@@ -300,9 +300,7 @@ describe("Effect application workflows", () => {
 
   it("keeps status inspection and recording in one Effect-owned state service", async () => {
     const config: JscpdConfigService = {
-      async load() {
-        return this.current();
-      },
+      loadEffect: () => Effect.sync(() => config.current()),
       current() {
         return {
           config: { enabled: true, timeoutMs: 30_000, maxFindings: 10 },
@@ -383,7 +381,7 @@ describe("Effect application workflows", () => {
     };
     const mode = createJscpdSessionModeService();
     const config: JscpdConfigService = {
-      load: async () => config.current(),
+      loadEffect: () => Effect.sync(() => config.current()),
       current: () => ({
         config: { enabled: true, timeoutMs: 30_000, maxFindings: 10 },
         sources: ["defaults"],
@@ -408,7 +406,7 @@ describe("Effect application workflows", () => {
   it("does not let a superseded command overwrite restored status", async () => {
     const mode = createJscpdSessionModeService();
     const statusConfig: JscpdConfigService = {
-      load: async () => statusConfig.current(),
+      loadEffect: () => Effect.sync(() => statusConfig.current()),
       current: () => ({
         config: { enabled: true, timeoutMs: 30_000, maxFindings: 10 },
         sources: ["defaults"],
@@ -541,7 +539,7 @@ describe("Effect application workflows", () => {
     );
     const mode = createJscpdSessionModeService();
     const statusConfig: JscpdConfigService = {
-      load: async () => statusConfig.current(),
+      loadEffect: () => Effect.sync(() => statusConfig.current()),
       current: () => ({
         config: { enabled: true, timeoutMs: 30_000, maxFindings: 10 },
         sources: ["defaults"],
