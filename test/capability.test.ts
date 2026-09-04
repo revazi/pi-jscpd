@@ -1,20 +1,24 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { Cause, Effect, Exit } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import {
+  createJscpdCapabilityLayer,
   createJscpdCapabilityService,
   createJscpdExecutionPath,
   createNodeProbeExecutor,
   JSCPD_SUPPORTED_MAJOR,
   JSCPD_VERSION_MAX_OUTPUT_BYTES,
   JSCPD_VERSION_TIMEOUT_MS,
+  JscpdCapability,
   type JscpdExecutable,
   type JscpdProbeExecutionRequest,
   type JscpdProbeExecutionResult,
   type JscpdProbeExecutor,
   parseJscpdVersion,
 } from "../src/capability.js";
+import { JscpdProcessLive } from "../src/process.js";
 
 const project = { cwd: "/project", path: "/synthetic/bin" } as const;
 
@@ -372,6 +376,50 @@ describe("bounded process boundary", () => {
   });
 });
 
+describe("Effect capability layer", () => {
+  it("owns a scoped cache and exposes Effect-native probing", async () => {
+    const fake = fakeExecutor(completed("jscpd 5.1.2"));
+    const program = Effect.flatMap(JscpdCapability, (capability) =>
+      Effect.all([capability.probe(project), capability.probe(project)], { concurrency: 1 }),
+    ).pipe(
+      Effect.provide(createJscpdCapabilityLayer(fake.executor)),
+      Effect.provide(JscpdProcessLive),
+    );
+
+    await expect(Effect.runPromise(program)).resolves.toEqual([
+      expect.objectContaining({ status: "available", version: "5.1.2" }),
+      expect.objectContaining({ status: "available", version: "5.1.2" }),
+    ]);
+    expect(fake.run).toHaveBeenCalledOnce();
+  });
+
+  it("interrupts an active injected probe when its calling fiber is cancelled", async () => {
+    let executionSignal: AbortSignal | undefined;
+    const run = vi.fn<JscpdProbeExecutor["run"]>(
+      (request) =>
+        new Promise((resolve) => {
+          executionSignal = request.signal;
+          const cancel = () => resolve({ status: "cancelled" });
+          if (request.signal.aborted) cancel();
+          else request.signal.addEventListener("abort", cancel, { once: true });
+        }),
+    );
+    const controller = new AbortController();
+    const program = Effect.flatMap(JscpdCapability, (capability) => capability.probe(project)).pipe(
+      Effect.provide(createJscpdCapabilityLayer({ run })),
+      Effect.provide(JscpdProcessLive),
+    );
+    const running = Effect.runPromiseExit(program, { signal: controller.signal });
+    await vi.waitFor(() => expect(run).toHaveBeenCalledOnce());
+
+    controller.abort();
+    const exit = await running;
+
+    expect(Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)).toBe(true);
+    expect(executionSignal?.aborted).toBe(true);
+  });
+});
+
 describe("jscpd capability cache lifecycle", () => {
   it("reuses a stable result for the same cwd and PATH", async () => {
     const fake = fakeExecutor(completed("5.0.1"));
@@ -415,7 +463,7 @@ describe("jscpd capability cache lifecycle", () => {
     service.invalidate();
     firstExecution.resolve(completed("5.0.0"));
 
-    await expect(staleProbe).resolves.toMatchObject({ status: "available", version: "5.0.0" });
+    await expect(staleProbe).resolves.toEqual({ status: "cancelled", executable: "jscpd" });
     await expect(service.probe(project)).resolves.toMatchObject({
       status: "available",
       version: "5.0.1",
@@ -427,6 +475,10 @@ describe("jscpd capability cache lifecycle", () => {
     const run = vi.fn<JscpdProbeExecutor["run"]>(
       (request) =>
         new Promise((resolve) => {
+          if (request.signal.aborted) {
+            resolve({ status: "cancelled" });
+            return;
+          }
           request.signal.addEventListener("abort", () => resolve({ status: "cancelled" }), {
             once: true,
           });

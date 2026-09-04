@@ -7,8 +7,11 @@ import ts from "typescript";
 const root = resolve(import.meta.dirname, "..");
 const sourceRoot = join(root, "src");
 
-/** Pi adapter files that may host Effect.run* after the managed runtime is introduced in M7.7. */
-export const APPROVED_EFFECT_RUNTIME_BOUNDARIES = Object.freeze(["src/extension.ts"]);
+/** Approved host bridges; the temporary bridge is removed when M7.7 owns the managed runtime. */
+export const APPROVED_EFFECT_RUNTIME_BOUNDARIES = Object.freeze([
+  "src/effect/runtime-boundary.ts",
+  "src/extension.ts",
+]);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   checkEffectBoundaries();

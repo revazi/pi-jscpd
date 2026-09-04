@@ -29,7 +29,7 @@ remains MIT licensed regardless of publication state; see the
 | `@earendil-works/pi-ai` | `>=0.84.4 <0.85.0` | `0.84.4` | Kept on the same tested Pi release line. |
 | `@earendil-works/pi-tui` | `>=0.84.4 <0.85.0` | `0.84.4` | Required by the interactive overlay. |
 | `typebox` | `>=1.3.7 <2` | `1.3.7` | Required by the agent-tool schema. |
-| `effect` | Exact `3.22.1` | `3.22.1` | Reviewed MIT runtime foundation; no managed production runtime exists yet. |
+| `effect` | Exact `3.22.1` | `3.22.1` | Reviewed MIT runtime for scoped process/analyzer resources; the single managed Pi runtime lands in M7.7. |
 | `jscpd` | Compatible v5 | `5.1.2` | Exact runtime dependency and fallback analyzer. |
 
 Effect `3.22.1` was the npm registry's current stable 3.x release when foundation
@@ -71,7 +71,7 @@ through npm just as a user installation would; runtime checks remain offline. It
   temporary directories and all resource discovery disabled except the explicit
   installed package;
 - verifies `/jscpd` discovery and provider-free help/status behavior through RPC,
-  exercises the registered `jscpd_run` contract, declarative Effect foundation,
+  exercises the registered `jscpd_run` contract, Effect-owned analyzer resources,
   and installed overlay component, proves the installed artifact resolves and
   probes bundled jscpd `5.1.2`, and
   checks JSON, print, and non-TUI fallback paths; and

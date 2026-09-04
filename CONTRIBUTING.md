@@ -61,6 +61,8 @@ so jscpd remains this project's single duplication authority.
   the Pi composition boundary only when the ordered Pi-boundary slice is reached.
   The foundation contracts create no runtime and provide no live production layer.
 - Keep `Effect.run*` out of infrastructure, domain, and application modules.
+  Until M7.7, only `src/effect/runtime-boundary.ts` may bridge migrated services
+  to the existing Promise application surface; do not add another runtime bridge.
 - Add characterization tests before converting a boundary, deterministic test
   layers with the conversion, and interruption/finalizer tests for resources.
 - Remove the superseded internal Promise path in the same slice; temporary

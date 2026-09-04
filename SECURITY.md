@@ -68,10 +68,11 @@ configuration, edits source automatically, or treats scan success as permission
 to publish data. Security fixes must preserve those boundaries.
 
 The release-blocking [Effect migration](docs/effect-migration.md) must preserve
-and strengthen resource ownership: one managed runtime/root scope, typed
-expected failures, interruption-safe child-process and temporary-directory
-finalizers, and no unmanaged fibers, timers, or listeners. Migration must not
-turn defects or sensitive exception details into user-facing output.
+and strengthen resource ownership. Child-process and temporary-report resources
+now use interruption-safe Effect acquisition/finalization; the remaining slices
+must converge on one managed runtime/root scope with no unmanaged fibers, timers,
+or listeners. Migration must not turn defects or sensitive exception details
+into user-facing output.
 
 ## Release authority
 

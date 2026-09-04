@@ -2,9 +2,10 @@
 
 Issue [#64](https://github.com/revazi/pi-jscpd/issues/64) establishes the first,
 behavior-preserving Effect migration slice. It declares contracts and test support
-only: production process, filesystem, domain, scheduler, Pi, and TUI workflows
-still use their characterized pre-migration paths. There is no managed runtime,
-production layer graph, or production `Effect.run*` call yet.
+only. M7.2 now builds on these contracts for process and analyzer resources;
+filesystem policy, domain, scheduler, application, Pi, and TUI workflows retain
+their characterized pre-migration paths. The single managed extension runtime
+still waits for M7.7.
 
 ## Reviewed dependency
 
@@ -89,11 +90,13 @@ contains them with the existing fail-open result.
 
 `npm run architecture:check` uses the TypeScript syntax tree to find `Effect.run*`
 calls through named imports, aliases, namespace imports, property access, and
-element access while ignoring comments and strings. It scans `src` only. The
-explicit future allowlist contains only `src/extension.ts`, the Pi adapter
-boundary; this foundation slice contains zero production runtime calls.
+element access while ignoring comments and strings. It scans `src` only. M7.2
+adds `src/effect/runtime-boundary.ts` as the single temporary Promise bridge for
+existing application callers; `src/extension.ts` remains the final Pi adapter
+boundary. M7.7 removes the temporary bridge when it constructs the managed
+extension runtime.
 
 Tests and package-certification probes are isolated test boundaries and may run
 or import Effect. Future migration slices should extend detection only when a new
 syntax needs coverage; widening the production allowlist requires an explicit
-architecture review.
+architecture review. See [Effect-owned resources](effect-resources.md).

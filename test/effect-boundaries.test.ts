@@ -88,7 +88,10 @@ describe("Effect runtime architecture boundary", () => {
     ]);
   });
 
-  it("keeps the future runtime allowlist limited to the Pi adapter", () => {
-    expect(APPROVED_EFFECT_RUNTIME_BOUNDARIES).toEqual(["src/extension.ts"]);
+  it("keeps runtime execution at the temporary application bridge and Pi adapter", () => {
+    expect(APPROVED_EFFECT_RUNTIME_BOUNDARIES).toEqual([
+      "src/effect/runtime-boundary.ts",
+      "src/extension.ts",
+    ]);
   });
 });
