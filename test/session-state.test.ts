@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { describe, expect, it } from "vitest";
 import { createJscpdAcknowledgementTracker } from "../src/acknowledgements.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
-import { createJscpdChangedFileTracker, MAX_CHANGED_FILES } from "../src/changed-files.js";
+import { MAX_CHANGED_FILES } from "../src/changed-files.js";
 import type { JscpdConfigService } from "../src/config.js";
 import {
   JSCPD_SESSION_STATE_TYPE,
@@ -11,6 +11,7 @@ import {
   snapshotJscpdSessionState,
 } from "../src/session-state.js";
 import { createJscpdSessionModeService, createJscpdStatusService } from "../src/status.js";
+import { createChangedFilesTestDriver as createJscpdChangedFileTracker } from "./support/changed-files.js";
 
 const availableCapability = {
   status: "available",

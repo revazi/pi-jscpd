@@ -374,17 +374,11 @@ function acknowledgementReconcileEffect(
 }
 
 function changedFilesEffect(service: JscpdChangedFileTracker): Effect.Effect<readonly string[]> {
-  return service.filesEffect ?? Effect.sync(() => service.files());
+  return service.filesEffect;
 }
 
 function safeBaselineEffect(service: JscpdBaselineService): Effect.Effect<JscpdBaselineState> {
-  const wait =
-    service.waitEffect ??
-    Effect.tryPromise({
-      try: () => service.wait(),
-      catch: () => ({ status: "failed", stage: "scan", reason: "internal-error" }) as const,
-    });
-  return wait.pipe(Effect.catchAll((state) => Effect.succeed(state)));
+  return service.waitEffect;
 }
 
 function resultStep(result: JscpdExecutionResult): JscpdChangedResultStep {

@@ -3,11 +3,11 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  createJscpdChangedFileTracker,
   MAX_CHANGED_FILE_PATH_BYTES,
   MAX_CHANGED_FILES,
   normalizeWindowsShellPath,
 } from "../src/changed-files.js";
+import { createChangedFilesTestDriver as createJscpdChangedFileTracker } from "./support/changed-files.js";
 
 let root: string;
 let project: string;

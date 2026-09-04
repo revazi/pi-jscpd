@@ -2,10 +2,11 @@ import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promi
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createJscpdBaselineService, type JscpdBaselineStartContext } from "../src/baseline.js";
+import type { JscpdBaselineStartContext } from "../src/baseline.js";
 import type { JscpdCapabilityResult, JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdRunRequest, JscpdRunResult } from "../src/jscpd.js";
 import type { JscpdScanReport } from "../src/types.js";
+import { createBaselineTestDriver as createJscpdBaselineService } from "./support/baseline.js";
 import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
 
 let root: string;

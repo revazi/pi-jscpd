@@ -1,17 +1,18 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJscpdAcknowledgementTracker } from "../src/acknowledgements.js";
 import type { JscpdBaselineService, JscpdBaselineState } from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import { createJscpdChangedExecutor } from "../src/changed.js";
-import { createJscpdChangedFileTracker } from "../src/changed-files.js";
 import { indexJscpdCloneReportEffect } from "../src/clone-identity.js";
 import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import type { JscpdRunRequest, JscpdRunResult } from "../src/jscpd.js";
 import type { JscpdClonePair, JscpdScanReport } from "../src/types.js";
 import { createJscpdVerificationService } from "../src/verification.js";
+import { createChangedFilesTestDriver as createJscpdChangedFileTracker } from "./support/changed-files.js";
 import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
 
 let root: string;
@@ -88,12 +89,8 @@ async function acceptedBaseline(): Promise<JscpdBaselineState> {
 
 function baseline(state: JscpdBaselineState): JscpdBaselineService {
   return {
-    async start() {
-      return state;
-    },
-    async wait() {
-      return state;
-    },
+    startEffect: () => Effect.succeed(state),
+    waitEffect: Effect.succeed(state),
     disable() {},
     invalidate() {},
     current() {

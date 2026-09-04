@@ -13,7 +13,11 @@ import {
   JSCPD_AUTOMATIC_STATUS_KEY,
   type JscpdAutomaticCheck,
 } from "../src/automatic.js";
-import type { JscpdBaselineService, JscpdBaselineState } from "../src/baseline.js";
+import type {
+  JscpdBaselineService,
+  JscpdBaselineStartContext,
+  JscpdBaselineState,
+} from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigLoadContext, JscpdConfigService } from "../src/config.js";
 import {
@@ -176,8 +180,8 @@ function createConfigService(
 
 function createBaselineService(state: JscpdBaselineState = { status: "unstarted" }) {
   let current = state;
-  const start = vi.fn<JscpdBaselineService["start"]>(async () => current);
-  const wait = vi.fn<JscpdBaselineService["wait"]>(async () => current);
+  const start = vi.fn(async (_context: JscpdBaselineStartContext) => current);
+  const wait = vi.fn(async () => current);
   const disable = vi.fn(() => {
     current = { status: "unavailable", reason: "disabled" };
   });
@@ -186,8 +190,8 @@ function createBaselineService(state: JscpdBaselineState = { status: "unstarted"
   });
   return {
     service: {
-      start,
-      wait,
+      startEffect: (context) => Effect.promise(() => start(context)),
+      waitEffect: Effect.promise(wait),
       disable,
       invalidate,
       current: () => current,
@@ -875,8 +879,8 @@ describe("Pi extension registration", () => {
       snapshot: { status: "accepted", groups: [], omittedGroups: 0 },
     };
     const baseline = {
-      start: vi.fn(async () => acceptedBaseline),
-      wait: vi.fn(async () => acceptedBaseline),
+      startEffect: () => Effect.succeed(acceptedBaseline),
+      waitEffect: Effect.succeed(acceptedBaseline),
       disable: vi.fn(),
       invalidate: vi.fn(),
       current: () => acceptedBaseline,
@@ -974,8 +978,8 @@ describe("Pi extension registration", () => {
         snapshot: { status: "accepted", groups: [], omittedGroups: 0 },
       };
       const baseline = {
-        start: vi.fn(async () => acceptedBaseline),
-        wait: vi.fn(async () => acceptedBaseline),
+        startEffect: () => Effect.succeed(acceptedBaseline),
+        waitEffect: Effect.succeed(acceptedBaseline),
         disable: vi.fn(),
         invalidate: vi.fn(),
         current: () => acceptedBaseline,
