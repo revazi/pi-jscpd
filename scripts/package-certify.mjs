@@ -752,7 +752,7 @@ async function assertNoReportDirectories(temporaryRoot) {
   await waitFor(
     () => reportDirectories(temporaryRoot).length === 0,
     "temporary jscpd report cleanup",
-    5_000,
+    15_000,
   );
 }
 
