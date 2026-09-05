@@ -9,6 +9,7 @@ const publicMarkdown = Object.freeze(
     "CHANGELOG.md",
     "CONTRIBUTING.md",
     "SECURITY.md",
+    "skills/jscpd/SKILL.md",
     ".github/pull_request_template.md",
     ...readdirSync(join(root, "docs"))
       .filter((name) => extname(name).toLowerCase() === ".md")

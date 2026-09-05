@@ -1,6 +1,7 @@
 # pi-jscpd
 
 [![CI](https://github.com/revazi/pi-jscpd/actions/workflows/ci.yml/badge.svg)](https://github.com/revazi/pi-jscpd/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/pi-jscpd.svg)](https://www.npmjs.com/package/pi-jscpd)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
 
@@ -11,11 +12,6 @@ locations, and helps you inspect, refactor, test, and verify the result. jscpd
 remains the source of truth for tokenization, clone detection, supported
 languages, and statistics.
 
-> **Pre-release status:** the implementation, Effect migration, and
-> non-publishing recertification are complete on the unreleased branch. The package
-> remains private at `0.0.0`; no `0.1.0` proposal or publication is authorized by
-> migration or certification success.
-
 ## Install
 
 ```sh
@@ -23,7 +19,8 @@ pi install npm:pi-jscpd
 ```
 
 The package includes pinned jscpd `5.1.2` and Effect `3.22.1` runtime
-dependencies—there is no separate analyzer installation and no runtime download.
+dependencies plus an on-demand `jscpd` agent skill—there is no separate analyzer
+installation and no runtime download.
 Effect owns bounded process execution, analyzer probing, temporary report
 workspaces, adapter serialization, trusted configuration and signal reads,
 canonical source-path validation, baseline generations, changed-file attribution,
@@ -71,7 +68,13 @@ Pi can use the same operations through the `jscpd_run` tool:
 ```
 
 Supported tool commands are `scan`, `changed`, `status`, `off`, `on`, and
-`help`.
+`help`. In TUI mode, `/jscpd ` provides subcommand autocomplete with labels and
+descriptions; selecting `scan` leaves the editor ready for an optional target.
+
+The package also exposes `/skill:jscpd`. Pi advertises only the skill's concise
+description at startup and loads its full workflow guidance on demand when a
+duplication task matches or the user invokes the skill command. The extension
+and `jscpd_run` tool remain usable when skills are disabled.
 
 ## How session checks work
 
@@ -98,18 +101,27 @@ Use `/jscpd scan` when changes happened outside built-in `write` or `edit`.
 
 ## Interactive overview
 
-Bare `/jscpd` opens a bounded TUI with:
+Bare `/jscpd` opens a status-first, Fallow-style bounded TUI with:
 
-- current mode, binary, configuration, and last-check status;
-- changed-project scan actions;
-- searchable finding and detail views;
-- both duplicate locations, size, format, and session relationship;
-- session enable/disable controls; and
-- cancellation and narrow-terminal support.
+- a framed overview of mode, binary, configuration, last check, and explicit
+  changed/project scan actions;
+- a searchable, scrollable findings navigator that retains up to 100 findings,
+  initially shows 10, and reveals the next 10 with `L` or by navigating past the
+  last shown row—without rescanning or changing configuration;
+- both duplicate locations, size, format, session relationship, inline detail,
+  verification, and omission/ambiguity context;
+- `j`/`k`, arrows, Home/End, paging, expand/collapse, search, and multi-selection
+  controls consistent with Pi Fallow's navigator; and
+- a bounded `e`/`a` handoff that closes the overlay and loads selected findings
+  into Pi's editor for user review.
 
-The overview never edits source, writes jscpd configuration, runs project tests,
-or refactors automatically. In RPC, JSON, and print modes, explicit subcommands
-remain available and the bare command uses a bounded non-interactive fallback.
+The extra overlay cache is in-memory and TUI-only. `maxFindings` still caps
+model/tool and explicit-command output, and cached findings are not added to
+persisted session state or acknowledgement records. The editor handoff never
+submits a prompt. The overview never edits source, writes jscpd configuration,
+runs project tests, or refactors automatically. In RPC, JSON, and print modes,
+explicit subcommands remain available and the bare command uses a bounded
+non-interactive fallback.
 
 ## Configuration
 
@@ -194,8 +206,13 @@ npm run pack:certify
 ```
 
 `npm run check` includes the Effect runtime-boundary architecture gate.
-`npm run release:check` runs the complete non-publishing readiness gate. Tests
-are network-free and use deterministic fake jscpd executables and Effect layers.
+`npm run release:check` runs the complete documentation, hygiene, compatibility,
+architecture, test, and packed-artifact release gate. Tests are network-free and
+use deterministic fake jscpd executables and Effect layers.
+The repository-owned `.jscpd.json` excludes dependency/build
+artifacts, caches, source maps, snapshots, archives, and common package-manager
+lockfiles while continuing to analyze `src`, `test`, scripts, documentation, and
+workflow files.
 
 Useful documentation:
 
@@ -208,11 +225,6 @@ Useful documentation:
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Changelog](CHANGELOG.md)
-
-The npm package is not published yet: it remains version `0.0.0` with
-`"private": true`. The installation interface above is the intended package
-contract, not a claim of current availability. No `0.1.0`, release, tag, or
-publication is authorized by finishing the Effect migration or passing CI.
 
 ## License
 

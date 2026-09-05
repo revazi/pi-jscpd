@@ -287,10 +287,9 @@ function parseClonePair(value: unknown): UnresolvedClonePair {
   const first = parseOccurrence(requiredProperty(duplicate, "firstFile", "invalid-duplicates"));
   const second = parseOccurrence(requiredProperty(duplicate, "secondFile", "invalid-duplicates"));
 
-  if (
-    lines !== first.end.line - first.start.line + 1 ||
-    lines !== second.end.line - second.start.line + 1
-  ) {
+  // jscpd defines `lines` from the first occurrence. Token-equivalent code in
+  // the second occurrence can span fewer physical lines because of formatting.
+  if (lines !== first.end.line - first.start.line + 1) {
     fail("invalid-location");
   }
   return { format, lines, tokens, occurrences: [first, second] };

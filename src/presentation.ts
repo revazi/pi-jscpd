@@ -19,11 +19,22 @@ const MAX_CONFIGURED_PRESENTED_FINDINGS = 100;
 export function presentJscpdScan(
   report: JscpdScanReport,
   configuredMaxFindings = DEFAULT_MAX_PRESENTED_FINDINGS,
+  overlayFindingLimit?: number,
 ): JscpdCompletedResult {
   const summary = scanSummary(report);
   const maxFindings = boundedFindingLimit(configuredMaxFindings);
-  const findings = report.clonePairs.slice(0, maxFindings).map(presentFinding);
+  const overlayLimit = boundedOverlayFindingLimit(overlayFindingLimit);
+  const retained = report.clonePairs
+    .slice(0, Math.max(maxFindings, overlayLimit ?? 0))
+    .map(presentFinding);
+  const findings = Object.freeze(retained.slice(0, maxFindings));
   const omittedFindings = Math.max(0, report.clonePairs.length - findings.length);
+  const overlayCache = overlayLimit
+    ? Object.freeze({
+        findings: Object.freeze(retained.slice(0, overlayLimit)),
+        omittedFindings: Math.max(0, report.clonePairs.length - overlayLimit),
+      })
+    : undefined;
   const outcome = findings.length === 0 ? "clean" : "findings";
 
   if (outcome === "clean") {
@@ -36,6 +47,7 @@ export function presentJscpdScan(
       summary,
       findings,
       omittedFindings,
+      ...(overlayCache ? { overlayCache } : {}),
     };
   }
 
@@ -62,6 +74,7 @@ export function presentJscpdScan(
     summary,
     findings,
     omittedFindings,
+    ...(overlayCache ? { overlayCache } : {}),
   };
 }
 
@@ -71,12 +84,21 @@ export function presentJscpdChanged(
   changedFiles: ReadonlySet<string>,
   configuredMaxFindings = DEFAULT_MAX_PRESENTED_FINDINGS,
   ambiguousFindings = 0,
+  overlayFindingLimit?: number,
 ): JscpdChangedResult {
   const maxFindings = boundedFindingLimit(configuredMaxFindings);
-  const findings = clonePairs
-    .slice(0, maxFindings)
+  const overlayLimit = boundedOverlayFindingLimit(overlayFindingLimit);
+  const retained = clonePairs
+    .slice(0, Math.max(maxFindings, overlayLimit ?? 0))
     .map((pair) => presentChangedFinding(pair, changedFiles));
+  const findings = Object.freeze(retained.slice(0, maxFindings));
   const omittedFindings = Math.max(0, clonePairs.length - findings.length);
+  const overlayCache = overlayLimit
+    ? Object.freeze({
+        findings: Object.freeze(retained.slice(0, overlayLimit)),
+        omittedFindings: Math.max(0, clonePairs.length - overlayLimit),
+      })
+    : undefined;
   const outcome = findings.length === 0 ? "clean" : "findings";
   const ambiguity =
     ambiguousFindings > 0
@@ -90,9 +112,10 @@ export function presentJscpdChanged(
       scanPerformed: true,
       message,
       terminalMessage: message,
-      findings: Object.freeze(findings),
+      findings,
       omittedFindings,
       ambiguousFindings,
+      ...(overlayCache ? { overlayCache } : {}),
     });
   }
   const headline = `jscpd changed found ${plural(clonePairs.length, "unacknowledged new duplicate block")} involving session-owned changed files.`;
@@ -120,9 +143,10 @@ export function presentJscpdChanged(
     scanPerformed: true,
     message,
     terminalMessage: message,
-    findings: Object.freeze(findings),
+    findings,
     omittedFindings,
     ambiguousFindings,
+    ...(overlayCache ? { overlayCache } : {}),
   });
 }
 
@@ -130,6 +154,15 @@ function boundedFindingLimit(value: number): number {
   return Number.isSafeInteger(value) && value >= 1 && value <= MAX_CONFIGURED_PRESENTED_FINDINGS
     ? value
     : DEFAULT_MAX_PRESENTED_FINDINGS;
+}
+
+function boundedOverlayFindingLimit(value: number | undefined): number | undefined {
+  return value !== undefined &&
+    Number.isSafeInteger(value) &&
+    value >= 1 &&
+    value <= MAX_CONFIGURED_PRESENTED_FINDINGS
+    ? value
+    : undefined;
 }
 
 function scanSummary(report: JscpdScanReport): JscpdScanSummary {

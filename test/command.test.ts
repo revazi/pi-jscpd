@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { parseJscpdCommand, parseJscpdSlashArgs } from "../src/parser.js";
 import {
   getJscpdArgumentCompletions,
+  getJscpdRootCommandCompletions,
   jscpdArgumentHint,
   jscpdCommandNames,
   jscpdCommandRegistry,
@@ -81,6 +82,17 @@ describe("jscpd command registry", () => {
     ]);
     expect(getJscpdArgumentCompletions("h")).toEqual([
       expect.objectContaining({ value: "help", label: "help" }),
+    ]);
+    expect(getJscpdArgumentCompletions("SC")).toEqual([
+      expect.objectContaining({ value: "scan", label: "scan [target ...]" }),
+    ]);
+    expect(getJscpdRootCommandCompletions()).toEqual([
+      expect.objectContaining({ value: "jscpd scan", label: "scan [target ...]" }),
+      expect.objectContaining({ value: "jscpd changed", label: "changed" }),
+      expect.objectContaining({ value: "jscpd status", label: "status" }),
+      expect.objectContaining({ value: "jscpd off", label: "off" }),
+      expect.objectContaining({ value: "jscpd on", label: "on" }),
+      expect.objectContaining({ value: "jscpd help", label: "help" }),
     ]);
     expect(getJscpdArgumentCompletions("scan ")).toBeNull();
     expect(getJscpdArgumentCompletions("unknown")).toBeNull();

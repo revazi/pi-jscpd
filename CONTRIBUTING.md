@@ -13,8 +13,8 @@ preserve those product contracts and the completed runtime boundaries.
 2. Open or select a focused issue before substantial implementation work.
 3. Discuss changes to public commands/tools, configuration, persisted session
    state, process ownership, or product invariants before coding.
-4. For Effect work, select the next unblocked subissue under
-   [#63](https://github.com/revazi/pi-jscpd/issues/63); do not bypass its dependency order.
+4. For changes to Effect-owned workflows or runtime boundaries, open a focused
+   issue and preserve the architecture documented in this repository.
 5. Report suspected vulnerabilities privately according to
    [SECURITY.md](SECURITY.md), not in a public issue.
 
@@ -40,9 +40,9 @@ npm run pack:dry-run
 `npm run check` validates the active Node/Pi/Effect fixtures, enforces the
 approved Effect runtime boundary, type checks strict ESM TypeScript, runs
 Biome's formatting/lint checks, and executes the network-free test suite. The
-documentation and hygiene checks validate public local links,
-release guards, ignored/private path policy, package metadata, and the
-non-publishing workflow. `pack:certify` installs and exercises the exact tarball.
+documentation and hygiene checks validate public local links, release metadata,
+ignored/private path policy, package metadata, and the non-publishing readiness
+workflow. `pack:certify` installs and exercises the exact tarball.
 CI repeats those checks on Node 22.19.0 and 24.12.0.
 
 Tests must not require network access, read or modify global Pi configuration,
@@ -136,10 +136,9 @@ workflow changes also require the manual compatibility evidence described in
 ## Release ownership
 
 Only [Revaz Zakalashvili](https://github.com/revazi), as package maintainer and
-repository owner, may approve a version, remove `"private": true`, create a tag,
-configure registry authentication, or publish. The current manual workflow is
-readiness-only: it has no registry credentials or write permission and cannot
-release anything. The Effect epic and final recertification must close before a
-version can be proposed, but their completion does not grant release authority.
-Follow [the release preparation policy](docs/release.md). A contributor,
-reviewer, CODEOWNERS approval, or passing CI does not grant publication authority.
+repository owner, may approve a version, create a tag, configure registry
+publishing, or publish. The manual readiness workflow has no registry credentials
+or write permission and cannot release anything; tagged releases use the
+protected npm workflow. Follow [the release policy](docs/release.md). A
+contributor, reviewer, CODEOWNERS approval, or passing CI does not grant
+publication authority.

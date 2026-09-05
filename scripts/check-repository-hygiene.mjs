@@ -12,6 +12,7 @@ const workingTreePaths = statusPaths();
 const requiredPublicFiles = [
   ".github/workflows/ci.yml",
   ".github/workflows/release-readiness.yml",
+  ".github/workflows/release.yml",
   "CHANGELOG.md",
   "CONTRIBUTING.md",
   "LICENSE",
@@ -20,6 +21,7 @@ const requiredPublicFiles = [
   "docs/compatibility.md",
   "docs/effect-architecture.md",
   "docs/release.md",
+  "skills/jscpd/SKILL.md",
 ];
 const forbiddenPathPatterns = [
   /(^|\/)\.agents(?:\/|$)/i,
@@ -77,11 +79,12 @@ for (const pattern of requiredIgnores) {
 }
 
 assert.equal(manifest.name, "pi-jscpd");
-assert.equal(manifest.version, "0.0.0", "Release preparation must not choose a version.");
-assert.equal(manifest.private, true, "Release preparation must keep the package private.");
+assert.equal(manifest.version, "0.1.0", "Package version differs from the approved release.");
+assert.equal(manifest.private, undefined, "Public package must not retain the private guard.");
 assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
 assert.deepEqual(manifest.files, [
   "src",
+  "skills",
   "docs",
   "scripts/check-compatibility.mjs",
   "CHANGELOG.md",
@@ -90,6 +93,10 @@ assert.deepEqual(manifest.files, [
   "README.md",
   "LICENSE",
 ]);
+assert.deepEqual(manifest.pi, {
+  extensions: ["./src/index.ts"],
+  skills: ["./skills/jscpd/SKILL.md"],
+});
 for (const lifecycleScript of [
   "preinstall",
   "install",
@@ -128,7 +135,7 @@ for (const forbidden of [
 assert.match(readinessWorkflow, /run: npm run release:check/);
 
 console.log(
-  `Repository hygiene passed: ${trackedFiles.length} tracked files, ${workingTreePaths.length} visible working-tree paths, private release guard active.`,
+  `Repository hygiene passed: ${trackedFiles.length} tracked files, ${workingTreePaths.length} visible working-tree paths, public release manifest active.`,
 );
 
 function gitPaths(args) {

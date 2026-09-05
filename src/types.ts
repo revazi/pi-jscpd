@@ -11,6 +11,8 @@ export interface JscpdCommandInvocation {
 export interface JscpdExecutionContext {
   cwd: string;
   signal?: AbortSignal;
+  /** Internal TUI request for a bounded cache beyond the configured model/tool display limit. */
+  overlayFindingLimit?: number;
 }
 
 /** Reporter-independent statistics supplied by jscpd; pi-jscpd does not recalculate them. */
@@ -143,9 +145,12 @@ export interface JscpdChangedResult {
   readonly scanPerformed: boolean;
   readonly message: string;
   readonly terminalMessage: string;
+  /** Configured-limit findings used by commands, tools, acknowledgements, and model output. */
   readonly findings: readonly JscpdChangedFinding[];
   readonly omittedFindings: number;
   readonly ambiguousFindings: number;
+  /** Ephemeral overlay-only data, present only when the TUI adapter explicitly requests it. */
+  readonly overlayCache?: JscpdOverlayFindingCache<JscpdChangedFinding>;
   readonly verification?: JscpdVerificationResult;
 }
 
@@ -187,6 +192,12 @@ export type JscpdVerificationResult =
       readonly message: string;
     };
 
+export interface JscpdOverlayFindingCache<T> {
+  readonly findings: readonly T[];
+  /** Findings beyond the bounded overlay cache, excluding safely unclassified groups. */
+  readonly omittedFindings: number;
+}
+
 export interface JscpdCompletedResult {
   readonly status: "completed";
   readonly outcome: "findings" | "clean";
@@ -195,8 +206,11 @@ export interface JscpdCompletedResult {
   /** Concise content shown by the terminal slash command. */
   readonly terminalMessage: string;
   readonly summary: JscpdScanSummary;
+  /** Configured-limit findings used by commands, tools, and model output. */
   readonly findings: readonly JscpdPresentedFinding[];
   readonly omittedFindings: number;
+  /** Ephemeral overlay-only data, present only when the TUI adapter explicitly requests it. */
+  readonly overlayCache?: JscpdOverlayFindingCache<JscpdPresentedFinding>;
   readonly verification?: JscpdVerificationResult;
 }
 

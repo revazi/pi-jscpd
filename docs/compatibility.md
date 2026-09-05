@@ -12,14 +12,11 @@ owned and maintained by [Revaz Zakalashvili](https://github.com/revazi) at
 returned no existing package when this name was selected, but a lookup does not
 reserve a name.
 
-The package remains at version `0.0.0` with `"private": true`. It must not be
-published or treated as reserved without separate release approval that removes
-the guard after the maintainer controls the npm name. The completed runtime design
-is documented in
-[Effect architecture and conformance](effect-architecture.md). The current manual
-readiness workflow has no publication permission or credentials. The source
-remains MIT licensed regardless of publication state; see the
-[release preparation policy](release.md).
+The first supported release is `0.1.0`. The completed runtime design is
+documented in [Effect architecture and conformance](effect-architecture.md).
+The manual readiness workflow has no publication permission or credentials;
+tagged publication is handled separately by the protected release workflow. The
+source and package are MIT licensed; see the [release policy](release.md).
 
 ## Supported and tested matrix
 
@@ -69,9 +66,9 @@ through npm just as a user installation would; runtime checks remain offline. It
   disposable location and verifies exact, importable Effect `3.22.1` plus jscpd
   `5.1.2` dependencies;
 - uses the locked Pi `0.84.4` CLI with isolated home, agent, session, and
-  temporary directories and all resource discovery disabled except the explicit
-  installed package;
-- verifies `/jscpd` discovery and provider-free help/status behavior through RPC,
+  temporary directories and only the explicit installed package enabled;
+- verifies that Pi discovers exactly one packaged `/skill:jscpd`, then verifies
+  `/jscpd` discovery and provider-free help/status behavior through RPC,
   exercises the registered `jscpd_run` contract, Effect-owned analyzer resources,
   and installed overlay component, proves the installed artifact resolves and
   probes bundled jscpd `5.1.2`, and

@@ -42,7 +42,7 @@ describe("bounded changed presentation", () => {
     const pairs = [clonePair(1, "src"), clonePair(2, "src")];
     const changed = new Set(["src/first-1.ts", "src/first-2.ts"]);
 
-    const result = presentJscpdChanged(pairs, changed, 1, 1);
+    const result = presentJscpdChanged(pairs, changed, 1, 1, 100);
 
     expect(result).toMatchObject({
       status: "changed",
@@ -59,6 +59,9 @@ describe("bounded changed presentation", () => {
         },
       ],
     });
+    expect(result.overlayCache).toMatchObject({ omittedFindings: 0 });
+    expect(result.overlayCache?.findings).toHaveLength(2);
+    expect(result.message).not.toContain("src/first-2.ts");
     expect(result.message).toContain("new in this session");
     expect(result.message).toContain("existing match");
     expect(result.message).toContain("not acknowledged");
@@ -110,6 +113,27 @@ describe("bounded scan presentation", () => {
     const configured = presentJscpdScan(report, 3);
     expect(configured.findings).toHaveLength(3);
     expect(configured.omittedFindings).toBe(9);
+    expect(configured.overlayCache).toBeUndefined();
+  });
+
+  it("retains up to 100 overlay-only findings without enlarging configured output", () => {
+    const clonePairs = Array.from({ length: 120 }, (_, index) => clonePair(index, "src"));
+    const report: JscpdScanReport = {
+      clonePairs,
+      statistics: {
+        formats: [{ format: "typescript", ...statisticsRow(120) }],
+        total: statisticsRow(120),
+      },
+    };
+
+    const presented = presentJscpdScan(report, 10, 100);
+
+    expect(presented.findings).toHaveLength(10);
+    expect(presented.omittedFindings).toBe(110);
+    expect(presented.overlayCache?.findings).toHaveLength(100);
+    expect(presented.overlayCache?.omittedFindings).toBe(20);
+    expect(presented.message).toContain("110 additional duplicate blocks omitted");
+    expect(presented.message).not.toContain("src/first-10.ts");
   });
 
   it("renders stable ordered and empty consumer-facing snapshots without source fragments", () => {

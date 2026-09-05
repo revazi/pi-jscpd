@@ -19,7 +19,7 @@ interface PackageManifest {
   devDependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   engines?: { node?: string };
-  pi?: { extensions?: string[] };
+  pi?: { extensions?: string[]; skills?: string[] };
 }
 
 const EXPECTED_SCRIPTS = {
@@ -45,16 +45,18 @@ async function readManifest(): Promise<PackageManifest> {
 }
 
 describe("Pi package manifest", () => {
-  it("declares one explicit extension entrypoint", async () => {
+  it("declares one explicit extension entrypoint and one on-demand skill", async () => {
     const manifest = await readManifest();
 
     expect(manifest.pi?.extensions).toEqual(["./src/index.ts"]);
+    expect(manifest.pi?.skills).toEqual(["./skills/jscpd/SKILL.md"]);
     expect(manifest.keywords).toContain("pi-package");
   });
 
-  it("cannot be published accidentally before the release milestone", async () => {
+  it("is configured for the approved public release", async () => {
     const manifest = await readManifest();
-    expect(manifest.private).toBe(true);
+    expect(manifest.version).toBe("0.1.0");
+    expect(manifest.private).toBeUndefined();
   });
 
   it("pins tested fixtures while keeping supported host packages as peers", async () => {
@@ -98,7 +100,7 @@ describe("Pi package manifest", () => {
     const manifest = await readManifest();
 
     expect(manifest.name).toBe("pi-jscpd");
-    expect(manifest.version).toBe("0.0.0");
+    expect(manifest.version).toBe("0.1.0");
     expect(manifest.license).toBe("MIT");
     expect(manifest.author).toEqual({
       name: "Revaz Zakalashvili",
@@ -113,6 +115,7 @@ describe("Pi package manifest", () => {
     expect(manifest.publishConfig).toEqual({ access: "public", provenance: true });
     expect(manifest.files).toEqual([
       "src",
+      "skills",
       "docs",
       "scripts/check-compatibility.mjs",
       "CHANGELOG.md",
