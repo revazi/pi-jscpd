@@ -94,6 +94,42 @@ describe("Effect scan scheduling", () => {
     );
   });
 
+  it("settles a throwing native task and permits the next generation", async () => {
+    const clock = createJscpdClockTestLayer();
+    const task = vi.fn((): Effect.Effect<"attempted"> => {
+      throw new Error("task construction failed");
+    });
+    const program = Effect.gen(function* () {
+      const scheduler = yield* JscpdScanScheduling;
+      yield* scheduler.markChanged;
+      yield* scheduler.requestAutomatic(task);
+      const awaitAttempt = (generation: number) =>
+        scheduler.snapshot.pipe(
+          Effect.tap(() => Effect.yieldNow()),
+          Effect.repeat({
+            until: (state) => state.automatic === "idle" && state.attemptedGeneration >= generation,
+          }),
+          Effect.timeout("1 second"),
+        );
+      yield* awaitAttempt(1);
+      expect(task).toHaveBeenCalledOnce();
+      expect(yield* scheduler.snapshot).toMatchObject({
+        automatic: "idle",
+        attemptedGeneration: 1,
+      });
+      yield* scheduler.markChanged;
+      yield* scheduler.requestAutomatic(() => Effect.succeed("attempted"));
+      yield* awaitAttempt(2);
+      expect(yield* scheduler.snapshot).toMatchObject({
+        automatic: "idle",
+        attemptedGeneration: 2,
+      });
+    });
+    await Effect.runPromise(
+      program.pipe(Effect.provide(createJscpdScanSchedulerLayer(clock.layer))),
+    );
+  });
+
   it("uses the injected Effect clock for the coalescing boundary", async () => {
     const clock = createJscpdClockTestLayer();
     const program = Effect.gen(function* () {

@@ -17,11 +17,14 @@ export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
   "src/effect/filesystem.ts",
   "src/fallow.ts",
   "src/jscpd-report.ts",
+  "src/jscpd.ts",
   "src/path-utils.ts",
   "src/scan.ts",
 ]);
 
 export const EFFECT_ONLY_SERVICE_BOUNDARIES = Object.freeze([
+  "src/automatic.ts",
+  "src/scheduler.ts",
   "src/types.ts",
   "src/scan.ts",
   "src/changed.ts",
@@ -34,6 +37,7 @@ export const EFFECT_ONLY_SERVICE_BOUNDARIES = Object.freeze([
   "src/config.ts",
   "src/fallow.ts",
   "src/jscpd-report.ts",
+  "src/jscpd.ts",
 ]);
 
 export const MIGRATED_APPLICATION_BOUNDARIES = Object.freeze([

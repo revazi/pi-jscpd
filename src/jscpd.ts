@@ -1,10 +1,12 @@
-import { constants as fsConstants } from "node:fs";
-import type { FileHandle } from "node:fs/promises";
-import { chmod, lstat, mkdtemp, open, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { Cause, Context, Effect, Layer } from "effect";
-import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
+import { type JscpdFileSystemFailure, JscpdLimitExceeded } from "./effect/errors.js";
+import {
+  JscpdFileSystem,
+  type JscpdFileSystem as JscpdFileSystemService,
+  type JscpdProcess,
+} from "./effect/services.js";
 import { isJscpdReportErrorCode, JSCPD_STRUCTURED_REPORT_FILE_NAME } from "./jscpd-report.js";
 import {
   type BoundedProcessResult,
@@ -26,7 +28,6 @@ const MAX_ARGUMENT_COUNT = 256;
 const MAX_ARGUMENT_BYTES = 16 * 1_024;
 const MAX_TOTAL_ARGUMENT_BYTES = 64 * 1_024;
 const MAX_PATH_BYTES = 16 * 1_024;
-const REPORT_READ_CHUNK_BYTES = 64 * 1_024;
 const MAX_CONFIGURED_TIMEOUT_MS = 5 * 60_000;
 const MAX_CONFIGURED_OUTPUT_BYTES = 1024 * 1024;
 const MAX_CONFIGURED_REPORT_BYTES = 64 * 1024 * 1024;
@@ -115,8 +116,6 @@ export interface JscpdServiceOptions {
   reportConsumptionTimeoutMs?: number;
   /** Primarily for deterministic tests; no directory is created until run is called. */
   temporaryRoot?: string;
-  /** Deterministic cleanup seam; production uses the bounded recursive remover. */
-  removeWorkspace?: (directory: string) => Promise<boolean>;
   /** Primarily for deterministic cleanup-timeout tests. */
   workspaceCleanupTimeoutMs?: number;
 }
@@ -127,7 +126,6 @@ interface ResolvedServiceOptions {
   maxReportBytes: number;
   reportConsumptionTimeoutMs: number;
   temporaryRoot: string;
-  removeWorkspace: (directory: string) => Promise<boolean>;
   workspaceCleanupTimeoutMs: number;
 }
 
@@ -141,14 +139,15 @@ interface EffectJob {
 interface ReportWorkspace extends JscpdReportTarget {}
 
 type WorkspaceResult =
-  | { ok: true; workspace: ReportWorkspace }
+  | { ok: true; workspace: ReportWorkspace; cleanupPath: string }
   | {
       ok: false;
-      reason: "temporary-directory" | "unsafe-temporary-path" | "cleanup-failed";
+      reason: "temporary-directory" | "unsafe-temporary-path";
+      cleanupPath?: string;
     };
 
 type ReportBytesResult =
-  | { status: "bytes"; bytes: Buffer }
+  | { status: "bytes"; bytes: Uint8Array }
   | { status: "no-report" }
   | {
       status: "failed";
@@ -275,15 +274,7 @@ class DefaultJscpdService implements JscpdService {
   ): Effect.Effect<JscpdRunResult<unknown>, never, JscpdProcess | JscpdFileSystem> {
     let cleanupFailed = false;
     return Effect.acquireUseRelease(
-      Effect.tryPromise({
-        try: () => createReportWorkspace(job.request.cwd, this.#options.temporaryRoot),
-        catch: () => undefined,
-      }).pipe(
-        Effect.match({
-          onFailure: () => ({ ok: false as const, reason: "temporary-directory" as const }),
-          onSuccess: (workspace) => workspace,
-        }),
-      ),
+      createReportWorkspaceEffect(job.request.cwd, this.#options.temporaryRoot),
       (workspaceResult) =>
         workspaceResult.ok
           ? this.#executeInWorkspaceEffect(job, workspaceResult.workspace)
@@ -292,10 +283,9 @@ class DefaultJscpdService implements JscpdService {
               reason: workspaceResult.reason,
             }),
       (workspaceResult) => {
-        if (!workspaceResult.ok) return Effect.void;
+        if (!workspaceResult.cleanupPath) return Effect.void;
         return removeWorkspaceEffect(
-          this.#options.removeWorkspace,
-          workspaceResult.workspace.directory,
+          workspaceResult.cleanupPath,
           this.#options.workspaceCleanupTimeoutMs,
         ).pipe(
           Effect.tap((cleaned) =>
@@ -344,14 +334,9 @@ class DefaultJscpdService implements JscpdService {
       if (processFailure) return processFailure;
       const reportExitCode = deferredReportExitCode(processResult);
 
-      const report = yield* Effect.tryPromise({
-        try: () => readBoundedReport(workspace.reportPath, this.#options.maxReportBytes),
-        catch: () => ({ status: "failed" as const, reason: "report-read-failed" as const }),
-      }).pipe(
-        Effect.match({
-          onFailure: (failure) => failure,
-          onSuccess: (result) => result,
-        }),
+      const report = yield* readBoundedReportEffect(
+        workspace.reportPath,
+        this.#options.maxReportBytes,
       );
       if (report.status !== "bytes") return reportReadResult(report, reportExitCode);
 
@@ -397,7 +382,6 @@ function resolveServiceOptions(options: JscpdServiceOptions): ResolvedServiceOpt
       JSCPD_REPORT_CONSUMPTION_TIMEOUT_MS,
     ),
     temporaryRoot: withDefault(options.temporaryRoot, tmpdir()),
-    removeWorkspace: withDefault(options.removeWorkspace, removeReportWorkspace),
     workspaceCleanupTimeoutMs: withDefault(
       options.workspaceCleanupTimeoutMs,
       JSCPD_WORKSPACE_CLEANUP_TIMEOUT_MS,
@@ -409,12 +393,7 @@ function resolveServiceOptions(options: JscpdServiceOptions): ResolvedServiceOpt
   assertBoundedOption(resolved.maxReportBytes, MAX_CONFIGURED_REPORT_BYTES);
   assertBoundedOption(resolved.reportConsumptionTimeoutMs, MAX_CONFIGURED_CONSUMPTION_TIMEOUT_MS);
   assertBoundedOption(resolved.workspaceCleanupTimeoutMs, MAX_CONFIGURED_CONSUMPTION_TIMEOUT_MS);
-  if (
-    !isSafeAbsolutePath(resolved.temporaryRoot) ||
-    typeof resolved.removeWorkspace !== "function"
-  ) {
-    throwInvalidServiceOptions();
-  }
+  if (!isSafeAbsolutePath(resolved.temporaryRoot)) throwInvalidServiceOptions();
   return resolved;
 }
 
@@ -473,43 +452,77 @@ function createValidatedArguments(
   return [...args];
 }
 
-async function createReportWorkspace(cwd: string, temporaryRoot: string): Promise<WorkspaceResult> {
-  let directory: string | undefined;
-  try {
-    directory = await mkdtemp(join(temporaryRoot, TEMPORARY_PREFIX));
-    await chmod(directory, 0o700);
-    const [ownedDirectory, projectDirectory, projectStats] = await Promise.all([
-      realpath(directory),
-      realpath(cwd),
-      stat(cwd),
-    ]);
-    if (!projectStats.isDirectory() || isPathInside(projectDirectory, ownedDirectory)) {
-      const cleaned = await removeReportWorkspace(directory);
-      return { ok: false, reason: cleaned ? "unsafe-temporary-path" : "cleanup-failed" };
-    }
+function createReportWorkspaceEffect(
+  cwd: string,
+  temporaryRoot: string,
+): Effect.Effect<WorkspaceResult, never, JscpdFileSystem> {
+  return Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    filesystem.makeTempDirectory(join(temporaryRoot, TEMPORARY_PREFIX)).pipe(
+      Effect.matchEffect({
+        onFailure: () =>
+          Effect.succeed({ ok: false as const, reason: "temporary-directory" as const }),
+        onSuccess: (directory) => validateReportWorkspaceEffect(filesystem, cwd, directory),
+      }),
+    ),
+  );
+}
 
-    const reportPath = resolve(ownedDirectory, JSCPD_STRUCTURED_REPORT_FILE_NAME);
-    if (dirname(reportPath) !== ownedDirectory) {
-      const cleaned = await removeReportWorkspace(directory);
-      return { ok: false, reason: cleaned ? "unsafe-temporary-path" : "cleanup-failed" };
-    }
-    return { ok: true, workspace: { directory: ownedDirectory, reportPath } };
-  } catch {
-    const cleaned = !directory || (await removeReportWorkspace(directory));
-    return { ok: false, reason: cleaned ? "temporary-directory" : "cleanup-failed" };
-  }
+function validateReportWorkspaceEffect(
+  filesystem: JscpdFileSystemService,
+  cwd: string,
+  directory: string,
+): Effect.Effect<WorkspaceResult> {
+  return Effect.all(
+    [
+      filesystem.canonicalize(directory),
+      filesystem.canonicalize(cwd),
+      filesystem.metadata(cwd),
+    ] as const,
+    { concurrency: "unbounded" },
+  ).pipe(
+    Effect.map(([ownedDirectory, projectDirectory, projectMetadata]) => {
+      if (projectMetadata.kind !== "directory" || isPathInside(projectDirectory, ownedDirectory)) {
+        return {
+          ok: false as const,
+          reason: "unsafe-temporary-path" as const,
+          cleanupPath: directory,
+        };
+      }
+      const reportPath = resolve(ownedDirectory, JSCPD_STRUCTURED_REPORT_FILE_NAME);
+      if (dirname(reportPath) !== ownedDirectory) {
+        return {
+          ok: false as const,
+          reason: "unsafe-temporary-path" as const,
+          cleanupPath: directory,
+        };
+      }
+      return {
+        ok: true as const,
+        workspace: { directory: ownedDirectory, reportPath },
+        cleanupPath: ownedDirectory,
+      };
+    }),
+    Effect.catchAll(() =>
+      Effect.succeed({
+        ok: false as const,
+        reason: "temporary-directory" as const,
+        cleanupPath: directory,
+      }),
+    ),
+  );
 }
 
 function removeWorkspaceEffect(
-  removeWorkspace: (directory: string) => Promise<boolean>,
   directory: string,
   timeoutMs: number,
-): Effect.Effect<boolean> {
-  const cleanup = Effect.tryPromise({
-    try: () => removeWorkspace(directory),
-    catch: () => undefined,
-  }).pipe(
-    Effect.match({ onFailure: () => false, onSuccess: (cleaned) => cleaned }),
+): Effect.Effect<boolean, never, JscpdFileSystem> {
+  const cleanup = Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    filesystem.remove(directory, true),
+  ).pipe(
+    Effect.as(true),
+    Effect.catchAllCause((cause) =>
+      Cause.isInterruptedOnly(cause) ? Effect.interrupt : Effect.succeed(false),
+    ),
     Effect.interruptible,
   );
   return cleanup.pipe(
@@ -521,91 +534,41 @@ function removeWorkspaceEffect(
   );
 }
 
-async function removeReportWorkspace(directory: string): Promise<boolean> {
-  try {
-    await rm(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 10 });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function readBoundedReport(
+function readBoundedReportEffect(
   reportPath: string,
   maxReportBytes: number,
-): Promise<ReportBytesResult> {
-  const pathFailure = await inspectReportPath(reportPath);
-  if (pathFailure) {
-    return pathFailure;
-  }
+): Effect.Effect<ReportBytesResult, never, JscpdFileSystem> {
+  return Effect.flatMap(JscpdFileSystem, (filesystem) =>
+    filesystem
+      .read({
+        path: reportPath,
+        maxBytes: maxReportBytes,
+        regularFileOnly: true,
+        noFollow: true,
+        limitSubject: "report",
+      })
+      .pipe(
+        Effect.match({
+          onFailure: reportReadFailure,
+          onSuccess: (bytes) => ({ status: "bytes" as const, bytes }),
+        }),
+      ),
+  );
+}
 
-  const file = await openReportFile(reportPath);
-  return file
-    ? readOpenedReport(file, maxReportBytes)
+function reportReadFailure(error: JscpdFileSystemFailure | JscpdLimitExceeded): ReportBytesResult {
+  if (error instanceof JscpdLimitExceeded) {
+    return { status: "failed", reason: "report-too-large" };
+  }
+  if (error.reason === "missing") return { status: "no-report" };
+  return error.reason === "not-regular" || error.reason === "symlink"
+    ? { status: "failed", reason: "invalid-report" }
     : { status: "failed", reason: "report-read-failed" };
-}
-
-async function inspectReportPath(reportPath: string): Promise<ReportBytesResult | undefined> {
-  try {
-    const metadata = await lstat(reportPath);
-    return metadata.isFile() ? undefined : { status: "failed", reason: "invalid-report" };
-  } catch (error) {
-    return isErrorCode(error, "ENOENT")
-      ? { status: "no-report" }
-      : { status: "failed", reason: "report-read-failed" };
-  }
-}
-
-async function openReportFile(reportPath: string): Promise<FileHandle | undefined> {
-  try {
-    return await open(reportPath, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
-  } catch {
-    return undefined;
-  }
-}
-
-async function readOpenedReport(
-  file: FileHandle,
-  maxReportBytes: number,
-): Promise<ReportBytesResult> {
-  try {
-    const metadata = await file.stat();
-    if (!metadata.isFile()) {
-      return { status: "failed", reason: "invalid-report" };
-    }
-    if (metadata.size > maxReportBytes) {
-      return { status: "failed", reason: "report-too-large" };
-    }
-    return await readReportChunks(file, maxReportBytes);
-  } catch {
-    return { status: "failed", reason: "report-read-failed" };
-  } finally {
-    await file.close().catch(() => undefined);
-  }
-}
-
-async function readReportChunks(
-  file: FileHandle,
-  maxReportBytes: number,
-): Promise<ReportBytesResult> {
-  const chunks: Buffer[] = [];
-  let bytesRead = 0;
-  while (bytesRead <= maxReportBytes) {
-    const capacity = Math.min(REPORT_READ_CHUNK_BYTES, maxReportBytes - bytesRead + 1);
-    const chunk = Buffer.alloc(capacity);
-    const read = await file.read(chunk, 0, capacity, null);
-    if (read.bytesRead === 0) {
-      return { status: "bytes", bytes: Buffer.concat(chunks, bytesRead) };
-    }
-    chunks.push(chunk.subarray(0, read.bytesRead));
-    bytesRead += read.bytesRead;
-  }
-  return { status: "failed", reason: "report-too-large" };
 }
 
 function consumeReportEffect<T>(
   consumer: JscpdRunRequest<T>["consumeReportEffect"],
-  report: Buffer,
+  report: Uint8Array,
   timeoutMs: number,
 ): Effect.Effect<ConsumptionResult<T>, never, JscpdFileSystem> {
   return consumer(report).pipe(
@@ -778,15 +741,6 @@ function isBoundedPositiveInteger(value: number, maximum: number): boolean {
 function isPathInside(parent: string, candidate: string): boolean {
   const pathFromParent = relative(parent, candidate);
   return pathFromParent === "" || (!pathFromParent.startsWith("..") && !isAbsolute(pathFromParent));
-}
-
-function isErrorCode(error: unknown, code: string): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === code
-  );
 }
 
 function normalizeExitCode(exitCode: number): number {

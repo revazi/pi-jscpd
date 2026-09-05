@@ -197,6 +197,12 @@ describe("Effect runtime architecture boundary", () => {
     ]);
   });
 
+  it("guards migrated native services against returning Promise facades", () => {
+    expect(EFFECT_ONLY_SERVICE_BOUNDARIES).toEqual(
+      expect.arrayContaining(["src/scheduler.ts", "src/automatic.ts", "src/jscpd.ts"]),
+    );
+  });
+
   it("keeps runtime execution in the explicit managed Pi/test adapter", () => {
     expect(APPROVED_EFFECT_RUNTIME_BOUNDARIES).toEqual(["src/effect/runtime-boundary.ts"]);
   });

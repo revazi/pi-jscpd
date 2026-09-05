@@ -266,12 +266,16 @@ Effects; Pi adapters supply the host runtime explicitly, while the overlay retai
 only a UI-specific Promise interface. Characterization drivers and the isolated
 runtime now live under `test/support/`. Focused tests cover native construction
 failures, cancellation, retryable delivery failure, and repeated scheduler disposal
-that awaits finalizers.
+that awaits finalizers. Analyzer workspace validation, report reads, and cleanup now
+use the shared Effect filesystem service; the direct Node filesystem workflow and
+Promise cleanup seam have been removed from `jscpd.ts`.
 
 The remaining audit must trace background work and finalizer ownership across the
 whole tree, and check for unmanaged resources, broad error erasure, and obsolete
 tests/types. This step is not yet complete; focused validation is not full
-recertification.
+recertification. The [conformance audit checkpoint](effect-conformance-audit.md)
+records reviewed ownership paths, the scheduler construction-failure fix, the
+report/workspace migration, and ordered remaining background-shutdown work.
 
 ### Step 9 — Pre-release recertification ([#72](https://github.com/revazi/pi-jscpd/issues/72))
 

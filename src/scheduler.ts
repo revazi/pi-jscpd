@@ -328,7 +328,7 @@ class ScanSchedulerOwner {
       signal: controller.signal,
       isCurrent: () => this.isCurrent(candidate, controller),
     });
-    return candidate.task(context).pipe(
+    return Effect.suspend(() => candidate.task(context)).pipe(
       Effect.catchAllCause((cause) =>
         Cause.isInterruptedOnly(cause)
           ? Effect.failCause(cause)
