@@ -59,7 +59,9 @@ published releases use [Semantic Versioning](https://semver.org/).
   documentation-link validation, repository-hygiene guards, and release,
   rollback, and post-release policy.
 - A tag-triggered npm trusted-publishing and GitHub Release workflow based on
-  `pi-fallow`, protected by release metadata and maintainer-approval guards.
+  `pi-fallow`, protected by release metadata and maintainer-approval guards. Its
+  first-publication bootstrap credential is isolated to the lifecycle-disabled
+  publish step and removed after `0.1.0`.
 
 ### Changed
 
@@ -73,6 +75,8 @@ published releases use [Semantic Versioning](https://semver.org/).
   fewer physical lines than the reporter's first-occurrence line count.
 - Added repository jscpd ignore policy for dependency/build artifacts, caches,
   generated source maps/snapshots, archives, and common polyglot lockfiles.
+- Kept packed-artifact cleanup verification bounded while allowing slower Node 22
+  CI runners enough time to observe completed temporary-directory finalization.
 - Removed superseded process, capability, analyzer, configuration,
   Fallow-coexistence, baseline, changed-file, command/status, and
   scheduler/automatic Promise facades; removed the parallel Promise report

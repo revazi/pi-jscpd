@@ -75,9 +75,11 @@ describe("public repository safeguards", () => {
     expect(workflow).toContain(
       'gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes',
     );
-    expect(workflow).not.toContain("secrets.");
-    expect(workflow).not.toContain("NPM_TOKEN");
-    expect(workflow).not.toContain("NODE_AUTH_TOKEN");
+    expect(workflow).toMatch(/NODE_AUTH_TOKEN: \$\{\{ secrets\.NPM_TOKEN \}\}/);
+    expect(workflow.match(/secrets\.NPM_TOKEN/g)).toHaveLength(1);
+    expect(workflow.indexOf("NODE_AUTH_TOKEN")).toBeGreaterThan(
+      workflow.indexOf("- name: Publish to npm with provenance"),
+    );
     for (const action of workflow.matchAll(/uses: ([^\s]+)/g)) {
       expect(action[1]).toMatch(/@[a-f0-9]{40}$/);
     }
