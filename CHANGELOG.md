@@ -7,6 +7,11 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Simplified README installation guidance and linked the package's Pi gallery
+  listing; detailed Effect runtime internals remain in the architecture guide.
+
 ### Security
 
 - Removed the one-time npm bootstrap credential path and repository secret after
