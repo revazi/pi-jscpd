@@ -67,8 +67,8 @@ dependency; it never downloads packages during a Pi session, rewrites project
 configuration, edits source automatically, or treats scan success as permission
 to publish data. Security fixes must preserve those boundaries.
 
-The release-blocking [Effect migration](docs/effect-migration.md) must preserve
-and strengthen resource ownership. Child-process, temporary-report, and bounded
+The completed [Effect architecture](docs/effect-architecture.md) preserves and
+strengthens resource ownership. Child-process, temporary-report, and bounded
 filesystem resources now use typed Effect services and scoped file/process
 ownership. Baseline, changed-file, acknowledgement, verification, and session
 snapshot state now use generation/revision-checked Effect owners with bounded

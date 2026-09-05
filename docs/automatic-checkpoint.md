@@ -221,7 +221,7 @@ M7.5 replaces the scheduler's mutable Promise/microtask owner with scoped Effect
 fibers, composes automatic checks directly through the scheduler's native Effect
 path, and moves acknowledgement staging plus Pi delivery ordering to Effect. M7.7
 supplies the managed host runtime, and M7.8 removes obsolete facade paths. See
-[Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md).
+[Effect architecture and conformance](effect-architecture.md).
 
 Focused tests cover coalescing, scheduler freshness, clean and failure status,
 bounded finding delivery, repeated-finding suppression, non-TUI behavior,

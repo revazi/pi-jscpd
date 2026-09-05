@@ -199,14 +199,7 @@ are network-free and use deterministic fake jscpd executables and Effect layers.
 
 Useful documentation:
 
-- [Effect migration guide and release gate](docs/effect-migration.md)
-- [Effect foundation contracts and reviewed dependency](docs/effect-foundation.md)
-- [Effect-owned process and analyzer resources](docs/effect-resources.md)
-- [Effect filesystem and decoding boundaries](docs/effect-filesystem.md)
-- [Effect-owned domain state](docs/effect-domain-state.md)
-- [Effect-owned scheduling and automatic checks](docs/effect-scheduler-automatic.md)
-- [Effect-composed application workflows](docs/effect-application-workflows.md)
-- [Managed Effect runtime and Pi boundary](docs/effect-managed-runtime.md)
+- [Effect architecture and conformance](docs/effect-architecture.md)
 - [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
 - [`/jscpd` overlay contract](docs/overlay-interaction.md)
 - [Fallow coexistence](docs/fallow-coexistence.md)

@@ -3,9 +3,9 @@
 Thanks for helping improve `pi-jscpd`. Changes should preserve the extension's
 quiet, advisory, read-only, bounded, and fail-open behavior. jscpd remains the
 authority for tokenization, clone detection, supported formats, and duplication
-statistics. The first release is blocked on the ordered
-[Effect migration](docs/effect-migration.md); migration work must preserve those
-product contracts while replacing runtime orchestration.
+statistics. The Effect runtime architecture is documented in
+[Effect architecture and conformance](docs/effect-architecture.md). Changes must
+preserve those product contracts and the completed runtime boundaries.
 
 ## Before opening a change
 

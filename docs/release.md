@@ -14,11 +14,12 @@ remove the private-package guard, create a tag or GitHub release, configure npm
 trusted publishing, or publish the package. CI success, package certification,
 CODEOWNERS review, or this document is not publication approval.
 
-The first release and any `0.1.0` proposal are additionally blocked by the
-ordered [Effect migration](effect-migration.md) and
-[tracking epic #63](https://github.com/revazi/pi-jscpd/issues/63). Every migration,
-legacy-removal, documentation, and recertification issue must close first. That
-completion remains necessary but not sufficient publication authority.
+The completed runtime and recertification design is documented in
+[Effect architecture and conformance](effect-architecture.md). The first release
+and any `0.1.0` proposal remain blocked by closure of
+[tracking epic #63](https://github.com/revazi/pi-jscpd/issues/63) and its
+prerequisites, followed by separate maintainer approval. Closing those issues
+remains necessary but is not sufficient publication authority.
 
 ## Current non-publishing gate
 
