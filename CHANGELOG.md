@@ -11,8 +11,8 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Simplified README installation guidance and linked the package's Pi gallery
-  listing; detailed Effect runtime internals remain in the architecture guide.
+- Simplified README installation guidance, kept detailed Effect internals in the
+  architecture guide, and added links to the maintainer's other Pi packages.
 
 ### Security
 
