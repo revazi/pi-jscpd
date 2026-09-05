@@ -1,6 +1,6 @@
 {
   "name": "pi-jscpd",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A Pi-native, polyglot duplication guardrail powered by jscpd.",
   "type": "module",
   "license": "MIT",

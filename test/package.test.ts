@@ -55,7 +55,7 @@ describe("Pi package manifest", () => {
 
   it("is configured for the approved public release", async () => {
     const manifest = await readManifest();
-    expect(manifest.version).toBe("0.1.0");
+    expect(manifest.version).toBe("0.1.1");
     expect(manifest.private).toBeUndefined();
   });
 
@@ -100,7 +100,7 @@ describe("Pi package manifest", () => {
     const manifest = await readManifest();
 
     expect(manifest.name).toBe("pi-jscpd");
-    expect(manifest.version).toBe("0.1.0");
+    expect(manifest.version).toBe("0.1.1");
     expect(manifest.license).toBe("MIT");
     expect(manifest.author).toEqual({
       name: "Revaz Zakalashvili",

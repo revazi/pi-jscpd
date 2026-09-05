@@ -51,7 +51,7 @@ jobs:
           [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
           test "$(git rev-parse origin/main)" = "$REVIEWED_SHA"
-          test "$(node -p "require('./package.json').version")" = "0.1.0"
+          test "$(node -p "require('./package.json').version")" = "0.1.1"
           test "$(node -p "Boolean(require('./package.json').private)")" = "false"
           test -z "$(git status --porcelain --untracked-files=no)"
 
