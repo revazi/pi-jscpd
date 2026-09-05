@@ -61,10 +61,6 @@ jobs:
         run: npm run release:check
 
       - name: Publish to npm with provenance
-        env:
-          # One-time first-publication bootstrap. Remove after v0.1.0 so later
-          # releases authenticate only through npm trusted publishing (OIDC).
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --access public --provenance --ignore-scripts
 
       - name: Create GitHub release
