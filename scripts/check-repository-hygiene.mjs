@@ -79,7 +79,7 @@ for (const pattern of requiredIgnores) {
 }
 
 assert.equal(manifest.name, "pi-jscpd");
-assert.equal(manifest.version, "0.1.0", "Package version differs from the approved release.");
+assert.equal(manifest.version, "0.1.1", "Package version differs from the approved release.");
 assert.equal(manifest.private, undefined, "Public package must not retain the private guard.");
 assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
 assert.deepEqual(manifest.files, [

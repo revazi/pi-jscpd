@@ -119,9 +119,9 @@ function packPackage(destination) {
   assert.equal(results.length, 1, "npm pack must produce exactly one artifact.");
   const packed = results[0];
   assert.equal(packed.name, "pi-jscpd");
-  assert.equal(packed.version, "0.1.0");
-  assert.equal(packed.id, "pi-jscpd@0.1.0");
-  assert.match(packed.filename, /^pi-jscpd-0\.1\.0\.tgz$/);
+  assert.equal(packed.version, "0.1.1");
+  assert.equal(packed.id, "pi-jscpd@0.1.1");
+  assert.match(packed.filename, /^pi-jscpd-0\.1\.1\.tgz$/);
   assert.ok(Array.isArray(packed.files), "npm pack did not report its file list.");
   assert.ok(existsSync(join(destination, packed.filename)), "npm pack did not create its tarball.");
   return packed;
@@ -192,7 +192,7 @@ function validateInstalledPackage(projectDirectory) {
   const packageRoot = join(projectDirectory, "node_modules", "pi-jscpd");
   const manifest = readJson(join(packageRoot, "package.json"));
   assert.equal(manifest.name, "pi-jscpd");
-  assert.equal(manifest.version, "0.1.0");
+  assert.equal(manifest.version, "0.1.1");
   assert.equal(manifest.private, undefined, "Certified public package retained the private guard.");
   assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
   assert.deepEqual(manifest.pi?.extensions, ["./src/index.ts"]);

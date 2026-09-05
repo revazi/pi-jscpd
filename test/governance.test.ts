@@ -41,7 +41,7 @@ describe("public repository safeguards", () => {
     expect(workflow).toContain("permissions: {}");
     expect(workflow).toContain("persist-credentials: false");
     expect(workflow).toMatch(/ref: \$\{\{ inputs\.reviewed_sha \}\}/);
-    expect(workflow).toContain('= "0.1.0"');
+    expect(workflow).toContain('= "0.1.1"');
     expect(workflow).toContain("Boolean(require('./package.json').private)");
     expect(workflow).toContain('= "false"');
     expect(workflow).toContain("npm run release:check");

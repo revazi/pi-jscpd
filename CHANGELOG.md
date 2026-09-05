@@ -7,10 +7,12 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-05
+
 ### Changed
 
-- Simplified README installation guidance and linked the package's Pi gallery
-  listing; detailed Effect runtime internals remain in the architecture guide.
+- Simplified README installation guidance, kept detailed Effect internals in the
+  architecture guide, and added links to the maintainer's other Pi packages.
 
 ### Security
 
@@ -105,5 +107,6 @@ published releases use [Semantic Versioning](https://semver.org/).
 - Project paths, child output, reports, temporary directories, cancellation,
   configuration trust, and lifecycle cleanup are bounded and fail open.
 
-[Unreleased]: https://github.com/revazi/pi-jscpd/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/revazi/pi-jscpd/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/revazi/pi-jscpd/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/revazi/pi-jscpd/releases/tag/v0.1.0

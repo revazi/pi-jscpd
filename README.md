@@ -22,8 +22,6 @@ pi install npm:pi-jscpd
 separate analyzer setup or runtime download. It prefers a compatible project or
 `PATH` installation and otherwise uses its bundled analyzer.
 
-The package is also listed in [Pi's package gallery](https://pi.dev/packages/pi-jscpd).
-
 Start Pi in your project and verify the setup:
 
 ```text
@@ -184,6 +182,16 @@ and limitations.
 
 See the [compatibility policy](docs/compatibility.md) for the exact tested
 fixtures and certification matrix.
+
+## More Pi packages by Revaz
+
+| Package | Purpose |
+| --- | --- |
+| [`pi-fallow`](https://www.npmjs.com/package/pi-fallow) | Fallow codebase intelligence for Pi |
+| [`pi-reads`](https://www.npmjs.com/package/pi-reads) | Source capture, cited reading, Obsidian, EPUB, PDF, and Kindle workflows |
+| [`pi-career`](https://www.npmjs.com/package/pi-career) | Deterministic resume and career workflows |
+| [`pi-tmux-orchestrator`](https://www.npmjs.com/package/pi-tmux-orchestrator) | Multi-agent coordination in tmux |
+| [`@tasklight/pi-tasklight`](https://www.npmjs.com/package/@tasklight/pi-tasklight) | Tasklight notifications for Pi |
 
 ## Development
 
