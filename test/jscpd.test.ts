@@ -13,8 +13,12 @@ import { tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import { Cause, Effect, Exit } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { JscpdFileSystemLive } from "../src/effect/filesystem.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
+import { JscpdFileSystemFailure } from "../src/effect/errors.js";
+import { JscpdFileSystemLive, jscpdFileSystemLive } from "../src/effect/filesystem.js";
+import {
+  JscpdFileSystem,
+  type JscpdFileSystem as JscpdFileSystemService,
+} from "../src/effect/services.js";
 import {
   createJscpdLayer,
   createJscpdService,
@@ -25,6 +29,7 @@ import {
 } from "../src/jscpd.js";
 import { consumeJscpdV5JsonReportEffect } from "../src/jscpd-report.js";
 import { JscpdProcessLive } from "../src/process.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 const FAKE_EXECUTABLE_SOURCE = String.raw`
 import { appendFileSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
@@ -170,8 +175,11 @@ function request<T = string>(
 function runService<T>(
   service: JscpdService,
   request: JscpdRunRequest<T>,
+  filesystem: JscpdFileSystemService = jscpdFileSystemLive,
 ): Promise<import("../src/jscpd.js").JscpdRunResult<T>> {
-  return JscpdTestEffectRuntime.runPromise(service.runEffect(request));
+  return JscpdTestEffectRuntime.runPromise(
+    service.runEffect(request).pipe(Effect.provideService(JscpdFileSystem, filesystem)),
+  );
 }
 
 async function expectTemporaryRootClean(): Promise<void> {
@@ -350,23 +358,29 @@ describe("jscpd temporary report adapter", () => {
   });
 
   it("reports cleanup uncertainty instead of returning an otherwise valid result", async () => {
-    const removeWorkspace = vi.fn(async () => false);
-    const service = createService({ removeWorkspace });
+    const remove = vi.fn(() =>
+      Effect.fail(new JscpdFileSystemFailure({ operation: "remove", reason: "io" })),
+    );
+    const service = createService();
 
-    await expect(runService(service, request("report"))).resolves.toEqual({
+    await expect(
+      runService(service, request("report"), { ...jscpdFileSystemLive, remove }),
+    ).resolves.toEqual({
       status: "failed",
       reason: "cleanup-failed",
     });
-    expect(removeWorkspace).toHaveBeenCalledOnce();
+    expect(remove).toHaveBeenCalledOnce();
   });
 
   it("bounds a stalled workspace finalizer and reports cleanup uncertainty", async () => {
-    const service = createService({
-      removeWorkspace: () => new Promise(() => undefined),
-      workspaceCleanupTimeoutMs: 20,
-    });
+    const service = createService({ workspaceCleanupTimeoutMs: 20 });
 
-    await expect(runService(service, request("report"))).resolves.toEqual({
+    await expect(
+      runService(service, request("report"), {
+        ...jscpdFileSystemLive,
+        remove: () => Effect.never,
+      }),
+    ).resolves.toEqual({
       status: "failed",
       reason: "cleanup-failed",
     });

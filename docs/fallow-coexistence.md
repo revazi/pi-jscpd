@@ -1,12 +1,12 @@
 # Fallow coexistence policy
 
-Status: implemented behavior contract; Effect migration pending
+Status: implemented with Effect-owned policy evaluation
 
 Applies to: automatic `pi-jscpd` changed checks only
 
-The [Effect migration](effect-migration.md) may change service composition and
-filesystem execution, but it must not change these detection signals or
-coexistence outcomes without a separate product decision.
+Effect-owned policy evaluation uses the shared bounded filesystem service. These
+detection signals and coexistence outcomes remain product contracts and require a
+separate product decision to change.
 
 ## Purpose
 

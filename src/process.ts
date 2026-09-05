@@ -52,7 +52,7 @@ export function runBoundedProcessEffect(
   request: JscpdProcessRequest,
 ): Effect.Effect<BoundedProcessResult, never, JscpdProcess> {
   return Effect.flatMap(JscpdProcess, (service) => service.run(request)).pipe(
-    Effect.match({ onFailure: legacyProcessFailure, onSuccess: completedLegacyProcessResult }),
+    Effect.match({ onFailure: boundedProcessFailure, onSuccess: completedBoundedProcessResult }),
   );
 }
 
@@ -396,7 +396,7 @@ function processStillExists(child: OwnedChild): boolean {
   }
 }
 
-function completedLegacyProcessResult(result: JscpdProcessResult): BoundedProcessResult {
+function completedBoundedProcessResult(result: JscpdProcessResult): BoundedProcessResult {
   return {
     status: "completed",
     exitCode: result.exitCode,
@@ -405,7 +405,7 @@ function completedLegacyProcessResult(result: JscpdProcessResult): BoundedProces
   };
 }
 
-function legacyProcessFailure(error: JscpdProcessRunError): BoundedProcessResult {
+function boundedProcessFailure(error: JscpdProcessRunError): BoundedProcessResult {
   switch (error._tag) {
     case "JscpdProcessFailure":
       return { status: error.reason === "not-found" ? "not-found" : "spawn-failed" };

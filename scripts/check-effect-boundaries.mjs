@@ -17,11 +17,18 @@ export const MIGRATED_FILESYSTEM_BOUNDARIES = Object.freeze([
   "src/effect/filesystem.ts",
   "src/fallow.ts",
   "src/jscpd-report.ts",
+  "src/jscpd.ts",
   "src/path-utils.ts",
   "src/scan.ts",
 ]);
 
 export const EFFECT_ONLY_SERVICE_BOUNDARIES = Object.freeze([
+  "src/automatic.ts",
+  "src/scheduler.ts",
+  "src/types.ts",
+  "src/scan.ts",
+  "src/changed.ts",
+  "src/status.ts",
   "src/baseline.ts",
   "src/capability.ts",
   "src/process.ts",
@@ -30,6 +37,7 @@ export const EFFECT_ONLY_SERVICE_BOUNDARIES = Object.freeze([
   "src/config.ts",
   "src/fallow.ts",
   "src/jscpd-report.ts",
+  "src/jscpd.ts",
 ]);
 
 export const MIGRATED_APPLICATION_BOUNDARIES = Object.freeze([
@@ -47,6 +55,11 @@ export const MIGRATED_CONCURRENCY_BOUNDARIES = Object.freeze([
 ]);
 
 const APPROVED_NODE_FILESYSTEM_BOUNDARIES = Object.freeze(["src/effect/filesystem.ts"]);
+export const APPROVED_PROMISE_WORKFLOW_BOUNDARIES = Object.freeze([
+  "src/effect/filesystem.ts",
+  "src/extension.ts",
+  "src/overlay.ts",
+]);
 const UNMANAGED_ASYNC_CALLS = new Set([
   "queueMicrotask",
   "setImmediate",
@@ -64,6 +77,7 @@ export function checkEffectBoundaries() {
   const filesystemViolations = [];
   const concurrencyViolations = [];
   const applicationViolations = [];
+  const sourcePromiseViolations = [];
   const serviceViolations = [];
   let runtimeCalls = 0;
   let managedRuntimeCreations = 0;
@@ -82,6 +96,9 @@ export function checkEffectBoundaries() {
     }
     if (MIGRATED_CONCURRENCY_BOUNDARIES.includes(path)) {
       concurrencyViolations.push(...findUnmanagedAsyncConstructs(sourceText, path));
+    }
+    if (!APPROVED_PROMISE_WORKFLOW_BOUNDARIES.includes(path)) {
+      sourcePromiseViolations.push(...findPromiseWorkflowConstructs(sourceText, path));
     }
     if (MIGRATED_APPLICATION_BOUNDARIES.includes(path)) {
       applicationViolations.push(...findPromiseWorkflowConstructs(sourceText, path));
@@ -129,8 +146,15 @@ export function checkEffectBoundaries() {
       .map(({ path, line, name }) => `- ${path}:${line} ${name}`)
       .join("\n")}`,
   );
+  assert.deepEqual(
+    sourcePromiseViolations,
+    [],
+    `Promise workflow orchestration is confined to reviewed host/infrastructure boundaries:\n${sourcePromiseViolations
+      .map(({ path, line, name }) => `- ${path}:${line} ${name}`)
+      .join("\n")}`,
+  );
   console.log(
-    `Effect boundary check passed: ${runtimeCalls} direct test-runtime calls and ${managedRuntimeCreations} managed-runtime factory in ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer; ${MIGRATED_CONCURRENCY_BOUNDARIES.length} migrated concurrency modules contain no unmanaged Promise/timer creation; ${MIGRATED_APPLICATION_BOUNDARIES.length} application modules contain no async/Promise-chain orchestration.`,
+    `Effect boundary check passed: ${runtimeCalls} direct runtime calls and ${managedRuntimeCreations} managed-runtime factory in ${APPROVED_EFFECT_RUNTIME_BOUNDARIES.join(", ")}; ${MIGRATED_FILESYSTEM_BOUNDARIES.length - APPROVED_NODE_FILESYSTEM_BOUNDARIES.length} migrated modules use the shared filesystem layer; ${MIGRATED_CONCURRENCY_BOUNDARIES.length} migrated concurrency modules contain no unmanaged Promise/timer creation; Promise workflows are confined to ${APPROVED_PROMISE_WORKFLOW_BOUNDARIES.length} reviewed host/infrastructure boundaries.`,
   );
 }
 

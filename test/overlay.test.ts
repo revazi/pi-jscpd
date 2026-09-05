@@ -2,12 +2,12 @@ import type { ExtensionCommandContext, Theme } from "@earendil-works/pi-coding-a
 import type { KeybindingsManager, TUI } from "@earendil-works/pi-tui";
 import { visibleWidth } from "@earendil-works/pi-tui";
 import { describe, expect, it, vi } from "vitest";
-import { createJscpdOverlayLauncher, JscpdOverlayComponent } from "../src/overlay.js";
-import type {
-  JscpdCommandExecutor,
-  JscpdExecutionResult,
-  JscpdStatusResult,
-} from "../src/types.js";
+import {
+  createJscpdOverlayLauncher,
+  type JscpdOverlayExecutor as JscpdCommandExecutor,
+  JscpdOverlayComponent,
+} from "../src/overlay.js";
+import type { JscpdExecutionResult, JscpdStatusResult } from "../src/types.js";
 
 const statusResult: JscpdStatusResult = {
   status: "status",

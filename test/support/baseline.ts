@@ -2,7 +2,7 @@ import {
   createJscpdBaselineService as createService,
   type JscpdBaselineStartContext,
 } from "../../src/baseline.js";
-import { JscpdTestEffectRuntime } from "../../src/effect/runtime-boundary.js";
+import { JscpdTestEffectRuntime } from "./runtime.js";
 
 /** Explicit test runner for baseline characterization; production exposes only effects. */
 export function createBaselineTestDriver(...args: Parameters<typeof createService>) {

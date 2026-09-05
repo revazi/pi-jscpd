@@ -6,14 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJscpdAcknowledgementTracker } from "../src/acknowledgements.js";
 import type { JscpdBaselineService, JscpdBaselineState } from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
-import { createJscpdChangedExecutor } from "../src/changed.js";
 import { indexJscpdCloneReportEffect } from "../src/clone-identity.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import type { JscpdRunRequest, JscpdRunResult } from "../src/jscpd.js";
 import type { JscpdClonePair, JscpdScanReport } from "../src/types.js";
 import { createJscpdVerificationService } from "../src/verification.js";
 import { createChangedFilesTestDriver as createJscpdChangedFileTracker } from "./support/changed-files.js";
+import { createChangedCommandTestDriver as createJscpdChangedExecutor } from "./support/command.js";
 import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 let root: string;
 let project: string;

@@ -90,7 +90,7 @@ describe("public repository safeguards", () => {
       "CONTRIBUTING.md",
       "SECURITY.md",
       "docs/release.md",
-      "docs/effect-migration.md",
+      "docs/effect-architecture.md",
       ".github/CODEOWNERS",
       ".github/ISSUE_TEMPLATE/config.yml",
       ".github/ISSUE_TEMPLATE/bug-report.yml",
@@ -105,9 +105,10 @@ describe("public repository safeguards", () => {
     expect(contents[1]).toContain("Only [Revaz Zakalashvili]");
     expect(contents[2]).toContain("private vulnerability reporting");
     expect(contents[3]).toContain("preparation only; no release is authorized");
-    expect(contents[3]).toContain("Effect migration");
-    expect(contents[4]).toContain("release-blocking");
-    expect(contents[4]).toContain("issues/63");
+    expect(contents[3]).toContain("Effect architecture");
+    expect(contents[3]).toContain("issues/63");
+    expect(contents[4]).toContain("ManagedRuntime");
+    expect(contents[4]).toContain("Certification proves only");
     expect(contents[5]).toContain("* @revazi");
   });
 });

@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import { dispatchJscpdCommand } from "../src/dispatch.js";
 import { parseJscpdCommand, parseJscpdSlashArgs } from "../src/parser.js";
 import {
   getJscpdArgumentCompletions,
@@ -8,7 +7,8 @@ import {
   jscpdCommandRegistry,
   renderJscpdCommandHelp,
 } from "../src/registry.js";
-import type { JscpdCommandExecutor } from "../src/types.js";
+import { commandFromPromise, type TestCommandExecute } from "./support/command.js";
+import { dispatchTestCommand as dispatchJscpdCommand } from "./support/host.js";
 
 const unavailableResult = {
   status: "unavailable",
@@ -221,13 +221,13 @@ describe("jscpd command parsing", () => {
 
 describe("jscpd command dispatch", () => {
   it("passes an explicit scan through the injected execution boundary", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => unavailableResult);
+    const execute = vi.fn<TestCommandExecute>(async () => unavailableResult);
 
     const result = await dispatchJscpdCommand(
       "scan",
       ["src", "--format", "typescript"],
       { cwd: "/project" },
-      { execute },
+      commandFromPromise(execute),
     );
 
     expect(execute).toHaveBeenCalledWith(
@@ -238,29 +238,44 @@ describe("jscpd command dispatch", () => {
   });
 
   it("passes argument-free status through the same execution boundary", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => unavailableResult);
+    const execute = vi.fn<TestCommandExecute>(async () => unavailableResult);
 
-    const result = await dispatchJscpdCommand("status", [], { cwd: "/project" }, { execute });
+    const result = await dispatchJscpdCommand(
+      "status",
+      [],
+      { cwd: "/project" },
+      commandFromPromise(execute),
+    );
 
     expect(execute).toHaveBeenCalledWith({ command: "status", args: [] }, { cwd: "/project" });
     expect(result).toEqual(unavailableResult);
   });
 
   it("does not execute unsupported input", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => unavailableResult);
+    const execute = vi.fn<TestCommandExecute>(async () => unavailableResult);
 
-    const result = await dispatchJscpdCommand("unknown", [], { cwd: "/project" }, { execute });
+    const result = await dispatchJscpdCommand(
+      "unknown",
+      [],
+      { cwd: "/project" },
+      commandFromPromise(execute),
+    );
 
     expect(execute).not.toHaveBeenCalled();
     expect(result).toMatchObject({ status: "invalid", reason: "unsupported-command" });
   });
 
   it("fails open with a bounded message when the boundary throws", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => {
+    const execute = vi.fn<TestCommandExecute>(async () => {
       throw new Error("sensitive adapter failure");
     });
 
-    const result = await dispatchJscpdCommand("scan", [], { cwd: "/project" }, { execute });
+    const result = await dispatchJscpdCommand(
+      "scan",
+      [],
+      { cwd: "/project" },
+      commandFromPromise(execute),
+    );
 
     expect(result).toEqual({
       status: "error",

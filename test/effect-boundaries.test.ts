@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 const {
   APPROVED_EFFECT_RUNTIME_BOUNDARIES,
+  APPROVED_PROMISE_WORKFLOW_BOUNDARIES,
   EFFECT_ONLY_SERVICE_BOUNDARIES,
   findServiceExecutionBridges,
   MIGRATED_APPLICATION_BOUNDARIES,
@@ -197,7 +198,21 @@ describe("Effect runtime architecture boundary", () => {
     ]);
   });
 
-  it("keeps runtime execution in the explicit managed Pi/test adapter", () => {
+  it("guards migrated native services against returning Promise facades", () => {
+    expect(EFFECT_ONLY_SERVICE_BOUNDARIES).toEqual(
+      expect.arrayContaining(["src/scheduler.ts", "src/automatic.ts", "src/jscpd.ts"]),
+    );
+  });
+
+  it("confines Promise orchestration to reviewed host and filesystem boundaries", () => {
+    expect(APPROVED_PROMISE_WORKFLOW_BOUNDARIES).toEqual([
+      "src/effect/filesystem.ts",
+      "src/extension.ts",
+      "src/overlay.ts",
+    ]);
+  });
+
+  it("keeps production runtime execution in the explicit managed adapter", () => {
     expect(APPROVED_EFFECT_RUNTIME_BOUNDARIES).toEqual(["src/effect/runtime-boundary.ts"]);
   });
 });

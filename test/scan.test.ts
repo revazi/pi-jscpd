@@ -15,12 +15,15 @@ import type { ExtensionCommandContext, ExtensionContext } from "@earendil-works/
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createJscpdCapabilityService } from "../src/capability.js";
-import { dispatchJscpdCommand } from "../src/dispatch.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
-import { createJscpdSlashCommandDefinition, createJscpdToolDefinition } from "../src/extension.js";
 import { createJscpdService, type JscpdService } from "../src/jscpd.js";
 import { createJscpdScanExecutor } from "../src/scan.js";
 import type { JscpdCommandExecutor } from "../src/types.js";
+import {
+  createTestSlashCommandDefinition as createJscpdSlashCommandDefinition,
+  createTestToolDefinition as createJscpdToolDefinition,
+  dispatchTestCommand as dispatchJscpdCommand,
+} from "./support/host.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 const FAKE_JSCPD_SOURCE = (node: string, project: string) => `#!${node}
 const { appendFileSync, existsSync, writeFileSync } = require("node:fs");

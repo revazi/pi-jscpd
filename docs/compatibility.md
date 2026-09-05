@@ -13,9 +13,10 @@ returned no existing package when this name was selected, but a lookup does not
 reserve a name.
 
 The package remains at version `0.0.0` with `"private": true`. It must not be
-published or treated as reserved until the release-blocking
-[Effect migration](effect-migration.md) is complete and separate release approval
-removes that guard after the maintainer controls the npm name. The current manual
+published or treated as reserved without separate release approval that removes
+the guard after the maintainer controls the npm name. The completed runtime design
+is documented in
+[Effect architecture and conformance](effect-architecture.md). The current manual
 readiness workflow has no publication permission or credentials. The source
 remains MIT licensed regardless of publication state; see the
 [release preparation policy](release.md).
@@ -35,9 +36,9 @@ remains MIT licensed regardless of publication state; see the
 Effect `3.22.1` was the npm registry's current stable 3.x release when foundation
 issue [#64](https://github.com/revazi/pi-jscpd/issues/64) selected it. Installed
 package metadata confirms its MIT license, and the lockfile preserves the
-reviewed registry integrity. See the [foundation contract](effect-foundation.md)
-for dependency evidence, service/error contracts, and runtime-boundary policy.
-No open range or automatic upgrade is implied.
+reviewed registry integrity. See
+[Effect architecture and conformance](effect-architecture.md) for dependency,
+service/error, resource, and runtime-boundary policy. No open range or automatic upgrade is implied.
 
 The Pi and TypeBox packages remain peer dependencies so the extension uses the
 host Pi installation instead of bundling a second runtime. Development

@@ -1,6 +1,6 @@
 import { constants as fsConstants, type Stats } from "node:fs";
 import type { FileHandle } from "node:fs/promises";
-import { mkdtemp, open, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, open, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { Effect, Layer } from "effect";
 import { JscpdFileSystemFailure, JscpdLimitExceeded, JscpdWorkspaceFailure } from "./errors.js";
 import {
@@ -10,10 +10,10 @@ import {
   type JscpdFileSystemError,
 } from "./services.js";
 
-const MAX_FILESYSTEM_BYTES = 16 * 1_024 * 1_024;
+const MAX_FILESYSTEM_BYTES = 64 * 1_024 * 1_024;
 
 /** Live bounded filesystem implementation shared by configuration and untrusted-data boundaries. */
-export const JscpdFileSystemLive = Layer.succeed(JscpdFileSystem, {
+export const jscpdFileSystemLive: JscpdFileSystem = {
   canonicalize: (path) =>
     Effect.tryPromise({
       try: () => realpath(path),
@@ -34,17 +34,48 @@ export const JscpdFileSystemLive = Layer.succeed(JscpdFileSystem, {
       catch: (error) => fileSystemFailure("write", error),
     });
   },
-  makeTempDirectory: (prefix) =>
-    Effect.tryPromise({
-      try: () => mkdtemp(prefix),
-      catch: () => new JscpdWorkspaceFailure({ operation: "create" }),
-    }),
+  makeTempDirectory: makeSecureTempDirectory,
   remove: (path, recursive) =>
     Effect.tryPromise({
-      try: () => rm(path, { recursive, force: true }),
+      try: () =>
+        rm(path, {
+          recursive,
+          force: true,
+          maxRetries: recursive ? 2 : 0,
+          retryDelay: recursive ? 10 : 100,
+        }),
       catch: (error) => fileSystemFailure("remove", error),
     }),
-});
+};
+
+export const JscpdFileSystemLive = Layer.succeed(JscpdFileSystem, jscpdFileSystemLive);
+
+function makeSecureTempDirectory(
+  prefix: string,
+): Effect.Effect<string, JscpdWorkspaceFailure | JscpdFileSystemFailure> {
+  return Effect.tryPromise({
+    try: () => mkdtemp(prefix),
+    catch: () => new JscpdWorkspaceFailure({ operation: "create" }),
+  }).pipe(
+    Effect.flatMap((directory) =>
+      Effect.tryPromise({
+        try: () => chmod(directory, 0o700),
+        catch: () => new JscpdWorkspaceFailure({ operation: "create" }),
+      }).pipe(
+        Effect.as(directory),
+        Effect.catchAll((error) =>
+          Effect.tryPromise({
+            try: () => rm(directory, { recursive: true, force: true }),
+            catch: () => fileSystemFailure("remove", undefined),
+          }).pipe(
+            Effect.catchAll(() => Effect.void),
+            Effect.zipRight(Effect.fail(error)),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 function readBoundedFile(
   request: JscpdBoundedReadRequest,
@@ -53,12 +84,23 @@ function readBoundedFile(
     return Effect.fail(new JscpdFileSystemFailure({ operation: "read", reason: "io" }));
   }
   const flags = fsConstants.O_RDONLY | (request.noFollow ? fsConstants.O_NOFOLLOW : 0);
-  return Effect.acquireUseRelease(
+  return readBoundedFileWith(
+    request,
     Effect.tryPromise({
       try: () => open(request.path, flags),
       catch: (error) => fileSystemFailure("read", error),
     }),
-    (file) => readFromHandle(file, request),
+  );
+}
+
+/** Bracketed handle seam used to prove acquisition/read settlement under interruption. */
+export function readBoundedFileWith(
+  request: JscpdBoundedReadRequest,
+  acquire: Effect.Effect<FileHandle, JscpdFileSystemFailure>,
+): Effect.Effect<Uint8Array, JscpdFileSystemError> {
+  return Effect.acquireUseRelease(
+    acquire,
+    (file) => readFromHandle(file, request).pipe(Effect.uninterruptible),
     closeFile,
   );
 }

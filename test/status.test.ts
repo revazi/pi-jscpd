@@ -2,15 +2,17 @@ import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { JscpdCapabilityResult } from "../src/capability.js";
 import type { JscpdConfigLoadResult, JscpdConfigService } from "../src/config.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import { createJscpdFallowCoexistenceService } from "../src/fallow.js";
-import {
-  createJscpdSessionModeService,
-  createJscpdStatusAwareExecutor,
-  createJscpdStatusService,
-} from "../src/status.js";
-import type { JscpdCommandExecutor, JscpdExecutionResult } from "../src/types.js";
+import { createJscpdSessionModeService } from "../src/status.js";
+import type { JscpdExecutionResult } from "../src/types.js";
 import { capabilityFromPromise, type TestCapabilityProbe } from "./support/capability.js";
+import {
+  commandFromPromise,
+  createStatusCommandTestDriver as createJscpdStatusAwareExecutor,
+  type TestCommandExecute,
+} from "./support/command.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
+import { createStatusTestDriver as createJscpdStatusService } from "./support/status.js";
 
 function capabilityService(result: JscpdCapabilityResult) {
   const probe = vi.fn<TestCapabilityProbe>(async () => result);
@@ -238,7 +240,7 @@ describe("bounded jscpd status", () => {
   });
 
   it("disables and re-enables the current session while generating help from the registry", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => completed("clean"));
+    const execute = vi.fn<TestCommandExecute>(async () => completed("clean"));
     const mode = sessionMode();
     const status = createJscpdStatusService(
       capabilityService(available).service,
@@ -246,7 +248,12 @@ describe("bounded jscpd status", () => {
       mode,
     );
     const stateChanged = vi.fn();
-    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode, stateChanged);
+    const executor = createJscpdStatusAwareExecutor(
+      commandFromPromise(execute),
+      status,
+      mode,
+      stateChanged,
+    );
 
     const disabled = await executor.execute({ command: "off", args: [] }, { cwd: "/project" });
     const disabledStatus = await executor.execute(
@@ -285,8 +292,8 @@ describe("bounded jscpd status", () => {
   });
 
   it("routes a completed changed check through its dedicated executor and records its status", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => completed("clean"));
-    const changedExecute = vi.fn<JscpdCommandExecutor["execute"]>(async () => ({
+    const execute = vi.fn<TestCommandExecute>(async () => completed("clean"));
+    const changedExecute = vi.fn<TestCommandExecute>(async () => ({
       status: "changed",
       outcome: "clean",
       scanPerformed: true,
@@ -303,9 +310,15 @@ describe("bounded jscpd status", () => {
       mode,
     );
     const stateChanged = vi.fn();
-    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode, stateChanged, {
-      execute: changedExecute,
-    });
+    const executor = createJscpdStatusAwareExecutor(
+      commandFromPromise(execute),
+      status,
+      mode,
+      stateChanged,
+      {
+        ...commandFromPromise(changedExecute),
+      },
+    );
 
     await expect(
       executor.execute({ command: "changed", args: [] }, { cwd: "/project" }),
@@ -317,7 +330,7 @@ describe("bounded jscpd status", () => {
   });
 
   it("does not record a clean check when changed short-circuits before scanning", async () => {
-    const changedExecute = vi.fn<JscpdCommandExecutor["execute"]>(async () => ({
+    const changedExecute = vi.fn<TestCommandExecute>(async () => ({
       status: "changed",
       outcome: "clean",
       scanPerformed: false,
@@ -334,11 +347,11 @@ describe("bounded jscpd status", () => {
       mode,
     );
     const executor = createJscpdStatusAwareExecutor(
-      { execute: async () => completed("clean") },
+      commandFromPromise(async () => completed("clean")),
       status,
       mode,
       undefined,
-      { execute: changedExecute },
+      commandFromPromise(changedExecute),
     );
 
     await executor.execute({ command: "changed", args: [] }, { cwd: "/project" });
@@ -347,7 +360,7 @@ describe("bounded jscpd status", () => {
   });
 
   it("routes status without scanning and records scan results for the next status", async () => {
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async () => completed("findings", 1));
+    const execute = vi.fn<TestCommandExecute>(async () => completed("findings", 1));
     const mode = sessionMode();
     const status = createJscpdStatusService(
       capabilityService(available).service,
@@ -355,7 +368,12 @@ describe("bounded jscpd status", () => {
       mode,
     );
     const stateChanged = vi.fn();
-    const executor = createJscpdStatusAwareExecutor({ execute }, status, mode, stateChanged);
+    const executor = createJscpdStatusAwareExecutor(
+      commandFromPromise(execute),
+      status,
+      mode,
+      stateChanged,
+    );
 
     const firstStatus = await executor.execute(
       { command: "status", args: [] },

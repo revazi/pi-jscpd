@@ -272,18 +272,14 @@ export type JscpdExecutionResult =
   | JscpdChangedUnavailableResult;
 
 export interface JscpdCommandExecutor {
-  execute(
-    invocation: JscpdCommandInvocation,
-    context: JscpdExecutionContext,
-  ): Promise<JscpdExecutionResult>;
-  /** Temporary Effect-native application path used before the managed Pi boundary lands. */
-  executeEffect?: (
+  /** Native application program; only Pi and test adapters execute it. */
+  executeEffect: (
     invocation: JscpdCommandInvocation,
     context: JscpdExecutionContext,
   ) => import("effect").Effect.Effect<
     JscpdExecutionResult,
     never,
-    import("./effect/runtime-boundary.js").JscpdRuntimeRequirements
+    import("./effect/services.js").JscpdWorkflowRequirements
   >;
 }
 

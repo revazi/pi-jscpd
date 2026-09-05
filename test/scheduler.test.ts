@@ -1,10 +1,12 @@
+import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
+import type { JscpdAutomaticScanContext } from "../src/scheduler.js";
 import {
-  createJscpdScanScheduler,
-  createJscpdScheduledExecutor,
-  type JscpdAutomaticScanContext,
-} from "../src/scheduler.js";
-import type { JscpdCommandExecutor } from "../src/types.js";
+  commandFromPromise,
+  createScheduledCommandTestDriver as createJscpdScheduledExecutor,
+  type TestCommandExecute,
+} from "./support/command.js";
+import { createSchedulerTestDriver as createJscpdScanScheduler } from "./support/scheduler.js";
 
 function deferred() {
   let resolve!: () => void;
@@ -303,14 +305,20 @@ describe("automatic scan scheduler", () => {
 describe("scheduled explicit executor", () => {
   it("supersedes automatic work only for scan, changed, and off commands", async () => {
     const scheduler = createJscpdScanScheduler();
-    const cancel = vi.spyOn(scheduler, "cancelAutomatic");
-    const runExplicit = vi.spyOn(scheduler, "runExplicit");
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>(async (invocation) => ({
+    const cancel = vi.fn();
+    const runExplicit = vi.spyOn(scheduler, "runExplicitEffect");
+    const scheduled = {
+      ...scheduler,
+      cancelAutomaticEffect: Effect.sync(cancel).pipe(
+        Effect.zipRight(scheduler.cancelAutomaticEffect ?? Effect.void),
+      ),
+    };
+    const execute = vi.fn<TestCommandExecute>(async (invocation) => ({
       status: "help",
       message: invocation.command,
       terminalMessage: invocation.command,
     }));
-    const executor = createJscpdScheduledExecutor({ execute }, scheduler);
+    const executor = createJscpdScheduledExecutor(commandFromPromise(execute), scheduled);
     const context = { cwd: "/project" };
 
     await executor.execute({ command: "status", args: [] }, context);
@@ -326,8 +334,8 @@ describe("scheduled explicit executor", () => {
 
   it("fails open instead of invoking explicit work after shutdown", async () => {
     const scheduler = createJscpdScanScheduler();
-    const execute = vi.fn<JscpdCommandExecutor["execute"]>();
-    const executor = createJscpdScheduledExecutor({ execute }, scheduler);
+    const execute = vi.fn<TestCommandExecute>();
+    const executor = createJscpdScheduledExecutor(commandFromPromise(execute), scheduler);
     await scheduler.dispose();
 
     await expect(

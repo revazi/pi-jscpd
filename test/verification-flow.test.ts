@@ -5,9 +5,9 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdRunRequest, JscpdService } from "../src/jscpd.js";
-import { createJscpdScanExecutor } from "../src/scan.js";
 import type { JscpdClonePair, JscpdScanReport } from "../src/types.js";
 import { createJscpdVerificationService } from "../src/verification.js";
+import { createScanCommandTestDriver as createJscpdScanExecutor } from "./support/command.js";
 import { type JscpdPromiseRun, jscpdServiceFromPromise } from "./support/jscpd-service.js";
 
 let project: string;

@@ -9,7 +9,6 @@ import {
   type JscpdIndexedCloneGroup,
 } from "./clone-identity.js";
 import { DEFAULT_JSCPD_CONFIG, type JscpdConfig } from "./config.js";
-import { type JscpdEffectRuntime, JscpdTestEffectRuntime } from "./effect/runtime-boundary.js";
 import type { JscpdFileSystem, JscpdProcess } from "./effect/services.js";
 import type { JscpdRunResult, JscpdService } from "./jscpd.js";
 import { consumeJscpdV5JsonReportEffect } from "./jscpd-report.js";
@@ -48,7 +47,7 @@ export interface JscpdChangedExecutorOptions {
 
 interface JscpdChangedWorkflowService {
   readonly execute: (
-    context: Parameters<JscpdCommandExecutor["execute"]>[1],
+    context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
   ) => Effect.Effect<JscpdExecutionResult, never, JscpdFileSystem | JscpdProcess>;
 }
 
@@ -64,7 +63,6 @@ export function createJscpdChangedExecutor(
   changedFiles: JscpdChangedFileTracker,
   acknowledgements: JscpdAcknowledgementTracker,
   options: JscpdChangedExecutorOptions = {},
-  runtime: JscpdEffectRuntime = JscpdTestEffectRuntime,
 ): JscpdCommandExecutor {
   const workflow = changedWorkflowFor(
     capabilityService,
@@ -75,7 +73,6 @@ export function createJscpdChangedExecutor(
     options,
   );
   return {
-    execute: (_invocation, context) => runtime.runPromise(workflow.execute(context)),
     executeEffect: (_invocation, context) => workflow.execute(context),
   };
 }
@@ -151,7 +148,7 @@ function executeChangedEffect(
   baselineService: JscpdBaselineService,
   changedFiles: JscpdChangedFileTracker,
   acknowledgements: JscpdAcknowledgementTracker,
-  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
   options: JscpdChangedExecutorOptions,
   scope: number,
   verificationScope: number | undefined,
@@ -243,7 +240,7 @@ function scanCurrentChangesEffect(
   capabilityService: JscpdCapabilityService,
   service: JscpdService,
   acknowledgements: JscpdAcknowledgementTracker,
-  context: Parameters<JscpdCommandExecutor["execute"]>[1],
+  context: Parameters<JscpdCommandExecutor["executeEffect"]>[1],
   options: JscpdChangedExecutorOptions,
   config: JscpdConfig,
   scope: number,

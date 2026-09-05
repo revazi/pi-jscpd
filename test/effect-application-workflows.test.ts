@@ -10,7 +10,6 @@ import { createJscpdChangedWorkflowLayer, JscpdChangedWorkflow } from "../src/ch
 import type { JscpdChangedFileTracker } from "../src/changed-files.js";
 import type { JscpdConfigService } from "../src/config.js";
 import { JscpdFileSystemFailure } from "../src/effect/errors.js";
-import { JscpdTestEffectRuntime } from "../src/effect/runtime-boundary.js";
 import {
   type JscpdFileSystem,
   JscpdFileSystem as JscpdFileSystemTag,
@@ -33,6 +32,7 @@ import {
   createJscpdFileSystemTestLayer,
   createJscpdProcessTestLayer,
 } from "./support/effect-layers.js";
+import { JscpdTestEffectRuntime } from "./support/runtime.js";
 
 const project = "/project";
 const cleanReport: JscpdScanReport = {
@@ -402,11 +402,6 @@ describe("Effect application workflows", () => {
       const gate = yield* Deferred.make<void>();
       const executor = createJscpdStatusAwareExecutor(
         {
-          execute: async () => ({
-            status: "failed",
-            reason: "scan-timed-out",
-            message: "timed out",
-          }),
           executeEffect: () =>
             Deferred.await(gate).pipe(
               Effect.as({
@@ -531,7 +526,7 @@ describe("Effect application workflows", () => {
       }),
     };
     const status = createJscpdStatusService(capability(), statusConfig, mode);
-    const executor = createJscpdStatusAwareExecutor({ execute, executeEffect }, status, mode);
+    const executor = createJscpdStatusAwareExecutor({ executeEffect }, status, mode);
 
     const result = await JscpdTestEffectRuntime.runPromise(
       executor.executeEffect?.({ command: "scan", args: [] }, { cwd: project }) ?? Effect.never,
