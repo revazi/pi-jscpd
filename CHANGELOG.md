@@ -18,8 +18,8 @@ until publication is approved.
   clock, and Pi service tags, stable typed expected failures, bounded public
   mapping intent, deterministic test layers, and an AST runtime-boundary gate.
 - Effect-owned bounded child processes, process-tree escalation, serialized jscpd
-  execution, temporary report workspaces, capability probing/caching, scoped
-  service layers, and one explicitly temporary Promise application bridge.
+  execution, temporary report workspaces, capability probing/caching, and scoped
+  service layers.
 - A shared live bounded-filesystem layer for trusted configuration, canonical
   path validation, report normalization, exact clone-source ranges, and supported
   Fallow signal reads, with typed failures and deterministic test layers.
@@ -30,8 +30,8 @@ until publication is approved.
   checks, interruption-safe cancellation, and acknowledgement-after-delivery Pi
   transactions without unmanaged background promises or timers.
 - Effect-composed scan, changed, status/session-control, Fallow coexistence,
-  report-decoding, and verification workflows with one compatibility boundary
-  and unchanged bounded public results.
+  report-decoding, and verification workflows with unchanged bounded public
+  results.
 - One managed Effect runtime and production process/filesystem/clock layer graph
   per extension instance, with native Pi cancellation, effectful dispatch,
   idempotent finalizer-aware shutdown, and no nested command/overlay runtimes.
@@ -56,17 +56,19 @@ until publication is approved.
 
 ### Changed
 
-- Removed the superseded process, capability, analyzer, configuration,
-  Fallow-coexistence, baseline, and changed-file Promise facades, the parallel
-  Promise report consumer, and filesystem-backed
-  clone/report test facades; these services now expose only their Effect-native
-  production paths.
+- Removed superseded process, capability, analyzer, configuration,
+  Fallow-coexistence, baseline, changed-file, command/status, and
+  scheduler/automatic Promise facades; removed the parallel Promise report
+  consumer, direct analyzer filesystem workflow, production test runtime, and
+  filesystem-backed clone/report test facades. Service workflows now expose only
+  their Effect-native production paths; Promise orchestration remains confined to
+  reviewed Pi/TUI and filesystem-infrastructure boundaries.
 - Locked existing command/tool, lifecycle, persistence, cancellation, and bounded
   presentation behavior before production Effect workflow migration.
-- Postponed the first release and any `0.1.0` proposal until the ordered Effect
-  runtime migration, legacy-removal audit, documentation pass, and exact-tarball
-  recertification are complete. Migration completion remains separate from
-  publication approval.
+- Completed the ordered Effect runtime migration, legacy-removal audit,
+  documentation pass, supported-Node validation, security checks, and
+  exact-tarball recertification while retaining private version `0.0.0`.
+  Completion remains separate from any version or publication approval.
 
 ### Security
 

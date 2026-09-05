@@ -78,12 +78,14 @@ Scan, changed, status, and Fallow application workflows compose these typed
 services without nested Promise error handling; bounded public failures remain
 the only operational output. Trusted configuration, report paths, clone source
 ranges, and Fallow signals retain no-follow, containment, and byte-limit checks.
-The Pi host now owns one managed runtime; cancellation interrupts native command
-fibers and shutdown awaits bounded scheduler/process/workspace finalizers before
-closing its layer scope. The remaining slices must
-converge on one managed runtime/root scope with no unmanaged fibers, timers, or
-listeners. Migration must not turn defects or sensitive exception
-details into user-facing output.
+The Pi host owns one managed runtime; cancellation interrupts native command
+fibers and shutdown awaits tracked baseline plus bounded scheduler, process, and
+workspace finalizers before closing its layer scope. The source conformance audit
+restricts Promise workflows to reviewed Pi/TUI and filesystem infrastructure
+boundaries and found no unmanaged service runtimes. Final supported-host,
+dependency/security, and packed-artifact recertification passes on the unreleased
+branch. Migration must not turn defects or sensitive exception details into
+user-facing output.
 
 ## Release authority
 

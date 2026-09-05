@@ -2,8 +2,8 @@
 
 This is the source-conformance record after command/status,
 scheduler/automatic, analyzer workspace/report, and production test-runtime
-facade removal. It is not release certification. Supported-Node, security,
-public-documentation, and packed-artifact recertification remain M7.9 work.
+facade removal. Subsequent M7.9 recertification passed on the unreleased branch;
+that evidence is not publication authorization.
 
 ## Reviewed paths
 
@@ -48,6 +48,16 @@ dependencies or Promise contracts in those modules.
   full test suite, and Fallow architecture/dead-code/audit checks pass with no
   obsolete exports or reported boundary violations.
 
-M7.9 must still run supported-Node, security, public/local documentation, and
-exact-tarball recertification. No version, privacy, publication, public command,
-or persistence-format changes are authorized by this audit.
+## M7.9 recertification evidence
+
+- `npm run release:check` passes on Node 22.19.0 and 24.12.0 with 423 tests.
+- Both exact-tarball runs install and exercise the private `0.0.0` package with
+  pinned Effect 3.22.1, package-owned jscpd 5.1.2, Pi 0.84.4, all supported host
+  modes, active process-tree shutdown, and temporary-report cleanup.
+- `npm audit --omit=dev --audit-level=high`, Fallow security, Fallow architecture,
+  and Fallow full audit report no findings.
+- Markdown links, repository hygiene, private package state, architecture checks,
+  strict types, and Biome pass.
+
+No version, privacy, publication, public command, or persistence-format changes
+are authorized by this audit or recertification.

@@ -60,8 +60,8 @@ The architecture check permits direct Effect runtime calls only in
 that a native tool command makes one runtime submission, Pi cancellation
 interrupts the running fiber, construction failures fail open, a held baseline finalizer delays adapter disposal, and repeated shutdown disposes
 the runtime once. Native scheduler tests also verify that repeated disposal awaits
-automatic-work finalization. The M7.8 whole-tree conformance audit is complete;
-M7.9 recertification remains.
+automatic-work finalization. The M7.8 whole-tree conformance audit and M7.9
+non-publishing recertification are complete on the unreleased branch.
 The existing extension, overlay, cancellation, process-tree, automatic,
 scheduler, RPC, package, and supported-Node tests continue to guard public
 behavior and cleanup bounds.

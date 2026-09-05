@@ -57,12 +57,12 @@ so jscpd remains this project's single duplication authority.
 
 - Use Effect for fallible async work, resources, cancellation, concurrency, and
   shared service state—not to decorate pure functions.
-- Declare capabilities with services/layers and build one production runtime in
-  the Pi composition boundary only when the ordered Pi-boundary slice is reached.
-  The process and filesystem slices provide live layers but create no independent runtime.
+- Declare capabilities with services/layers and keep the single production
+  runtime in the Pi composition boundary. Process and filesystem services provide
+  live layers but create no independent runtime.
 - Keep `Effect.run*` out of infrastructure, domain, and application modules.
-  Until M7.7, only `src/effect/runtime-boundary.ts` may bridge migrated services
-  to the existing Promise application surface; do not add another runtime bridge.
+  Only `src/effect/runtime-boundary.ts` may execute production Effect programs;
+  do not add another runtime bridge.
 - Add characterization tests before converting a boundary, deterministic test
   layers with the conversion, and interruption/finalizer tests for resources.
   Filesystem changes must preserve trust gating, canonical containment,
@@ -76,8 +76,9 @@ so jscpd remains this project's single duplication authority.
   one boundary, and leave deterministic comparison/presentation code pure. Only
   `src/effect/runtime-boundary.ts` may execute Effect; production work must use
   the single runtime passed from extension composition.
-- Remove the superseded internal Promise path in the same slice; temporary
-  adapters are allowed only at documented outer boundaries.
+- Do not add Promise service facades. Promise workflow orchestration is limited
+  to reviewed Pi/TUI host adapters and the filesystem infrastructure boundary;
+  characterization adapters belong under `test/support/`.
 - Do not combine a migration slice with unrelated public behavior changes.
 
 ## Pull requests

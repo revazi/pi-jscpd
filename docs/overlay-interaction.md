@@ -1,14 +1,14 @@
 # `/jscpd` overlay interaction contract
 
-Status: **implemented behavior contract; Effect migration pending**
+Status: **implemented with managed-runtime action execution**
 
 Applies to: bare `/jscpd` only
 
 Does not change: `/jscpd scan`, `/jscpd changed`, `/jscpd status`, session controls, or `jscpd_run`
 
-The [Effect migration](effect-migration.md) must route overlay actions through
-the extension's single managed runtime while keeping Pi TUI rendering and input
-as the host adapter. It must preserve every interaction below.
+Overlay actions route through the extension's single managed runtime while Pi TUI
+rendering and input remain the host adapter. The implementation preserves every
+interaction below.
 
 ## Decision summary
 

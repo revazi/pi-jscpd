@@ -279,11 +279,13 @@ filesystem interruption proof, architecture gates, and remaining M7.9 work.
 
 ### Step 9 — Pre-release recertification ([#72](https://github.com/revazi/pi-jscpd/issues/72))
 
-Review all public Markdown and local `.agents`/`AGENTS.md` guidance against the
-final implementation. Run the complete supported-Node, security, architecture,
-and exact-tarball gates. Certification must exercise real package-owned jscpd,
-Effect interruption/finalizers, Pi modes, process-tree shutdown, and report
-cleanup.
+Complete on the unreleased branch: public Markdown and local `.agents`/`AGENTS.md`
+guidance were reviewed against the final implementation. The complete
+non-publishing gate passes on Node 22.19.0 and 24.12.0; Fallow security and
+architecture checks plus the production dependency audit report no findings.
+Exact-tarball certification exercises package-owned jscpd, Effect
+interruption/finalizers, RPC/tool/TUI-compatible and JSON/print modes,
+process-tree shutdown, and report cleanup.
 
 Keep `0.0.0` and `private: true`. Finishing this step does not authorize `0.1.0`
 or publication.

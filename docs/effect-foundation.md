@@ -8,7 +8,8 @@ boundaries, M7.4 moves lifecycle-bound domain state to Effect-owned services,
 M7.5 moves scheduling and automatic delivery to scoped fibers and Effect
 transactions, M7.6 composes the application workflows, M7.7 routes Pi/TUI host
 work through one managed extension runtime, and M7.8 completes legacy removal
-and source conformance. M7.9 recertification remains release-blocking.
+and source conformance. M7.9 non-publishing recertification also passes on the
+unreleased branch.
 
 ## Reviewed dependency
 

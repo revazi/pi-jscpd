@@ -11,10 +11,10 @@ locations, and helps you inspect, refactor, test, and verify the result. jscpd
 remains the source of truth for tokenization, clone detection, supported
 languages, and statistics.
 
-> **Pre-release status:** the implementation is functional, but the first release
-> and any `0.1.0` proposal are postponed until the ordered
-> [Effect migration](docs/effect-migration.md) is complete. Migration completion
-> will not itself authorize publication.
+> **Pre-release status:** the implementation, Effect migration, and
+> non-publishing recertification are complete on the unreleased branch. The package
+> remains private at `0.0.0`; no `0.1.0` proposal or publication is authorized by
+> migration or certification success.
 
 ## Install
 
@@ -29,9 +29,9 @@ workspaces, adapter serialization, trusted configuration and signal reads,
 canonical source-path validation, baseline generations, changed-file attribution,
 acknowledgement transactions, verification checkpoints, scoped scheduling,
 automatic finding delivery, scan/changed/status/Fallow application workflows,
-and one managed runtime/layer graph per extension instance. The final legacy
-removal and conformance audit is the next ordered migration slice. If your
-project already installs
+and one managed runtime/layer graph per extension instance. Legacy Promise/service
+paths are removed from those layers, and host-launched baseline work is settled at
+lifecycle boundaries. If your project already installs
 a compatible jscpd locally, or `jscpd`/`cpd` is available on `PATH`, the
 extension uses that installation first and keeps the bundled version as a
 fallback.

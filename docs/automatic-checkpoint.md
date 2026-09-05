@@ -4,10 +4,10 @@ Status: **implemented with Effect-owned scheduling and automatic delivery**
 
 Scope: lifecycle and process model
 
-The release-blocking [Effect migration](effect-migration.md) preserves this
-trigger, generation, quiet-delivery, cancellation, and shutdown contract. M7.5
-moves scheduler/background ownership to scoped fibers and Effect transactions;
-application and managed Pi-runtime composition remain later ordered slices.
+The completed Effect source migration preserves this trigger, generation,
+quiet-delivery, cancellation, and shutdown contract. Scheduling/background work
+uses scoped fibers and Effect transactions, application workflows compose native
+programs, and Pi host adapters use one managed runtime.
 
 ## Decision
 
@@ -218,10 +218,9 @@ display disabled. Delivery failure, queued work, a newer mutation, or a stale
 lifecycle scope leaves the generation retryable without acknowledging it.
 
 M7.5 replaces the scheduler's mutable Promise/microtask owner with scoped Effect
-fibers, composes automatic checks directly through the scheduler's default Effect
-path, and moves acknowledgement staging plus Pi delivery ordering to Effect. The
-compatibility facade delegates to the same owner through the managed runtime M7.7
-supplies; M7.8 removes obsolete facade paths. See
+fibers, composes automatic checks directly through the scheduler's native Effect
+path, and moves acknowledgement staging plus Pi delivery ordering to Effect. M7.7
+supplies the managed host runtime, and M7.8 removes obsolete facade paths. See
 [Effect-owned scheduling and automatic checks](effect-scheduler-automatic.md).
 
 Focused tests cover coalescing, scheduler freshness, clean and failure status,
