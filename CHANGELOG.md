@@ -7,6 +7,11 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- Removed the one-time npm bootstrap credential path and repository secret after
+  the registry confirmed `0.1.0`; future releases use trusted publishing only.
+
 ## [0.1.0] - 2026-09-05
 
 ### Added

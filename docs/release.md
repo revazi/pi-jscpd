@@ -43,20 +43,18 @@ artifact, and cannot publish or create a GitHub release.
    lifecycle scripts disabled; and
 8. creates the matching GitHub release only after npm publication succeeds.
 
-Because npm cannot attach trusted-publisher settings before an unscoped package
-exists, the `v0.1.0` publish step alone may receive a short-lived granular
-`NPM_TOKEN` repository secret for first-publication bootstrap. Dependency
-installation and release validation do not receive it, and `npm publish` runs
-with lifecycle scripts disabled. Delete the secret and remove this fallback as
-soon as npm confirms `0.1.0`; all later releases must use OIDC only. Default
-GitHub permissions are empty; the release job receives only `contents: write`
-for the GitHub release and `id-token: write` for trusted publishing.
+The first publication used a short-lived granular token isolated to the
+lifecycle-disabled publish step because npm could not attach trusted-publisher
+settings before the unscoped package existed. That repository secret and
+workflow fallback were deleted immediately after npm confirmed `0.1.0`.
 
-Before later tags are pushed, the repository's protected `npm` environment and
-npm trusted-publisher binding must match the exact repository and
-`.github/workflows/release.yml`. Authentication details, token values, `.npmrc`
-files, screenshots, and credential output must never be committed or copied into
-issues or CI logs.
+All later releases must use OIDC only. Default GitHub permissions are empty; the
+release job receives only `contents: write` for the GitHub release and
+`id-token: write` for trusted publishing. Before another tag is pushed, the
+repository's protected `npm` environment and npm trusted-publisher binding must
+match the exact repository and `.github/workflows/release.yml`. Authentication
+details, token values, `.npmrc` files, screenshots, and credential output must
+never be committed or copied into issues or CI logs.
 
 ## Version and changelog procedure
 
