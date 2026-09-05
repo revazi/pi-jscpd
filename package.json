@@ -1,7 +1,6 @@
 {
   "name": "pi-jscpd",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "A Pi-native, polyglot duplication guardrail powered by jscpd.",
   "type": "module",
   "license": "MIT",
@@ -30,6 +29,7 @@
   ],
   "files": [
     "src",
+    "skills",
     "docs",
     "scripts/check-compatibility.mjs",
     "CHANGELOG.md",
@@ -55,6 +55,9 @@
   "pi": {
     "extensions": [
       "./src/index.ts"
+    ],
+    "skills": [
+      "./skills/jscpd/SKILL.md"
     ]
   },
   "peerDependencies": {

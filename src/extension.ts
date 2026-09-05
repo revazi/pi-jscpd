@@ -39,9 +39,17 @@ import {
   type JscpdFallowCoexistenceService,
 } from "./fallow.js";
 import { createJscpdService, type JscpdService } from "./jscpd.js";
-import { createJscpdOverlayLauncher, type JscpdOverlayLauncher } from "./overlay.js";
+import {
+  createJscpdOverlayLauncher,
+  type JscpdOverlayExecutor,
+  type JscpdOverlayLauncher,
+} from "./overlay.js";
 import { parseJscpdSlashArgs } from "./parser.js";
-import { getJscpdArgumentCompletions, jscpdArgumentHint } from "./registry.js";
+import {
+  getJscpdArgumentCompletions,
+  getJscpdRootCommandCompletions,
+  jscpdArgumentHint,
+} from "./registry.js";
 import { createJscpdScanExecutor } from "./scan.js";
 import {
   createJscpdScanScheduler,
@@ -202,6 +210,7 @@ export function registerJscpdExtension(
   );
 
   pi.on("session_start", async (_event, ctx) => {
+    if (ctx.mode === "tui") installJscpdAutocompleteProvider(ctx.ui);
     runtime.runSync(scheduler.resetEffect);
     fallowCoexistence.reset();
     verificationService?.reset();
@@ -573,7 +582,7 @@ export function createJscpdToolDefinition(
       );
       return {
         content: [{ type: "text", text: result.message }],
-        details: result,
+        details: withoutOverlayCache(result),
       };
     },
   };
@@ -620,11 +629,53 @@ export function createJscpdSlashCommandDefinition(
   };
 }
 
-function overlayExecutor(executor: JscpdCommandExecutor, runtime: JscpdEffectRuntime) {
+export function installJscpdAutocompleteProvider(
+  ui: Pick<ExtensionContext["ui"], "addAutocompleteProvider">,
+): void {
+  ui.addAutocompleteProvider((current) => ({
+    async getSuggestions(lines, cursorLine, cursorCol, options) {
+      const prefix = jscpdSlashPrefix(lines, cursorLine, cursorCol);
+      if (/^\/jscpd\s+$/u.test(prefix)) {
+        return { prefix, items: getJscpdRootCommandCompletions() };
+      }
+      return current.getSuggestions(lines, cursorLine, cursorCol, options);
+    },
+    applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
+      return current.applyCompletion(lines, cursorLine, cursorCol, item, prefix);
+    },
+    shouldTriggerFileCompletion(lines, cursorLine, cursorCol) {
+      const prefix = jscpdSlashPrefix(lines, cursorLine, cursorCol);
+      if (/^\/jscpd\s+$/u.test(prefix)) return true;
+      return current.shouldTriggerFileCompletion?.(lines, cursorLine, cursorCol) ?? true;
+    },
+  }));
+}
+
+function jscpdSlashPrefix(lines: string[], cursorLine: number, cursorCol: number): string {
+  const beforeCursor = (lines[cursorLine] ?? "").slice(0, cursorCol);
+  const slashIndex = beforeCursor.lastIndexOf("/");
+  return slashIndex >= 0 ? beforeCursor.slice(slashIndex) : "";
+}
+
+function overlayExecutor(
+  executor: JscpdCommandExecutor,
+  runtime: JscpdEffectRuntime,
+): JscpdOverlayExecutor {
   return {
-    execute: (...args: Parameters<JscpdCommandExecutor["executeEffect"]>) =>
-      runtime.runPromise(executor.executeEffect(...args)),
+    execute: (invocation, context) =>
+      runtime.runPromise(executor.executeEffect(invocation, context)),
   };
+}
+
+function withoutOverlayCache(result: JscpdDispatchResult): JscpdDispatchResult {
+  if (
+    (result.status === "changed" || result.status === "completed") &&
+    result.overlayCache !== undefined
+  ) {
+    const { overlayCache: _overlayCache, ...publicResult } = result;
+    return publicResult;
+  }
+  return result;
 }
 
 function terminalResultMessage(result: JscpdDispatchResult): string {

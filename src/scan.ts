@@ -120,6 +120,7 @@ function scanWorkflowFor(
           return yield* executionResultWithVerificationEffect(
             scan,
             config.maxFindings,
+            context.overlayFindingLimit,
             scopes.value,
             options.verification,
             verificationScope,
@@ -244,11 +245,12 @@ function resolveScanScopeEffect(
 function executionResultWithVerificationEffect(
   scan: JscpdRunResult<JscpdScanReport>,
   maxFindings: number,
+  overlayFindingLimit: number | undefined,
   scopes: ResolvedScanScopes,
   service: JscpdVerificationService | undefined,
   expectedScope: number | undefined,
 ): Effect.Effect<JscpdExecutionResult, never, JscpdFileSystem> {
-  const result = executionResult(scan, maxFindings);
+  const result = executionResult(scan, maxFindings, overlayFindingLimit);
   if (!service || expectedScope === undefined || result.status !== "completed") {
     return Effect.succeed(result);
   }
@@ -290,13 +292,14 @@ function successfulReport(result: JscpdRunResult<JscpdScanReport>): JscpdScanRep
 export function executionResult(
   result: JscpdRunResult<JscpdScanReport>,
   maxFindings: number,
+  overlayFindingLimit?: number,
 ): JscpdExecutionResult {
   switch (result.status) {
     case "report":
-      return presentJscpdScan(result.value, maxFindings);
+      return presentJscpdScan(result.value, maxFindings, overlayFindingLimit);
     case "no-findings":
       return result.value
-        ? presentJscpdScan(result.value, maxFindings)
+        ? presentJscpdScan(result.value, maxFindings, overlayFindingLimit)
         : scanFailure(
             "invalid-report",
             "jscpd produced an invalid structured report; no result was used.",

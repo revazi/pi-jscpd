@@ -1,0 +1,32 @@
+{
+  "ignore": [
+    "**/node_modules/**",
+    "**/coverage/**",
+    "**/dist/**",
+    "**/.fallow/**",
+    "**/work/**",
+    "**/outputs/**",
+    "**/reports/**",
+    "**/tmp/**",
+    "**/package-lock.json",
+    "**/npm-shrinkwrap.json",
+    "**/yarn.lock",
+    "**/pnpm-lock.yaml",
+    "**/bun.lock",
+    "**/bun.lockb",
+    "**/Cargo.lock",
+    "**/composer.lock",
+    "**/Gemfile.lock",
+    "**/Pipfile.lock",
+    "**/poetry.lock",
+    "**/uv.lock",
+    "**/flake.lock",
+    "**/go.sum",
+    "**/__snapshots__/**",
+    "**/*.snap",
+    "**/*.min.js",
+    "**/*.min.css",
+    "**/*.map",
+    "**/*.tgz"
+  ]
+}

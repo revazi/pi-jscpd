@@ -85,9 +85,18 @@ export function getJscpdCommandSpec(command: string): RegisteredJscpdCommandSpec
 }
 
 export function getJscpdArgumentCompletions(prefix: string) {
-  const commandPrefix = prefix.trimStart();
+  const commandPrefix = prefix.trimStart().toLocaleLowerCase();
   if (/\s/.test(commandPrefix)) return null;
 
   const matches = jscpdCommandCompletions.filter(({ value }) => value.startsWith(commandPrefix));
   return matches.length > 0 ? matches : null;
+}
+
+/** Root suggestions used when the editor contains exactly `/jscpd ` and no subcommand yet. */
+export function getJscpdRootCommandCompletions() {
+  return jscpdCommandRegistry.map((spec) => ({
+    value: `jscpd ${spec.name}`,
+    label: commandUsage(spec),
+    description: spec.description,
+  }));
 }

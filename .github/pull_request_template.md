@@ -21,6 +21,6 @@
 - [ ] No version, tag, publication credential, or release activation was added without explicit maintainer approval
 - [ ] A durable decision is called out when public names, configuration, persistence, process ownership, Effect architecture, or release authority change
 - [ ] Effect migration work follows the dependency order in #63, keeps pure code plain, uses only approved runtime boundaries, and removes its superseded internal path
-- [ ] No `0.1.0`, private-guard removal, tag, release, credential, or publication action is included while the Effect prerequisite remains open
+- [ ] Release metadata, tags, credentials, or publication actions are included only with explicit maintainer approval
 
 Closes #

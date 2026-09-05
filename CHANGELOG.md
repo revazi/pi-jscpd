@@ -3,11 +3,11 @@
 All notable changes to this project will be documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
-published releases will use [Semantic Versioning](https://semver.org/). The
-package is currently private and unreleased; entries remain under `Unreleased`
-until publication is approved.
+published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-09-05
 
 ### Added
 
@@ -42,6 +42,11 @@ until publication is approved.
   findings, acknowledgements, and quiet automatic settled checks.
 - Responsive `/jscpd` overview, shared actionable finding presentation, and
   ephemeral refactor verification.
+- TUI root-subcommand autocomplete for `/jscpd ` with labeled scan, changed,
+  status, session-control, and help suggestions.
+- Packaged on-demand `jscpd` skill with polyglot scan routing, result
+  interpretation, verification, configuration, Fallow-coexistence, and advisory
+  safety guidance.
 - Conservative Pi Fallow coexistence policy with explicit on-demand and allow
   choices.
 - Confirmed `pi-jscpd` package identity and a tested Node/Pi/TypeBox
@@ -51,11 +56,23 @@ until publication is approved.
 - Exact packed-artifact certification with isolated Pi RPC/tool/TUI-compatible,
   JSON, print, process-tree shutdown, and temporary-report cleanup checks.
 - Non-publishing release-readiness workflow, provenance/access intent,
-  documentation-link validation, repository-hygiene guards, and a future release,
+  documentation-link validation, repository-hygiene guards, and release,
   rollback, and post-release policy.
+- A tag-triggered npm trusted-publishing and GitHub Release workflow based on
+  `pi-fallow`, protected by release metadata and maintainer-approval guards.
 
 ### Changed
 
+- Reworked the `/jscpd` overlay into a Pi Fallow-style findings navigator with
+  framed status/count hierarchy, responsive two-location rows, inline detail,
+  search, scrolling, multi-selection, and bounded editor prompt handoff. The
+  overlay now retains up to 100 findings in memory, initially reveals 10, and
+  loads subsequent 10-item pages manually or when navigation crosses the shown
+  boundary without enlarging configured model/tool output or persisted state.
+- Accepted valid jscpd v5 reports whose token-equivalent second occurrence spans
+  fewer physical lines than the reporter's first-occurrence line count.
+- Added repository jscpd ignore policy for dependency/build artifacts, caches,
+  generated source maps/snapshots, archives, and common polyglot lockfiles.
 - Removed superseded process, capability, analyzer, configuration,
   Fallow-coexistence, baseline, changed-file, command/status, and
   scheduler/automatic Promise facades; removed the parallel Promise report
@@ -67,12 +84,12 @@ until publication is approved.
   presentation behavior before production Effect workflow migration.
 - Completed the ordered Effect runtime migration, legacy-removal audit,
   documentation pass, supported-Node validation, security checks, and
-  exact-tarball recertification while retaining private version `0.0.0`.
-  Completion remains separate from any version or publication approval.
+  exact-tarball recertification required for the first public release.
 
 ### Security
 
 - Project paths, child output, reports, temporary directories, cancellation,
   configuration trust, and lifecycle cleanup are bounded and fail open.
 
-[Unreleased]: https://github.com/revazi/pi-jscpd/commits/main
+[Unreleased]: https://github.com/revazi/pi-jscpd/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/revazi/pi-jscpd/releases/tag/v0.1.0

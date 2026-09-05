@@ -182,6 +182,7 @@ function executeChangedEffect(
       prepared.config,
       scope,
       verificationScope,
+      context.overlayFindingLimit,
     );
   });
 }
@@ -293,6 +294,7 @@ function compareCurrentChangesEffect(
   config: JscpdConfig,
   scope: number,
   verificationScope: number | undefined,
+  overlayFindingLimit: number | undefined,
 ): Effect.Effect<JscpdExecutionResult, never, JscpdFileSystem> {
   return Effect.gen(function* () {
     const revision = yield* acknowledgementRevisionEffect(acknowledgements);
@@ -323,6 +325,7 @@ function compareCurrentChangesEffect(
       changedPathSet,
       config.maxFindings,
       comparison.ambiguous.length,
+      overlayFindingLimit,
     );
     const surfaced = candidates
       .slice(0, presented.findings.length)

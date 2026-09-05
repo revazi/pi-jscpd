@@ -24,6 +24,7 @@ const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
 const expectedPackageFiles = Object.freeze(
   [
     ...trackedFiles("src", "docs"),
+    "skills/jscpd/SKILL.md",
     "scripts/check-compatibility.mjs",
     "CHANGELOG.md",
     "CONTRIBUTING.md",
@@ -57,6 +58,7 @@ export async function certifyPackage() {
     const fake = createFakeJscpd(fakeBinDirectory, workspace);
 
     await validateRpcRuntime(packageRoot, runtimeDirectory, host, fake, join(workspace, "rpc"));
+    await validateSkillRuntime(packageRoot, runtimeDirectory, host, fake, join(workspace, "skill"));
     await validateToolAndTuiContract(
       packageRoot,
       runtimeDirectory,
@@ -90,7 +92,7 @@ export async function certifyPackage() {
     );
 
     console.log(
-      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; Effect process/filesystem/domain state/scheduling/application workflows/managed runtime, bundled jscpd, RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
+      `Package certification passed (${packed.filename}, ${packed.files.length} files, Pi ${host.version}; Effect process/filesystem/domain state/scheduling/application workflows/managed runtime, bundled jscpd, skill/RPC/tool/TUI-contract/JSON/print, and shutdown cleanup).`,
     );
   } finally {
     for (const pid of cleanupPids) terminateProcess(pid);
@@ -117,9 +119,9 @@ function packPackage(destination) {
   assert.equal(results.length, 1, "npm pack must produce exactly one artifact.");
   const packed = results[0];
   assert.equal(packed.name, "pi-jscpd");
-  assert.equal(packed.version, "0.0.0");
-  assert.equal(packed.id, "pi-jscpd@0.0.0");
-  assert.match(packed.filename, /^pi-jscpd-0\.0\.0\.tgz$/);
+  assert.equal(packed.version, "0.1.0");
+  assert.equal(packed.id, "pi-jscpd@0.1.0");
+  assert.match(packed.filename, /^pi-jscpd-0\.1\.0\.tgz$/);
   assert.ok(Array.isArray(packed.files), "npm pack did not report its file list.");
   assert.ok(existsSync(join(destination, packed.filename)), "npm pack did not create its tarball.");
   return packed;
@@ -190,10 +192,14 @@ function validateInstalledPackage(projectDirectory) {
   const packageRoot = join(projectDirectory, "node_modules", "pi-jscpd");
   const manifest = readJson(join(packageRoot, "package.json"));
   assert.equal(manifest.name, "pi-jscpd");
-  assert.equal(manifest.version, "0.0.0");
-  assert.equal(manifest.private, true, "Certification must not remove the release guard.");
+  assert.equal(manifest.version, "0.1.0");
+  assert.equal(manifest.private, undefined, "Certified public package retained the private guard.");
   assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
   assert.deepEqual(manifest.pi?.extensions, ["./src/index.ts"]);
+  assert.deepEqual(manifest.pi?.skills, ["./skills/jscpd/SKILL.md"]);
+  const skill = readFileSync(join(packageRoot, "skills", "jscpd", "SKILL.md"), "utf8");
+  assert.match(skill, /^---\nname: jscpd\n/);
+  assert.match(skill, /Prefer the `jscpd_run` tool when it is available\./);
   assert.deepEqual(
     manifest.dependencies,
     { effect: "3.22.1", jscpd: "5.1.2" },
@@ -307,6 +313,26 @@ async function validateRpcRuntime(packageRoot, projectDirectory, host, fake, run
     `Installed extension wrote RPC diagnostics:\n${rpc.getStderr()}`,
   );
   await assertNoReportDirectories(join(runRoot, "tmp"));
+}
+
+async function validateSkillRuntime(packageRoot, projectDirectory, host, fake, runRoot) {
+  const rpc = new RpcClient({
+    cliPath: host.cliPath,
+    cwd: projectDirectory,
+    env: isolatedEnvironment(runRoot, fake),
+    args: skillPiArguments(packageRoot),
+  });
+  const events = [];
+  await withRpc(rpc, events, async () => {
+    const commands = await rpc.getCommands();
+    const skills = commands.filter(
+      (command) => command.name === "skill:jscpd" && command.source === "skill",
+    );
+    assert.equal(skills.length, 1, "Installed jscpd skill was not discovered exactly once.");
+    assert.match(skills[0].description ?? "", /polyglot duplicate-code analysis/i);
+    assertProviderFree(events, "skill discovery");
+  });
+  assert.equal(rpc.getStderr(), "", `Installed skill wrote Pi diagnostics:\n${rpc.getStderr()}`);
 }
 
 async function validateToolAndTuiContract(
@@ -478,6 +504,10 @@ function createRpcClient(
   });
 }
 
+export function skillPiArguments(packagePath) {
+  return isolatedPiArguments(packagePath).filter((argument) => argument !== "--no-skills");
+}
+
 export function isolatedPiArguments(extensionPath) {
   return [
     "--no-session",
@@ -612,6 +642,7 @@ function probeExtensionSource(packageRoot, marker) {
   const errors = pathToFileURL(join(packageRoot, "src", "effect", "errors.ts")).href;
   const services = pathToFileURL(join(packageRoot, "src", "effect", "services.ts")).href;
   return `import { writeFile } from "node:fs/promises";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import extension from ${JSON.stringify(entry)};
 import { JscpdOverlayComponent } from ${JSON.stringify(overlay)};
 import { JscpdAnalyzerUnavailable, mapJscpdExpectedError } from ${JSON.stringify(errors)};
@@ -638,7 +669,11 @@ export default async function (pi) {
       );
       const status = execution.details;
       const tui = { terminal: { rows: 24 }, requestRender() {} };
-      const theme = { fg(_color, text) { return text; } };
+      const theme = {
+        fg(_color, text) { return text; },
+        bg(_color, text) { return text; },
+        bold(text) { return text; },
+      };
       const keys = { matches() { return false; } };
       const component = new JscpdOverlayComponent({
         tui,
@@ -675,7 +710,7 @@ export default async function (pi) {
         executionText: execution.content?.[0]?.text ?? "",
         tuiLineCount: lines.length,
         tuiText: lines.join("\\n"),
-        tuiMaxWidth: Math.max(...lines.map((line) => line.length)),
+        tuiMaxWidth: Math.max(...lines.map((line) => visibleWidth(line))),
       }));
     },
   });

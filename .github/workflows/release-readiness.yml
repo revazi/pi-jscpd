@@ -1,5 +1,5 @@
 name: Release readiness (no publish)
-run-name: Check unreleased commit ${{ inputs.reviewed_sha }} without publishing
+run-name: Check release commit ${{ inputs.reviewed_sha }} without publishing
 
 on:
   workflow_dispatch:
@@ -42,7 +42,7 @@ jobs:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      - name: Verify reviewed main source and unreleased guard
+      - name: Verify reviewed main release source
         shell: bash
         env:
           REVIEWED_SHA: ${{ inputs.reviewed_sha }}
@@ -51,8 +51,8 @@ jobs:
           [[ "$REVIEWED_SHA" =~ ^[0-9a-f]{40}$ ]]
           test "$(git rev-parse HEAD)" = "$REVIEWED_SHA"
           test "$(git rev-parse origin/main)" = "$REVIEWED_SHA"
-          test "$(node -p "require('./package.json').version")" = "0.0.0"
-          test "$(node -p "require('./package.json').private")" = "true"
+          test "$(node -p "require('./package.json').version")" = "0.1.0"
+          test "$(node -p "Boolean(require('./package.json').private)")" = "false"
           test -z "$(git status --porcelain --untracked-files=no)"
 
       - name: Install locked dependencies without lifecycle scripts

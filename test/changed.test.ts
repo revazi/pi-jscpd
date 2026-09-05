@@ -313,11 +313,21 @@ describe("/jscpd changed", () => {
       { config: () => ({ enabled: true, timeoutMs: 1234, maxFindings: 1 }) },
     );
 
-    const first = await executor.execute({ command: "changed", args: [] }, { cwd: project });
-    const second = await executor.execute({ command: "changed", args: [] }, { cwd: project });
+    const first = await executor.execute(
+      { command: "changed", args: [] },
+      { cwd: project, overlayFindingLimit: 100 },
+    );
 
-    expect(first).toMatchObject({ outcome: "findings", omittedFindings: 1 });
+    expect(first).toMatchObject({
+      outcome: "findings",
+      omittedFindings: 1,
+      overlayCache: { omittedFindings: 0, findings: expect.any(Array) },
+    });
+    if (first.status === "changed") expect(first.overlayCache?.findings).toHaveLength(2);
     expect(first.message).toContain("not acknowledged");
+    expect(acknowledgements.findings()).toHaveLength(1);
+
+    const second = await executor.execute({ command: "changed", args: [] }, { cwd: project });
     expect(second).toMatchObject({ outcome: "findings", omittedFindings: 0 });
     expect(acknowledgements.findings()).toHaveLength(2);
   });

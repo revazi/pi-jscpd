@@ -1,6 +1,6 @@
 # Effect architecture and conformance
 
-Status: **implemented and locally recertified; package remains private and unreleased**
+Status: **implemented and recertified for the first public release**
 
 `pi-jscpd` uses Effect 3.22.1 for fallible asynchronous work, resource ownership,
 cancellation, concurrency, and shared service workflows. jscpd remains the source
@@ -116,14 +116,13 @@ Pi 0.84.4, TypeBox 1.3.7, Effect 3.22.1, and jscpd 5.1.2 fixtures. Evidence cove
 
 - strict TypeScript and Biome checks;
 - architecture, documentation-link, and repository-hygiene gates;
-- 423 network-free tests, including cancellation and finalizer regressions;
+- more than 400 network-free tests, including cancellation and finalizer regressions;
 - Fallow dead-code, architecture, security, and full-audit checks;
 - a production dependency audit with no reported vulnerabilities; and
-- exact private `0.0.0` tarball installation and runtime certification through
-  RPC, tool, TUI-compatible, JSON, and print paths, package-owned jscpd probing,
+- exact release tarball installation and runtime certification through RPC,
+  skill, tool, TUI-compatible, JSON, and print paths, package-owned jscpd probing,
   active process-tree shutdown, and temporary-report cleanup.
 
-Certification proves only the reviewed source/artifact state. It does not close
-tracking issues or authorize `0.1.0`, removal of `private: true`, a tag, a GitHub
-release, npm authentication, or publication. Those remain separate explicit
-maintainer decisions under [the release policy](release.md).
+Certification proves only the reviewed source and artifact state. Versioning,
+tagging, and publication remain explicit maintainer decisions under the
+[release policy](release.md).

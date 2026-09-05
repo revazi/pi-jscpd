@@ -20,19 +20,19 @@ scan, inspect bounded findings, toggle the session mode, refresh status, or open
 help. The overlay never edits source, runs project tests, or changes jscpd
 configuration.
 
-The first implementation has four views:
+The interface has three views:
 
 1. **Overview** — status, last check, changed-file count, current-result summary,
-   and actions.
-2. **Findings** — a bounded searchable list from the latest current overlay or
-   automatic result.
-3. **Finding detail** — both locations, relation labels, clone size/format,
-   uncertainty, and advisory next actions.
-4. **Help** — controls, state meanings, explicit command equivalents, and the
+   and explicit actions.
+2. **Findings navigator** — a bounded searchable list with inline expansion,
+   multi-selection, result counts, and a safe editor-prompt handoff.
+3. **Help** — controls, state meanings, explicit command equivalents, and the
    intentional-duplication caveat.
 
-Navigation uses one focused overlay and a view stack. It does not create stacked
-child overlays.
+The visual and keyboard model follows Pi Fallow's established findings navigator:
+a branded frame, compact status/count pills, selected-row background plus marker,
+inline details, explicit earlier/later indicators, and visible controls. Navigation
+uses one focused overlay and never creates stacked child overlays.
 
 ## Entry and initial state
 
@@ -43,10 +43,9 @@ ctx.ui.custom(factory, {
   overlay: true,
   overlayOptions: {
     anchor: "center",
-    width: "80%",
-    minWidth: 32,
-    maxHeight: "80%",
-    margin: 1,
+    width: "90%",
+    minWidth: 50,
+    maxHeight: "95%",
   },
 });
 ```
@@ -66,12 +65,15 @@ The overview then shows:
 - current finding/clean summary when an ephemeral result is available; and
 - the available actions.
 
-An ephemeral result cache may retain normalized presentation data only for the
-active extension runtime, project, branch scope, and mutation generation. It is
-cleared on session replacement/reload and invalidated by a newer mutation or
-branch navigation. Findings and source fragments are not added to persisted
-session state. After restoration, the overview may show the persisted last-check
-summary, but opening details requires a new current result.
+An ephemeral result cache may retain up to 100 normalized findings only for the
+active extension runtime, project, branch scope, and mutation generation. This
+TUI-only retention is independent of `maxFindings`: model/tool messages, explicit
+subcommand output, acknowledgement writes, and persisted state remain capped by
+the configured limit. The cache is cleared on session replacement/reload and
+invalidated by a newer mutation or branch navigation. Findings and source
+fragments are not added to persisted session state. After restoration, the
+overview may show the persisted last-check summary, but opening details requires
+a new current result.
 
 ## Views and actions
 
@@ -94,44 +96,47 @@ Arbitrary target entry is intentionally omitted from the first overlay. Users
 retain `/jscpd scan <target ...>` for scoped scans; this avoids introducing a
 second path parser or an ambiguous free-form field.
 
-### Findings
+### Findings navigator
 
 The findings view uses the ordering already selected by the presentation layer.
 For changed checks, pairs whose two locations changed in the session come first,
-then larger pairs, then deterministic location order. Each row contains:
+then larger pairs, then deterministic location order. Each compact row identifies
+both bounded paths and line spans plus line count, token count, and format.
+`N`, `E`, and `C` markers mean `new in this session`, `existing match`, and
+`current location`; inline expansion always spells those labels out.
 
-- ordinal and total, including a clear omitted-count indicator;
-- first bounded path and line span;
-- second bounded path and line span;
-- `new in this session` / `existing match` labels where known; and
-- line count, token count, and format.
+The navigator initially reveals 10 retained findings. **Load next 10 / L**
+reveals another page without rescanning, and moving down or paging past the last
+revealed row automatically reveals the next page. Search and “all shown”
+selection operate on revealed findings; loading another page extends that set.
 
-The list never renders source fragments. It retains at most the validated
-configured finding limit (maximum 100), renders only the visible viewport, and
-states when the detector or display limit omitted findings.
+The header and result context distinguish filtered, shown, retained, total,
+overlay-cache omissions, and safely unclassified counts. The viewport shows
+explicit earlier/later indicators. The selected row uses both a `❯` marker and
+Pi's selected background. Below 64 columns, each finding becomes a three-line row
+so both locations remain readable rather than disappearing behind truncation.
 
-`/` enters filter mode. Filtering is a case-insensitive literal substring match
+Enter, Space, Right, or `l` expands the current finding inline. Left or `h`
+collapses it. Expanded content repeats both locations, relation labels, size,
+format, verification state, omission/ambiguity context, and advisory next steps.
+The list never renders source fragments or internal fingerprints and retains at
+most 100 validated findings.
+
+`/` enters search mode. Search is a case-insensitive literal substring match
 against the two displayed paths and format. It is not a regular expression,
-does not access the filesystem, and is capped at 256 Unicode code points. An
-empty query restores the original deterministic order. A no-match state keeps
-the filter and footer visible.
+does not access the filesystem, and is capped at 256 Unicode code points. Enter
+accepts the query, Esc restores the query that existed before editing, Ctrl+U
+clears it, and `x` clears an applied query. An empty query restores deterministic
+order. A no-match state keeps search and close controls visible.
 
-### Finding detail
-
-The detail view repeats both bounded locations, spans, size, format, and
-new/existing labels. It also states:
-
-- “Duplication may be intentional; inspect both locations before changing
-  code.”
-- ambiguous or incomplete classification when applicable;
-- omitted related findings when applicable; and
-- the explicit rescan route.
-
-M5.3 may add actions that **prefill** a bounded inspect/refactor or intentional-
-configuration request into Pi's editor after closing the overlay. Prefill must
-not submit a prompt, trigger a model turn, modify source, run tests, or write
-configuration. No “refactor now,” “delete,” or automatic ignore/configure action
-belongs in the overlay.
+`s` or Tab marks the current finding, `A` toggles all shown findings, and `c`
+clears selection. `e` or `a` closes the overlay and returns a compact prompt for
+the selected findings—or the current finding when none are marked. At most 20
+findings and 12,000 Unicode code points enter that prompt. Only after
+`ui.custom()` has returned does the launcher call `setEditorText()` and notify
+the user. It never submits the editor, triggers a model turn, mutates source,
+runs tests, or writes configuration. No “refactor now,” “delete,” or automatic
+ignore/configure action belongs in the overlay.
 
 ### Help
 
@@ -201,13 +206,19 @@ mutate global keybindings.
 
 | Input | Behavior |
 | --- | --- |
-| configured up/down; `j`/`k` outside filter mode | Move selection |
-| configured page up/down | Scroll one viewport |
-| configured confirm; `Enter` | Activate selected row/action |
-| configured cancel; `Esc` | Back, close, or cancel active work |
-| `Tab` / `Shift+Tab` | Cycle Overview and Findings when Findings is available |
-| `/` | Enter literal filter mode in Findings |
-| `Backspace`, arrows, Home/End | Edit filter while filter mode is active |
+| configured up/down; `j`/`k` outside search mode | Move selection |
+| configured page up/down; Home/End | Scroll one viewport or jump to a boundary |
+| configured confirm; Enter, Space, Right, `l` | Activate an action or expand/collapse a finding |
+| Left / `h` | Collapse the current finding |
+| configured cancel; `Esc` | Cancel search/work, go back, or close |
+| `Tab` | Open Findings from Overview; mark/unmark the current finding in Findings |
+| `Shift+Tab` | Return to Overview from Findings or Help |
+| `/` | Enter literal search mode in Findings |
+| `Backspace`, arrows, Home/End, `Ctrl+U` | Edit or clear search while search mode is active |
+| `x` | Clear the applied finding search |
+| `L` | Reveal the next 10 retained findings without rescanning |
+| `s` / Tab, `A`, `c` | Mark current, toggle all shown, or clear selected findings |
+| `e` / `a` | Close and load a bounded finding prompt into Pi's editor |
 | `r` | Rerun the current scan kind, or refresh status when no scan kind exists |
 | `c` | Start changed-files check from Overview |
 | `s` | Start full-project scan from Overview |
@@ -217,10 +228,10 @@ mutate global keybindings.
 
 Every action has a visible text label; color, glyphs, and punctuation are never
 the only indication of selection, disabled state, error, freshness, or relation.
-The selected row uses a textual `>` marker as well as theme emphasis. Help text
-uses Pi key-hint utilities where a configured binding exists. The component
-accepts focus through the normal `Focusable` contract and requests a render
-after every state, selection, filter, or async-result change.
+The selected row uses a textual `❯` marker plus Pi's selected background. The
+component accepts focus through the normal `Focusable` contract, propagates it
+to the search input, and requests a render after every state, selection, search,
+or async-result change.
 
 ## Responsive and bounded rendering
 
@@ -228,20 +239,22 @@ Implementation must use the callback-provided theme and ANSI-aware Pi TUI
 utilities (`visibleWidth`, `truncateToWidth`, and wrapping helpers). Every
 rendered line must have visible width less than or equal to the supplied width.
 
-- At 72 columns and wider, Overview may use a two-section layout; Finding detail
-  may place metadata beside locations only when both remain readable.
-- From 40–71 columns, use a single-column layout and wrap labels before bounded
-  values.
+- At 64 columns and wider, findings use one compact row with independently
+  middle-truncated locations and retained size/format metadata.
+- Below 64 columns, each finding uses three rows so both locations remain
+  identifiable.
 - Below 40 columns, use a compact single-column layout: short title, one action
   or location field per line, no decorative side-by-side content, and a minimal
   footer that always retains cancel/close guidance.
-- Height is capped at 80% of the terminal. Header and footer remain visible;
+- Height is capped at 95% of the terminal. Header and footer remain visible;
   content scrolls within the remaining viewport. Render no more rows than the
   current overlay viewport instead of relying on compositor truncation.
 - Paths use the existing middle-ellipsis bound and receive a second display-
   width truncation at render time. Counts and omitted-state text remain visible.
-- The filter is capped at 256 code points, cached findings at 100, and detail at
-  one finding. No unbounded report, list, or source content enters a component.
+- Search is capped at 256 code points, findings reveal in pages of 10, the
+  overlay cache is capped at 100, inline detail at one finding, and prompt
+  handoff at 20 findings/12,000 code points. No unbounded report, list, or source
+  content enters a component.
 
 The overlay must remain closable on a 30x10 terminal. It may reduce content to a
 status line, selected action, and footer, but it must not use responsive
@@ -271,67 +284,39 @@ The /jscpd overlay requires Pi TUI mode.
 Use /jscpd changed, /jscpd scan, /jscpd off|on, or /jscpd help.
 ```
 
-## Acceptance examples for M5.2–M5.3
+## Acceptance examples
 
-### Wide ready overview (100x30)
+### Ready overview
 
 ```text
-+ pi-jscpd ---------------------------------------------------------------+
-| enabled (configuration) | jscpd 5.x ready | 3 session-changed files   |
-| Last check: 2 new duplicate blocks | current                           |
-|                                                                         |
-| > Check session changes                                                 |
-|   Scan project                                                          |
-|   View 2 findings                                                       |
-|   Refresh status                                                        |
-|   Disable for session                                                   |
-|   Help                                                                  |
-|                                                                         |
-| Up/Down move  Enter select  / filter  ? help  Esc close                |
-+-------------------------------------------------------------------------+
+╭ ✦ pi-jscpd · enabled ─────────────────────────────────────────╮
+│ ✓ enabled (configuration)   jscpd 5.1.2 bundled              │
+│ Configuration built-in defaults · 3 session-changed files    │
+│ Last check 2 duplicate blocks                                │
+│                                                              │
+│ ❯ ◆ Check session changes · new blocks in tracked edits      │
+│   ◇ Scan project · all current duplicate blocks              │
+├──────────────────────────────────────────────────────────────┤
+│ ↑↓ navigate · Enter select · c changes · s scan · ? help     │
+╰──────────────────────────────────────────────────────────────╯
 ```
 
-### Narrow overview (52x16)
+### Findings navigator
 
 ```text
-+ pi-jscpd -------------------------------------+
-| enabled | jscpd ready                         |
-| 3 changed files | last: clean                 |
-|                                                |
-| > Check session changes                       |
-|   Scan project                                |
-|   Disable for session                         |
-|                                                |
-| Enter select | ? help | Esc close             |
-+------------------------------------------------+
-```
-
-### Missing binary
-
-```text
-pi-jscpd | unavailable
-jscpd v5 was not found (checked jscpd, then cpd).
-The bundled analyzer is unavailable. Reinstall pi-jscpd.
-> Refresh status
-  Help
-No scan started.
-```
-
-### Finding detail
-
-```text
-Duplicate block 1 of 2 | new in this session
-src/new.ts:12-28
-matches existing implementation
-src/existing.ts:44-60
-17 lines | 91 tokens | typescript
-Duplication may be intentional; inspect both locations before changing code.
-Enter back | r rescan | ? help | Esc back
+╭ ✦ pi-jscpd · 10/48 findings ─────────────────────────────────╮
+│ 10 shown   48 retained   48 total                            │
+│ Load next 10 / L · 38 cached findings remain                │
+│ ❯ ☐ ▸ N src/new.ts:12-28 ↔ E src/old.ts:44-60 · 17L/91T ts  │
+│   ☑ ▸ C lib/a.py:3-10 ↔ C lib/b.py:20-27 · 8L/42T python     │
+├──────────────────────────────────────────────────────────────┤
+│ 1 selected · ↑↓ navigate · L next 10 · Enter expand · e load│
+╰──────────────────────────────────────────────────────────────╯
 ```
 
 ### Component and smoke-test matrix
 
-M5.2 and M5.3 tests must cover:
+Tests cover:
 
 - bare command opens exactly one overlay only in `mode === "tui"`;
 - RPC notification fallback and JSON/print stderr fallback start no scan;
@@ -339,12 +324,14 @@ M5.2 and M5.3 tests must cover:
   cancellation, failure, and stale states;
 - 100x30, 52x16, and 30x10 rendering with every line within visible width and
   header/footer retained;
-- configured navigation keys plus letter shortcuts, filter editing/no-match,
-  view-stack back behavior, focus, and theme invalidation;
+- configured navigation plus expand/collapse, search editing/cancellation,
+  filtering/no-match, scrolling, selection, and view back behavior;
 - one active action, repeated-key suppression, cancellation propagation, late
   completion discard, idempotent `dispose()`, and no timer/process leak;
-- both finding locations, relation labels, size, format, omitted count,
-  ambiguity text, and no source fragments/fingerprints;
+- both finding locations, relation labels, size, format,
+  filtered/shown/retained/total counts, 10-item manual and automatic reveal,
+  cache omissions, ambiguity, and no source fragments/fingerprints;
+- bounded prompt handoff only after overlay close, without submit or mutation;
 - no source mutation or configuration write from any overlay action; and
 - package/RPC smoke proving command discovery and non-TUI completion without a
   hang.

@@ -359,6 +359,20 @@ describe("jscpd v5 JSON report normalization", () => {
     await rejected(textEncoder.encode(negativeZero), "invalid-statistics");
   });
 
+  it("accepts token-equivalent occurrences with different physical line spans", async () => {
+    await materialize(["lib/b.ts", "src/a.ts"]);
+    const fixture = await fixtureObject();
+    occurrence(fixture, "secondFile").end = 10;
+    const end = asObject(occurrence(fixture, "secondFile").endLoc);
+    end.line = 10;
+    end.position = 250;
+
+    const report = await accepted(encode(fixture));
+
+    expect(report.clonePairs[0]?.lines).toBe(11);
+    expect(report.clonePairs[0]?.occurrences[1]?.end.line).toBe(10);
+  });
+
   it("rejects mismatched and impossible line, column, and offset ranges", async () => {
     const cases: Array<(report: JsonObject) => void> = [
       (report) => (occurrence(report, "firstFile").start = 0),
@@ -367,12 +381,6 @@ describe("jscpd v5 JSON report normalization", () => {
       (report) => (asObject(occurrence(report, "firstFile").endLoc).position = 0),
       (report) => (asObject(occurrence(report, "firstFile").endLoc).position = -1),
       (report) => (duplicate(report).lines = 10),
-      (report) => {
-        occurrence(report, "secondFile").end = 10;
-        const end = asObject(occurrence(report, "secondFile").endLoc);
-        end.line = 10;
-        end.position = 250;
-      },
     ];
 
     for (const mutate of cases) {

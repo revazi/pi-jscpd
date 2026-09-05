@@ -6,8 +6,13 @@ import { afterEach, describe, expect, it } from "vitest";
 // @ts-expect-error The executable certification script intentionally has no published type surface.
 import * as certification from "../scripts/package-certify.mjs";
 
-const { isolatedEnvironment, isolatedPiArguments, processIsRunning, terminateProcess } =
-  certification;
+const {
+  isolatedEnvironment,
+  isolatedPiArguments,
+  processIsRunning,
+  skillPiArguments,
+  terminateProcess,
+} = certification;
 const temporaryRoots: string[] = [];
 
 afterEach(() => {
@@ -51,6 +56,9 @@ describe("packed-artifact certification helpers", () => {
       "-e",
       "/artifact",
     ]);
+    expect(skillPiArguments("/artifact")).toEqual(
+      isolatedPiArguments("/artifact").filter((argument: string) => argument !== "--no-skills"),
+    );
   });
 
   it("detects and terminates a certification-owned child process", async () => {

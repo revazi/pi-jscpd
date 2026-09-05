@@ -6,6 +6,7 @@ import type {
   ExtensionCommandContext,
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteProvider } from "@earendil-works/pi-tui";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import { JSCPD_AUTOMATIC_MESSAGE_TYPE, JSCPD_AUTOMATIC_STATUS_KEY } from "../src/automatic.js";
@@ -16,7 +17,7 @@ import type {
 } from "../src/baseline.js";
 import type { JscpdCapabilityService } from "../src/capability.js";
 import type { JscpdConfigLoadContext, JscpdConfigService } from "../src/config.js";
-import { registerJscpdExtension } from "../src/extension.js";
+import { installJscpdAutocompleteProvider, registerJscpdExtension } from "../src/extension.js";
 import type { JscpdRunRequest, JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
 import { JSCPD_SESSION_STATE_TYPE, JSCPD_SESSION_STATE_VERSION } from "../src/session-state.js";
@@ -262,6 +263,43 @@ describe("Pi extension registration", () => {
       "agent_settled",
       "session_shutdown",
     ]);
+  });
+
+  it("adds root /jscpd subcommand suggestions without replacing normal completion", async () => {
+    let factory: ((current: AutocompleteProvider) => AutocompleteProvider) | undefined;
+    installJscpdAutocompleteProvider({
+      addAutocompleteProvider: (value) => {
+        factory = value;
+      },
+    });
+    const fallback = {
+      getSuggestions: vi.fn(async () => null),
+      applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({
+        lines,
+        cursorLine,
+        cursorCol,
+      })),
+      shouldTriggerFileCompletion: vi.fn(() => false),
+    } satisfies AutocompleteProvider;
+    const provider = factory?.(fallback);
+    expect(provider).toBeDefined();
+
+    const suggestions = await provider?.getSuggestions(["/jscpd "], 0, "/jscpd ".length, {
+      signal: new AbortController().signal,
+    });
+    expect(suggestions?.prefix).toBe("/jscpd ");
+    expect(suggestions?.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ value: "jscpd scan", label: "scan [target ...]" }),
+        expect.objectContaining({ value: "jscpd changed", label: "changed" }),
+      ]),
+    );
+    expect(provider?.shouldTriggerFileCompletion?.(["/jscpd "], 0, 7)).toBe(true);
+
+    await provider?.getSuggestions(["ordinary text"], 0, 13, {
+      signal: new AbortController().signal,
+    });
+    expect(fallback.getSuggestions).toHaveBeenCalledOnce();
   });
 
   it("invalidates ephemeral verification checkpoints before a session switch", async () => {
@@ -1339,6 +1377,53 @@ describe("jscpd_run", () => {
       content: [{ type: "text", text: "Model changed result in test." }],
       details: changedResult,
     });
+  });
+
+  it("strips an overlay-only cache from agent-tool details and model content", async () => {
+    const cached = {
+      ...changedResult,
+      outcome: "findings" as const,
+      message: "Configured-limit model result.",
+      terminalMessage: "Configured-limit terminal result.",
+      omittedFindings: 1,
+      overlayCache: {
+        findings: [
+          {
+            format: "typescript",
+            lines: 5,
+            tokens: 20,
+            occurrences: [
+              {
+                path: "src/a.ts",
+                startLine: 1,
+                endLine: 5,
+                relation: "new-session" as const,
+              },
+              {
+                path: "src/b.ts",
+                startLine: 10,
+                endLine: 14,
+                relation: "existing-match" as const,
+              },
+            ] as const,
+          },
+        ],
+        omittedFindings: 0,
+      },
+    } satisfies JscpdExecutionResult;
+    const { executor } = createExecutor(cached);
+    const definition = createJscpdToolDefinition(executor);
+
+    const result = await definition.execute(
+      "tool-call",
+      { command: "changed" },
+      undefined,
+      undefined,
+      toolContext(),
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "Configured-limit model result." }]);
+    expect(result.details).not.toHaveProperty("overlayCache");
   });
 
   it("returns bounded status content through the agent tool", async () => {
