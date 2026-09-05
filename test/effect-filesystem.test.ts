@@ -1,16 +1,19 @@
+import type { Stats } from "node:fs";
+import type { FileHandle } from "node:fs/promises";
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { Cause, Effect, Exit, Layer } from "effect";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { indexJscpdCloneReportEffect } from "../src/clone-identity.js";
 import {
   createJscpdConfigLayer,
   JscpdConfiguration,
   loadJscpdConfigEffect,
 } from "../src/config.js";
-import { JscpdFileSystemLive } from "../src/effect/filesystem.js";
+import { JscpdFileSystemFailure } from "../src/effect/errors.js";
+import { JscpdFileSystemLive, readBoundedFileWith } from "../src/effect/filesystem.js";
 import { JscpdFileSystem } from "../src/effect/services.js";
 import { evaluateJscpdFallowCoexistenceEffect } from "../src/fallow.js";
 import { consumeJscpdV5JsonReportEffect } from "../src/jscpd-report.js";
@@ -29,6 +32,94 @@ afterEach(async () => {
 });
 
 describe("Effect filesystem and decoding boundaries", () => {
+  it("waits for an in-flight bounded read before closing on interruption", async () => {
+    let releaseRead = () => {};
+    let enteredResolve = () => {};
+    const entered = new Promise<void>((resolve) => {
+      enteredResolve = resolve;
+    });
+    const readGate = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    const close = vi.fn(async () => undefined);
+    const file = {
+      stat: async () => ({ isFile: () => true, size: 1 }) as Stats,
+      read: async () => {
+        enteredResolve();
+        await readGate;
+        return { bytesRead: 0, buffer: Buffer.alloc(2) };
+      },
+      close,
+    } as unknown as FileHandle;
+    const controller = new AbortController();
+    const running = Effect.runPromiseExit(
+      readBoundedFileWith(
+        {
+          path: "/report.json",
+          maxBytes: 1,
+          regularFileOnly: true,
+          noFollow: true,
+          limitSubject: "report",
+        },
+        Effect.succeed(file),
+      ),
+      { signal: controller.signal },
+    );
+    await entered;
+
+    controller.abort();
+    await Promise.resolve();
+    expect(close).not.toHaveBeenCalled();
+    releaseRead();
+
+    const exit = await running;
+    expect(Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)).toBe(true);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("closes a handle acquired after interruption without starting a read", async () => {
+    let releaseAcquire = (_file: FileHandle) => {};
+    let acquiringResolve = () => {};
+    const acquiring = new Promise<void>((resolve) => {
+      acquiringResolve = resolve;
+    });
+    const acquired = new Promise<FileHandle>((resolve) => {
+      releaseAcquire = resolve;
+    });
+    const close = vi.fn(async () => undefined);
+    const stat = vi.fn(async () => ({ isFile: () => true, size: 0 }) as Stats);
+    const file = { stat, close } as unknown as FileHandle;
+    const controller = new AbortController();
+    const acquire = Effect.tryPromise({
+      try: () => {
+        acquiringResolve();
+        return acquired;
+      },
+      catch: () => new JscpdFileSystemFailure({ operation: "read", reason: "io" }),
+    });
+    const running = Effect.runPromiseExit(
+      readBoundedFileWith(
+        {
+          path: "/report.json",
+          maxBytes: 1,
+          regularFileOnly: true,
+          noFollow: true,
+          limitSubject: "report",
+        },
+        acquire,
+      ),
+      { signal: controller.signal },
+    );
+    await acquiring;
+
+    controller.abort();
+    releaseAcquire(file);
+
+    const exit = await running;
+    expect(Exit.isFailure(exit) && Cause.isInterruptedOnly(exit.cause)).toBe(true);
+    expect(stat).not.toHaveBeenCalled();
+    expect(close).toHaveBeenCalledOnce();
+  });
   it("does not consult the filesystem before project trust", async () => {
     const filesystem = createJscpdFileSystemTestLayer();
 

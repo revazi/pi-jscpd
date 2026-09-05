@@ -43,17 +43,16 @@ fiber interruption remains distinct and waits for finalizers.
 
 ## Managed host boundary
 
-Application workflows expose native effects, while compatibility Promise facades
-accept the extension-owned `JscpdEffectRuntime`. `src/effect/runtime-boundary.ts`
-is the only production/test adapter that calls `Effect.run*`; production creates
-one `ManagedRuntime` with process, filesystem, and clock layers. Lower process,
-analyzer, and capability modules never execute Effect directly.
+Application workflows expose native effects. Pi host adapters accept the
+extension-owned `JscpdEffectRuntime`; `src/effect/runtime-boundary.ts` is the only
+production module that calls `Effect.run*` or creates a `ManagedRuntime`. Lower
+process, analyzer, and capability modules never execute Effect directly.
 
 Pi tools, commands, lifecycle handlers, automatic fibers, and overlay actions
-route through this runtime. Shutdown closes scheduler and analyzer resources
-before disposing its root layer scope. Isolated unit tests submit effects through the explicit test runner from the
-same boundary; characterization Promise fakes are adapted only under
-`test/support/`.
+route through this runtime. Shutdown awaits tracked quiet baseline work, then
+closes scheduler and analyzer resources before disposing its root layer scope.
+Isolated tests execute effects through `test/support/runtime.ts`;
+characterization Promise fakes are adapted only under `test/support/`.
 
 ## Verification contract
 

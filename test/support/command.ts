@@ -22,7 +22,7 @@ export function commandFromPromise(execute: TestCommandExecute): JscpdCommandExe
   };
 }
 
-export function commandTestDriver(executor: JscpdCommandExecutor) {
+function commandTestDriver(executor: JscpdCommandExecutor) {
   return {
     ...executor,
     execute: (...args: Parameters<TestCommandExecute>) =>

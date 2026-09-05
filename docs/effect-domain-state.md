@@ -3,14 +3,14 @@
 Issue [#67](https://github.com/revazi/pi-jscpd/issues/67) moves lifecycle-bound
 baseline, changed-file, acknowledgement, verification, and branch-session state
 to Effect service layers. This is the fourth release-blocking migration slice;
-scheduler composition lands in M7.5; application composition and the single
-managed extension runtime remain later ordered slices.
+M7.5 now owns scheduling, M7.6 composes application workflows, and M7.7 provides
+the single managed extension runtime.
 
 ## Ownership model
 
 Each service factory creates exactly one owner backed by Effect state primitives.
-The Effect layer and temporary Promise-compatible facade delegate to that same
-owner; there is no second legacy state implementation.
+Effect layers and direct synchronous state access use that same owner; asynchronous
+service operations expose native effects, with no second implementation.
 
 - `JscpdBaseline` owns one generation, current immutable baseline value, active
   cancellation controller, and `Deferred` completion.
@@ -33,9 +33,9 @@ invalidation, layer release, or caller-fiber interruption aborts active work and
 settles that generation as lifecycle-cancelled. A completion can commit only when
 both its generation and active-capture identity still match.
 
-M7.6 exposes the capability and adapter effects directly to application
-workflows; temporary Promise facades remain only for host compatibility. Their
-cancellation is linked to the baseline fiber. Project canonicalization
+Capability and adapter effects compose directly in application workflows. Their
+cancellation is linked to the baseline fiber, and the host tracks quiet baseline
+runs through branch-transition and shutdown settlement. Project canonicalization
 and content identity indexing now compose directly with `JscpdFileSystem` and the
 Effect identity program from M7.3. Public baseline states and failure reasons are
 unchanged.

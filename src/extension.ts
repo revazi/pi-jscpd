@@ -98,6 +98,7 @@ export function registerJscpdExtension(
   let verificationService = options.verificationService;
   let automaticAcknowledgements: JscpdAutomaticAcknowledgementTransaction | undefined;
   let baselineContext: JscpdBaselineStartContext | undefined;
+  let baselineSettlement = Promise.resolve();
   let shutdownPromise: Promise<void> | undefined;
   let persistSessionState = () => {};
   const changedFiles = createJscpdChangedFileTracker();
@@ -107,6 +108,10 @@ export function registerJscpdExtension(
   const configService = options.configService ?? createJscpdConfigService();
   const fallowCoexistence =
     options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService();
+  const startOwnedBaseline = (context: JscpdBaselineStartContext): void => {
+    const started = startBaselineQuietly(runtime, baselineService, context);
+    baselineSettlement = Promise.all([baselineSettlement, started]).then(() => undefined);
+  };
   if (!executor) {
     capabilityService ??= createJscpdCapabilityService();
     verificationService ??= createJscpdVerificationService();
@@ -178,7 +183,7 @@ export function registerJscpdExtension(
       sessionMode,
       () => {
         persistSessionState();
-        synchronizeBaselineMode(runtime, baselineService, baselineContext, sessionMode);
+        synchronizeBaselineMode(baselineService, baselineContext, sessionMode, startOwnedBaseline);
       },
       changedExecutor,
     );
@@ -203,6 +208,7 @@ export function registerJscpdExtension(
     baselineService?.invalidate();
     capabilityService?.invalidate();
     adapterService.invalidate();
+    await baselineSettlement;
     const trusted = ctx.isProjectTrusted();
     const loaded = await runtime.runPromise(configService.loadEffect({ cwd: ctx.cwd, trusted }));
     await runtime.runPromise(
@@ -229,7 +235,7 @@ export function registerJscpdExtension(
       changedFiles,
       sessionMode,
     );
-    startBaselineQuietly(runtime, baselineService, baselineContext);
+    startOwnedBaseline(baselineContext);
     if (ctx.hasUI) {
       safeSetStatus(ctx.ui, undefined);
       for (const diagnostic of loaded.diagnostics) {
@@ -244,6 +250,7 @@ export function registerJscpdExtension(
     verificationService?.reset();
     baselineService?.invalidate();
     adapterService.invalidate();
+    await baselineSettlement;
     const config = configService.current().config;
     await runtime.runPromise(
       fallowCoexistence.evaluateEffect({
@@ -264,14 +271,14 @@ export function registerJscpdExtension(
       statusService,
     );
     baselineContext = createBaselineContext(ctx.cwd, config.timeoutMs, changedFiles, sessionMode);
-    startBaselineQuietly(runtime, baselineService, baselineContext);
+    startOwnedBaseline(baselineContext);
     if (ctx.hasUI) {
       safeSetStatus(ctx.ui, undefined);
       const overlapNotice = fallowCoexistence.takeNotice();
       if (overlapNotice) ctx.ui.notify(overlapNotice, "info");
     }
   });
-  pi.on("session_before_switch", () => {
+  pi.on("session_before_switch", async () => {
     runtime.runSync(scheduler.resetEffect);
     fallowCoexistence.reset();
     verificationService?.reset();
@@ -281,6 +288,7 @@ export function registerJscpdExtension(
     acknowledgements.reset();
     capabilityService?.invalidate();
     adapterService.invalidate();
+    await baselineSettlement;
   });
   pi.on("before_agent_start", (_event, ctx) => {
     runtime.runSync(scheduler.cancelAutomaticEffect);
@@ -339,6 +347,7 @@ export function registerJscpdExtension(
     baselineService?.invalidate();
     shutdownPromise ??= Promise.resolve().then(async () => {
       try {
+        await baselineSettlement;
         await runtime.runPromise(scheduler.disposeEffect);
         capabilityService?.dispose();
         await runtime.runPromise(adapterService.disposeEffect());
@@ -476,15 +485,16 @@ function startBaselineQuietly(
   runtime: JscpdEffectRuntime,
   baselineService: JscpdBaselineService | undefined,
   context: JscpdBaselineStartContext,
-): void {
-  if (baselineService) void runtime.runPromiseExit(baselineService.startEffect(context));
+): Promise<void> {
+  if (!baselineService) return Promise.resolve();
+  return runtime.runPromiseExit(baselineService.startEffect(context)).then(() => undefined);
 }
 
 function synchronizeBaselineMode(
-  runtime: JscpdEffectRuntime,
   baselineService: JscpdBaselineService | undefined,
   context: JscpdBaselineStartContext | undefined,
   sessionMode: JscpdSessionModeService | undefined,
+  start: (context: JscpdBaselineStartContext) => void,
 ): void {
   if (!baselineService || !context || !sessionMode) return;
   if (!sessionMode.isEnabled()) {
@@ -496,7 +506,7 @@ function synchronizeBaselineMode(
     current.status === "unstarted" ||
     (current.status === "unavailable" && current.reason === "disabled")
   ) {
-    startBaselineQuietly(runtime, baselineService, {
+    start({
       ...context,
       enabled: true,
       hasPriorChanges: context.hasPriorChanges,

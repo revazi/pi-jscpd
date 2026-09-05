@@ -203,8 +203,8 @@ rendering remain ordinary TypeScript. See the
 
 Trust gates, no-follow checks, canonical containment, strict schemas, atomic
 configuration rejection, source-fragment omission, and byte limits remain
-unchanged. Remaining compatibility Promise callers delegate to the same effects
-through the managed host runtime or explicit isolated-test runner.
+unchanged. Current production callers use native service effects; Promise-based
+characterization adapters live only under `test/support/`.
 
 ### Step 4 — Stateful domain services ([#67](https://github.com/revazi/pi-jscpd/issues/67))
 
@@ -215,9 +215,9 @@ and pure comparisons remain plain TypeScript. Versioned session snapshot parsing
 and migration stay deterministic, while persistence has a typed `JscpdPiPort`
 program. See [Effect-owned domain state](effect-domain-state.md).
 
-Temporary Promise-compatible facades delegate to the same Effect state owners;
-the superseded mutable closures and Promise-held baseline completion path are
-removed. State versions, capacity limits, stale completion, partial restoration,
+Native service effects and bounded synchronous state access share the same Effect
+state owners; superseded mutable closures and the Promise-held baseline completion
+path are removed. State versions, capacity limits, stale completion, partial restoration,
 branch reset, and verification behavior remain unchanged.
 
 ### Step 5 — Scheduler and automatic checks ([#68](https://github.com/revazi/pi-jscpd/issues/68))
@@ -234,8 +234,8 @@ signal. See [Effect-owned scheduling and automatic checks](effect-scheduler-auto
 Implemented on the unreleased branch: scan, changed, status/session controls,
 Fallow coexistence, report decoding, and verification now compose as Effect
 application services. The default path uses native capability, adapter,
-filesystem, domain-state, and command effects; compatibility Promise conversion
-remains only at the temporary application edge. Public fail-open result objects
+filesystem, domain-state, and command effects; Promise execution remains only in
+imperative Pi/TUI host adapters and the bounded runtime contract. Public fail-open result objects
 and pure presentation/comparison functions are unchanged. See
 [Effect-composed application workflows](effect-application-workflows.md).
 
@@ -251,7 +251,7 @@ and TUI rendering remain callback-driven. See
 
 ### Step 8 — Legacy removal and conformance ([#71](https://github.com/revazi/pi-jscpd/issues/71))
 
-In progress: the analyzer, process, capability, configuration, Fallow coexistence,
+Complete on the unreleased branch: the analyzer, process, capability, configuration, Fallow coexistence,
 baseline, and changed-file services now expose only native effects for asynchronous
 operations.
 Clone indexing and report decoding also no longer carry test-only Promise
@@ -270,12 +270,12 @@ that awaits finalizers. Analyzer workspace validation, report reads, and cleanup
 use the shared Effect filesystem service; the direct Node filesystem workflow and
 Promise cleanup seam have been removed from `jscpd.ts`.
 
-The remaining audit must trace background work and finalizer ownership across the
-whole tree, and check for unmanaged resources, broad error erasure, and obsolete
-tests/types. This step is not yet complete; focused validation is not full
-recertification. The [conformance audit checkpoint](effect-conformance-audit.md)
-records reviewed ownership paths, the scheduler construction-failure fix, the
-report/workspace migration, and ordered remaining background-shutdown work.
+The whole-tree audit confirms scoped background/finalizer ownership, confines
+Promise orchestration to reviewed Pi/TUI and filesystem-infrastructure boundaries,
+and finds no obsolete exports or duplicate implementations. The
+[conformance audit](effect-conformance-audit.md) records the scheduler
+construction-failure fix, report/workspace migration, baseline settlement,
+filesystem interruption proof, architecture gates, and remaining M7.9 work.
 
 ### Step 9 — Pre-release recertification ([#72](https://github.com/revazi/pi-jscpd/issues/72))
 

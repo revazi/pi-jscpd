@@ -42,11 +42,14 @@ Session start/tree/switch hooks reuse the same runtime-backed service owners and
 retain the existing single reset/invalidation sequence. Baseline, capability,
 adapter, changed-file, configuration, Fallow, scheduler, status, and automatic
 operations use native owner effects through that runtime, while bounded
-synchronous state transitions retain their shared owners.
+synchronous state transitions retain their shared owners. Quiet baseline runs are
+tracked by the host: branch transitions invalidate and await the prior run before
+starting replacement branch work.
 
 Shutdown remains idempotent. It invalidates baseline/Fallow/verification state,
-closes scheduler-owned fibers and their scope, aborts capability and adapter
-work, awaits bounded adapter/process/workspace finalizers, and finally disposes
+awaits quiet baseline settlement, closes scheduler-owned fibers and their scope,
+aborts capability and adapter work, awaits bounded adapter/process/workspace
+finalizers, and finally disposes
 the managed runtime layer scope. Repeated shutdown events return the same
 Promise and do not dispose a second time.
 
@@ -55,10 +58,10 @@ Promise and do not dispose a second time.
 The architecture check permits direct Effect runtime calls only in
 `src/effect/runtime-boundary.ts`. `test/effect-managed-runtime.test.ts` proves
 that a native tool command makes one runtime submission, Pi cancellation
-interrupts the running fiber, construction failures fail open, and repeated
-shutdown disposes the runtime once. Native scheduler tests also verify that
-repeated disposal awaits automatic-work finalization. These focused checks do not
-complete the M7.8 whole-tree audit or M7.9 recertification.
+interrupts the running fiber, construction failures fail open, a held baseline finalizer delays adapter disposal, and repeated shutdown disposes
+the runtime once. Native scheduler tests also verify that repeated disposal awaits
+automatic-work finalization. The M7.8 whole-tree conformance audit is complete;
+M7.9 recertification remains.
 The existing extension, overlay, cancellation, process-tree, automatic,
 scheduler, RPC, package, and supported-Node tests continue to guard public
 behavior and cleanup bounds.

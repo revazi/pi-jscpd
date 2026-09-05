@@ -24,10 +24,10 @@ The migration adds narrow application tags and layers:
 - `JscpdFallowWorkflow` evaluates trusted overlap signals and owns its bounded,
   generation-checked current policy/notice state.
 
-The existing `JscpdCommandExecutor` gains a temporary optional `executeEffect`
-path. Default scan, changed, status-aware, and automatic composition uses that
-path directly. Injected legacy test adapters may still provide only `execute`;
-the compatibility conversion occurs once at the application edge.
+`JscpdCommandExecutor` now requires its native `executeEffect` program. Default
+scan, changed, status-aware, scheduled, and automatic composition uses that path
+directly. Promise-based characterization stubs are adapted only under
+`test/support/`; no command Promise fallback remains in production.
 
 ## End-to-end effect path
 
@@ -41,10 +41,9 @@ reports without starting a nested Promise workflow.
 
 The application programs retain public fail-open result objects as their success
 values. Infrastructure result unions are mapped once by the existing pure
-capability, adapter, baseline, and presentation mappings. Unexpected failures at
-an injected compatibility boundary become the same bounded process/baseline
-failure result and never expose exceptions, child output, environment values, or
-source fragments.
+capability, adapter, baseline, and presentation mappings. Unexpected defects at the host execution boundary become the same bounded
+process/baseline failure result and never expose exceptions, child output,
+environment values, or source fragments.
 
 Acknowledgement scope/revision/findings/reconciliation, changed-file snapshots,
 and verification scope/compare updates now expose shared Effect adapters over
@@ -68,11 +67,10 @@ before the host receives its result.
 
 ## Compatibility and conformance
 
-Promise facades call the same Effect workflow owner through
-`src/effect/runtime-boundary.ts`; they do not maintain a second implementation.
-M7.7 keeps these facades only as host compatibility surfaces and supplies the
-same extension-owned managed runtime to each; native command composition does
-not invoke them internally.
+Pi tool/slash-command adapters execute the native workflow through the
+extension-owned runtime. The overlay retains a UI-specific Promise interface at
+the TUI boundary, but command/status and scheduler/automatic services expose no
+Promise facades and do not execute Effect internally.
 
 The architecture check now enforces that scan, changed, status, Fallow,
 baseline-capture, and verification workflow modules contain no async-function,

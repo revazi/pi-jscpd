@@ -6,9 +6,9 @@ only. M7.2 builds on these contracts for process and analyzer resources, M7.3
 provides the bounded filesystem layer used by configuration and external data
 boundaries, M7.4 moves lifecycle-bound domain state to Effect-owned services,
 M7.5 moves scheduling and automatic delivery to scoped fibers and Effect
-transactions, M7.6 composes the application workflows, and M7.7 routes Pi/TUI
-host work through one managed extension runtime. The final legacy-removal and
-conformance audit remains.
+transactions, M7.6 composes the application workflows, M7.7 routes Pi/TUI host
+work through one managed extension runtime, and M7.8 completes legacy removal
+and source conformance. M7.9 recertification remains release-blocking.
 
 ## Reviewed dependency
 
@@ -104,10 +104,10 @@ contains them with the existing fail-open result.
 `npm run architecture:check` uses the TypeScript syntax tree to find `Effect.run*`
 calls through named imports, aliases, namespace imports, property access, and
 element access while ignoring comments and strings. It scans `src` only. M7.7
-makes `src/effect/runtime-boundary.ts` the sole production/test execution adapter,
+makes `src/effect/runtime-boundary.ts` the sole production execution adapter,
 asserts exactly one `ManagedRuntime.make` factory, and removes `src/extension.ts`
-from the direct-runtime allowlist. Production facades receive that managed
-runtime; isolated compatibility tests receive the explicit test runner.
+from the direct-runtime allowlist. Pi host adapters receive that managed runtime;
+isolated characterization execution lives under `test/support/`.
 
 Tests and package-certification probes are isolated test boundaries and may run
 or import Effect. Future migration slices should extend detection only when a new

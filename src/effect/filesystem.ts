@@ -84,12 +84,23 @@ function readBoundedFile(
     return Effect.fail(new JscpdFileSystemFailure({ operation: "read", reason: "io" }));
   }
   const flags = fsConstants.O_RDONLY | (request.noFollow ? fsConstants.O_NOFOLLOW : 0);
-  return Effect.acquireUseRelease(
+  return readBoundedFileWith(
+    request,
     Effect.tryPromise({
       try: () => open(request.path, flags),
       catch: (error) => fileSystemFailure("read", error),
     }),
-    (file) => readFromHandle(file, request),
+  );
+}
+
+/** Bracketed handle seam used to prove acquisition/read settlement under interruption. */
+export function readBoundedFileWith(
+  request: JscpdBoundedReadRequest,
+  acquire: Effect.Effect<FileHandle, JscpdFileSystemFailure>,
+): Effect.Effect<Uint8Array, JscpdFileSystemError> {
+  return Effect.acquireUseRelease(
+    acquire,
+    (file) => readFromHandle(file, request).pipe(Effect.uninterruptible),
     closeFile,
   );
 }

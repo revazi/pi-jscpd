@@ -13,11 +13,11 @@ starts automatic work as fibers in its supplied scope. The state retains only:
 - the lifecycle epoch;
 - latest changed and terminally attempted generations;
 - at most one pending latest-generation request;
-- at most one active automatic fiber and its compatibility `AbortController`;
+- at most one active automatic fiber and its host-cancellation `AbortController`;
 - whether a next-tick start is queued; and
 - the closed state.
 
-A zero-duration sleep through injected `JscpdClock` replaces the legacy
+A zero-duration sleep through injected `JscpdClock` replaces the former
 `queueMicrotask`, preserving the next-tick coalescing window without creating an
 unmanaged timer. `JscpdClockLive` delegates to Effect's clock, while tests supply
 a deterministic layer. A second request
@@ -25,24 +25,23 @@ for a newer dirty generation replaces a pending request. An active request may
 have only one coalesced successor.
 
 Cancellation advances the lifecycle epoch, discards pending work, aborts the
-compatibility signal, and interrupts the active fiber. Deferred, interrupted, or
+host signal, and interrupts the active fiber. Deferred, interrupted, or
 stale work does not consume its generation. Non-interruption task failure remains
 a quiet terminal attempt, matching the prior fail-open behavior. Explicit scans
 interrupt scheduler-owned automatic work before entering the existing serialized
 jscpd adapter; they do not share automatic cancellation ownership.
 
-The Promise-compatible scheduler facade creates its owned Effect scope through
-the supplied host runtime. Production passes the extension's single managed
-runtime, while isolated tests use the explicit test runner. The final cleanup
-slice removes obsolete facade ownership.
+The scheduler requires an owned Effect scope and exposes only native programs.
+Production supplies a scope owned by the extension runtime; scoped-layer tests
+and characterization drivers supply their own test scopes. Throwing task
+construction is suspended inside the task failure/finalizer chain so ownership
+always returns to idle and later generations can proceed.
 
 ## Automatic check composition
 
 `JscpdAutomaticChecking` composes the changed-command call, retry eligibility,
-current-generation checks, and result handling as one Effect program. The default
-extension path submits this program directly to the Effect scheduler. Promise
-facades remain only for compatibility with existing host-facing tests and injected
-adapters until the application and Pi boundary slices finish.
+current-generation checks, and result handling as one Effect program. The default extension path submits this program directly to the Effect
+scheduler. Promise characterization exists only in test-support adapters.
 
 Baseline-pending and cancellation outcomes remain deferred. Other bounded clean,
 finding, unavailable, timeout, and failure results consume the covered generation
@@ -71,10 +70,9 @@ attempt by these fail-open mappings.
 
 ## Conformance and tests
 
-The architecture check rejects `new Promise`, `queueMicrotask`, and direct global
-timer creation in `src/scheduler.ts` and `src/automatic.ts`. Temporary Promise
-signatures may wrap already-owned Effect programs only through the approved runtime
-boundary.
+The architecture check rejects `new Promise`, `queueMicrotask`, direct global
+timer creation, runtime dependencies, and Promise service contracts in
+`src/scheduler.ts` and `src/automatic.ts`.
 
 `test/effect-scheduler-automatic.test.ts` covers pending-generation coalescing,
 scoped interruption, retry eligibility, Effect-layer changed checks, quiet Pi
