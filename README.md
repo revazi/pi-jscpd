@@ -18,20 +18,11 @@ languages, and statistics.
 pi install npm:pi-jscpd
 ```
 
-The package includes pinned jscpd `5.1.2` and Effect `3.22.1` runtime
-dependencies plus an on-demand `jscpd` agent skill—there is no separate analyzer
-installation and no runtime download.
-Effect owns bounded process execution, analyzer probing, temporary report
-workspaces, adapter serialization, trusted configuration and signal reads,
-canonical source-path validation, baseline generations, changed-file attribution,
-acknowledgement transactions, verification checkpoints, scoped scheduling,
-automatic finding delivery, scan/changed/status/Fallow application workflows,
-and one managed runtime/layer graph per extension instance. Legacy Promise/service
-paths are removed from those layers, and host-launched baseline work is settled at
-lifecycle boundaries. If your project already installs
-a compatible jscpd locally, or `jscpd`/`cpd` is available on `PATH`, the
-extension uses that installation first and keeps the bundled version as a
-fallback.
+`pi-jscpd` includes jscpd and its on-demand agent skill, so there is no
+separate analyzer setup or runtime download. It prefers a compatible project or
+`PATH` installation and otherwise uses its bundled analyzer.
+
+The package is also listed in [Pi's package gallery](https://pi.dev/packages/pi-jscpd).
 
 Start Pi in your project and verify the setup:
 
