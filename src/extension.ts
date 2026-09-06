@@ -70,6 +70,7 @@ import {
 } from "./status.js";
 import { renderJscpdToolCall, renderJscpdToolResult } from "./tool-render.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
+import { createJscpdUpdateNoticeService, type JscpdUpdateNoticeService } from "./update-notice.js";
 import { createJscpdVerificationService, type JscpdVerificationService } from "./verification.js";
 
 type JscpdToolDefinition = ToolDefinition<typeof jscpdRunParams, JscpdDispatchResult>;
@@ -91,6 +92,7 @@ export interface JscpdExtensionOptions {
   overlayLauncher?: JscpdOverlayLauncher;
   verificationService?: JscpdVerificationService;
   fallowCoexistenceService?: JscpdFallowCoexistenceService;
+  updateNoticeService?: JscpdUpdateNoticeService;
 }
 
 export function registerJscpdExtension(
@@ -117,6 +119,7 @@ export function registerJscpdExtension(
   const configService = options.configService ?? createJscpdConfigService();
   const fallowCoexistence =
     options.fallowCoexistenceService ?? createJscpdFallowCoexistenceService();
+  const updateNotice = options.updateNoticeService ?? createJscpdUpdateNoticeService();
   const startOwnedBaseline = (context: JscpdBaselineStartContext): void => {
     const started = startBaselineQuietly(runtime, baselineService, context);
     baselineSettlement = Promise.all([baselineSettlement, started]).then(() => undefined);
@@ -211,7 +214,10 @@ export function registerJscpdExtension(
   );
 
   pi.on("session_start", async (_event, ctx) => {
-    if (ctx.mode === "tui") installJscpdAutocompleteProvider(ctx.ui);
+    if (ctx.mode === "tui") {
+      installJscpdAutocompleteProvider(ctx.ui);
+      scheduleJscpdUpdateNotice(runtime, updateNotice, ctx);
+    }
     runtime.runSync(scheduler.resetEffect);
     fallowCoexistence.reset();
     verificationService?.reset();
@@ -367,6 +373,20 @@ export function registerJscpdExtension(
     });
     return shutdownPromise;
   });
+}
+
+function scheduleJscpdUpdateNotice(
+  runtime: JscpdEffectRuntime,
+  service: JscpdUpdateNoticeService,
+  context: ExtensionContext,
+): void {
+  void runtime.runPromiseExit(
+    service.noticeEffect.pipe(
+      Effect.flatMap((message) =>
+        message ? Effect.sync(() => context.ui.notify(message, "warning")) : Effect.void,
+      ),
+    ),
+  );
 }
 
 function requestAutomaticCheck(

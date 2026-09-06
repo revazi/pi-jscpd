@@ -22,6 +22,7 @@ import type { JscpdRunRequest, JscpdService } from "../src/jscpd.js";
 import { jscpdArgumentHint } from "../src/registry.js";
 import { JSCPD_SESSION_STATE_TYPE, JSCPD_SESSION_STATE_VERSION } from "../src/session-state.js";
 import type { JscpdExecutionResult, JscpdScanReport } from "../src/types.js";
+import { createJscpdUpdateNoticeService } from "../src/update-notice.js";
 import type { JscpdVerificationService } from "../src/verification.js";
 import { automaticFromPromise, type TestAutomaticRun } from "./support/automatic.js";
 import { capabilityFromPromise, type TestCapabilityProbe } from "./support/capability.js";
@@ -406,16 +407,28 @@ describe("Pi extension registration", () => {
       adapterService: adapter.service,
       configService: config.service,
       scheduler,
+      updateNoticeService: createJscpdUpdateNoticeService({
+        environment: {},
+        currentVersionEffect: Effect.succeed("0.1.0"),
+        latestVersionEffect: Effect.succeed("0.2.0"),
+      }),
     });
     await handlers.get("session_start")?.(
       {},
       {
         cwd: "/project",
+        mode: "tui",
         hasUI: true,
         isProjectTrusted: () => true,
         sessionManager: { getBranch: () => [] },
-        ui: { notify },
+        ui: { notify, addAutocompleteProvider: vi.fn() },
       },
+    );
+    await vi.waitFor(() =>
+      expect(notify).toHaveBeenCalledWith(
+        "pi-jscpd 0.2.0 is available (you have 0.1.0). Update: pi update npm:pi-jscpd",
+        "warning",
+      ),
     );
     await handlers.get("before_agent_start")?.({}, { hasUI: false });
     await handlers.get("session_before_switch")?.();
