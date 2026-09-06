@@ -7,6 +7,11 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added a quiet, TUI-only update warning using one bounded, best-effort npm
+  metadata check, with offline and environment-variable opt-outs.
+
 ## [0.2.0] - 2026-09-06
 
 ### Added

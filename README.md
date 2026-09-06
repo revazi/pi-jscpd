@@ -32,6 +32,12 @@ Start Pi in your project and verify the setup:
 If no compatible binary is available, the extension stays dormant and Pi
 continues normally.
 
+In TUI sessions, the extension performs one best-effort, metadata-only npm check
+and shows a warning only when a newer `pi-jscpd` release is available. The check
+is bounded to 1.5 seconds, never sends project data, and never downloads or
+installs package content. Set `PI_JSCPD_DISABLE_UPDATE_NOTICE=1` (or run Pi
+offline) to disable it.
+
 ## Usage
 
 Run `/jscpd` to open the interactive overview. Opening it shows status only; it
