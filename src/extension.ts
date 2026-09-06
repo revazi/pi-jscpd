@@ -68,6 +68,7 @@ import {
   type JscpdSessionModeService,
   type JscpdStatusService,
 } from "./status.js";
+import { renderJscpdToolCall, renderJscpdToolResult } from "./tool-render.js";
 import type { JscpdCommandExecutor, JscpdDispatchResult } from "./types.js";
 import { createJscpdVerificationService, type JscpdVerificationService } from "./verification.js";
 
@@ -584,6 +585,12 @@ export function createJscpdToolDefinition(
         content: [{ type: "text", text: result.message }],
         details: withoutOverlayCache(result),
       };
+    },
+    renderCall(args, theme, context) {
+      return renderJscpdToolCall(args, theme, context.cwd);
+    },
+    renderResult(result, options, theme) {
+      return renderJscpdToolResult(result, options, theme);
     },
   };
 }
