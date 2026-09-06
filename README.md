@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/revazi/pi-jscpd/actions/workflows/ci.yml/badge.svg)](https://github.com/revazi/pi-jscpd/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/pi-jscpd.svg)](https://www.npmjs.com/package/pi-jscpd)
+[![npm downloads](https://img.shields.io/npm/dm/pi-jscpd.svg)](https://www.npmjs.com/package/pi-jscpd)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
 
