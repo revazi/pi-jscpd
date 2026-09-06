@@ -119,9 +119,9 @@ function packPackage(destination) {
   assert.equal(results.length, 1, "npm pack must produce exactly one artifact.");
   const packed = results[0];
   assert.equal(packed.name, "pi-jscpd");
-  assert.equal(packed.version, "0.1.1");
-  assert.equal(packed.id, "pi-jscpd@0.1.1");
-  assert.match(packed.filename, /^pi-jscpd-0\.1\.1\.tgz$/);
+  assert.equal(packed.version, "0.2.0");
+  assert.equal(packed.id, "pi-jscpd@0.2.0");
+  assert.match(packed.filename, /^pi-jscpd-0\.2\.0\.tgz$/);
   assert.ok(Array.isArray(packed.files), "npm pack did not report its file list.");
   assert.ok(existsSync(join(destination, packed.filename)), "npm pack did not create its tarball.");
   return packed;
@@ -192,7 +192,7 @@ function validateInstalledPackage(projectDirectory) {
   const packageRoot = join(projectDirectory, "node_modules", "pi-jscpd");
   const manifest = readJson(join(packageRoot, "package.json"));
   assert.equal(manifest.name, "pi-jscpd");
-  assert.equal(manifest.version, "0.1.1");
+  assert.equal(manifest.version, "0.2.0");
   assert.equal(manifest.private, undefined, "Certified public package retained the private guard.");
   assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
   assert.deepEqual(manifest.pi?.extensions, ["./src/index.ts"]);
@@ -306,6 +306,9 @@ async function validateRpcRuntime(packageRoot, projectDirectory, host, fake, run
     await rpc.prompt("/jscpd help");
     await rpc.prompt("/jscpd status");
     assertProviderFree(events, "RPC slash commands");
+    // Let the startup baseline release its report workspace before RpcClient's
+    // bounded SIGTERM shutdown fallback can interrupt finalization.
+    await assertNoReportDirectories(join(runRoot, "tmp"));
   });
   assert.equal(
     rpc.getStderr(),
@@ -358,6 +361,9 @@ async function validateToolAndTuiContract(
     );
     await rpc.prompt("/jscpd-certify-artifact");
     await waitFor(() => existsSync(marker), "artifact tool/TUI probe result");
+    // This probe can finish while the independently owned startup baseline is
+    // still cleaning up; settle it before exercising ordinary RPC shutdown.
+    await assertNoReportDirectories(join(runRoot, "tmp"));
   });
   assert.equal(rpc.getStderr(), "", `Artifact probe wrote Pi diagnostics:\n${rpc.getStderr()}`);
   assertProviderFree(events, "tool and TUI-compatible probe");
