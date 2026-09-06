@@ -306,6 +306,9 @@ async function validateRpcRuntime(packageRoot, projectDirectory, host, fake, run
     await rpc.prompt("/jscpd help");
     await rpc.prompt("/jscpd status");
     assertProviderFree(events, "RPC slash commands");
+    // Let the startup baseline release its report workspace before RpcClient's
+    // bounded SIGTERM shutdown fallback can interrupt finalization.
+    await assertNoReportDirectories(join(runRoot, "tmp"));
   });
   assert.equal(
     rpc.getStderr(),
@@ -358,6 +361,9 @@ async function validateToolAndTuiContract(
     );
     await rpc.prompt("/jscpd-certify-artifact");
     await waitFor(() => existsSync(marker), "artifact tool/TUI probe result");
+    // This probe can finish while the independently owned startup baseline is
+    // still cleaning up; settle it before exercising ordinary RPC shutdown.
+    await assertNoReportDirectories(join(runRoot, "tmp"));
   });
   assert.equal(rpc.getStderr(), "", `Artifact probe wrote Pi diagnostics:\n${rpc.getStderr()}`);
   assertProviderFree(events, "tool and TUI-compatible probe");
