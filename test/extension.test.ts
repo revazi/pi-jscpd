@@ -244,6 +244,8 @@ describe("Pi extension registration", () => {
     expect(registerTool.mock.calls[0]?.[0]).toMatchObject({
       name: "jscpd_run",
       label: "jscpd",
+      renderCall: expect.any(Function),
+      renderResult: expect.any(Function),
     });
     expect(registerCommand).toHaveBeenCalledOnce();
     expect(registerCommand.mock.calls[0]?.[0]).toBe("jscpd");

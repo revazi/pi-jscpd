@@ -58,7 +58,13 @@ Pi can use the same operations through the `jscpd_run` tool:
 ```
 
 Supported tool commands are `scan`, `changed`, `status`, `off`, `on`, and
-`help`. In TUI mode, `/jscpd ` provides subcommand autocomplete with labels and
+`help`. In TUI mode, tool calls use a compact native transcript view for clean,
+findings, unavailable, timeout, cancellation, status, and session-control
+results. Expanding a result shows only its bounded public terminal presentation;
+it never reveals analyzer output, temporary paths, source fragments, or the
+overlay-only finding cache.
+
+In TUI mode, `/jscpd ` provides subcommand autocomplete with labels and
 descriptions; selecting `scan` leaves the editor ready for an optional target.
 
 The package also exposes `/skill:jscpd`. Pi advertises only the skill's concise

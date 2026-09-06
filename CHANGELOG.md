@@ -7,6 +7,13 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added Pi-native compact and expanded transcript rendering for `jscpd_run`,
+  covering scan targets, status, findings, expected fail-open outcomes, and
+  bounded public details without exposing overlay-only or analyzer internals.
+- Added a monthly npm downloads badge to the README.
+
 ## [0.1.1] - 2026-09-05
 
 ### Changed

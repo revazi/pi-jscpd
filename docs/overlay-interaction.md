@@ -6,6 +6,21 @@ Applies to: bare `/jscpd` only
 
 Does not change: `/jscpd scan`, `/jscpd changed`, `/jscpd status`, session controls, or `jscpd_run`
 
+## Relationship to the tool transcript
+
+The `jscpd_run` agent tool has a separate Pi-native transcript renderer. Its
+collapsed call shows the operation, at most three bounded scan targets, any
+additional-target count, and Pi's project working directory. Collapsed results
+summarize clean, findings, unavailable, timeout, cancellation, fail-open,
+status, help, and session-control states without synthetic exit codes or timing
+placeholders. Expanding a result renders only the configured-limit public
+terminal presentation.
+
+Transcript rendering is display-only. It never reads source fragments, raw
+analyzer output, temporary report paths, environment values, internal
+fingerprints, or the overlay-only finding cache, and it does not change tool
+content, scans, acknowledgements, persistence, or cancellation.
+
 Overlay actions route through the extension's single managed runtime while Pi TUI
 rendering and input remain the host adapter. The implementation preserves every
 interaction below.
