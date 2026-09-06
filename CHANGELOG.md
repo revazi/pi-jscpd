@@ -7,6 +7,8 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-09-06
+
 ### Added
 
 - Added a quiet, TUI-only update warning using one bounded, best-effort npm
@@ -121,7 +123,8 @@ published releases use [Semantic Versioning](https://semver.org/).
 - Project paths, child output, reports, temporary directories, cancellation,
   configuration trust, and lifecycle cleanup are bounded and fail open.
 
-[Unreleased]: https://github.com/revazi/pi-jscpd/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/revazi/pi-jscpd/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/revazi/pi-jscpd/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/revazi/pi-jscpd/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/revazi/pi-jscpd/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/revazi/pi-jscpd/releases/tag/v0.1.0
