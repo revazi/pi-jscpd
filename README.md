@@ -233,6 +233,7 @@ Useful documentation:
 - [`/jscpd` overlay contract](docs/overlay-interaction.md)
 - [Fallow coexistence](docs/fallow-coexistence.md)
 - [Compatibility and packed-artifact certification](docs/compatibility.md)
+- [Real-project validation evidence and remaining checks](docs/m8-validation.md)
 - [Release preparation and publication policy](docs/release.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
