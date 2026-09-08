@@ -33,8 +33,9 @@ candidate check, not one process per write or model turn.
 
 ## Evidence
 
-The decision was evaluated against Pi 0.84.4's installed extension
-documentation, public type definitions, and `AgentSession` runtime.
+The decision was originally evaluated against Pi 0.84.4 and rechecked against
+Pi 0.85.1's published extension documentation, public type definitions, and
+`AgentSession` runtime. The 0.85 lifecycle contract remains compatible.
 
 Pi documents and types distinguish the candidate events as follows:
 

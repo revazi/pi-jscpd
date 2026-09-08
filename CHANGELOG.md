@@ -7,6 +7,13 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- Certified Pi 0.85.1 across both supported Node fixtures and widened the Pi
+  peer range through the 0.85 line after API review, packed-artifact checks,
+  compact/expanded transcript probes, narrow real-TUI smoke tests, and active
+  scan cancellation/cleanup verification.
+
 ## [0.2.1] - 2026-09-06
 
 ### Added

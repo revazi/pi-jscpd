@@ -188,7 +188,7 @@ and limitations.
 | Component | Supported |
 | --- | --- |
 | Node.js | `>=22.19.0 <23` or `>=24 <25` |
-| Pi packages | `>=0.84.4 <0.85.0` |
+| Pi packages | `>=0.84.4 <0.85.0` or `>=0.85.1 <0.86.0` (tested with `0.85.1`) |
 | TypeBox | `>=1.3.7 <2` |
 | Effect | Exact reviewed `3.22.1` runtime foundation |
 | jscpd | Bundled `5.1.2`; compatible project-local or `PATH` v5 installations are preferred |

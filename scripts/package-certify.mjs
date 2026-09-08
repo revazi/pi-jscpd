@@ -209,9 +209,9 @@ function validateInstalledPackage(projectDirectory) {
   assert.equal(manifest.bundleDependencies, undefined);
   assert.equal(manifest.bundledDependencies, undefined);
   assert.deepEqual(manifest.peerDependencies, {
-    "@earendil-works/pi-ai": ">=0.84.4 <0.85.0",
-    "@earendil-works/pi-coding-agent": ">=0.84.4 <0.85.0",
-    "@earendil-works/pi-tui": ">=0.84.4 <0.85.0",
+    "@earendil-works/pi-ai": ">=0.84.4 <0.85.0 || >=0.85.1 <0.86.0",
+    "@earendil-works/pi-coding-agent": ">=0.84.4 <0.85.0 || >=0.85.1 <0.86.0",
+    "@earendil-works/pi-tui": ">=0.84.4 <0.85.0 || >=0.85.1 <0.86.0",
     typebox: ">=1.3.7 <2",
   });
 
@@ -274,7 +274,7 @@ export function resolveLockedPiHost() {
   );
   assert.equal(
     manifest.version,
-    "0.84.4",
+    "0.85.1",
     "Package certification must use the certified Pi fixture.",
   );
   const cliEntry = typeof manifest.bin === "string" ? manifest.bin : manifest.bin?.pi;
@@ -389,7 +389,12 @@ async function validateToolAndTuiContract(
   assert.match(result.executionText, /jscpd status/i);
   assert.equal(result.tuiLineCount > 0, true);
   assert.match(result.tuiText, /jscpd/i);
-  assert.equal(result.tuiMaxWidth <= 80, true);
+  assert.deepEqual(result.tuiWidths, [50, 80, 120]);
+  assert.deepEqual(result.tuiWithinBounds, [true, true, true]);
+  assert.match(result.toolCallText, /jscpd status/i);
+  assert.match(result.toolCompactText, /jscpd enabled/i);
+  assert.equal(result.toolExpandedLineCount > result.toolCompactLineCount, true);
+  assert.equal(result.toolTranscriptWithinBounds, true);
   await assertNoReportDirectories(join(runRoot, "tmp"));
 }
 
@@ -692,8 +697,27 @@ export default async function (pi) {
         done() {},
       });
       await new Promise((resolve) => setTimeout(resolve, 0));
-      const lines = component.render(80);
+      const tuiWidths = [50, 80, 120];
+      const tuiRenders = tuiWidths.map((width) => component.render(width));
+      const lines = tuiRenders[1];
       component.dispose();
+      const toolCallLines = captured.renderCall(
+        { command: "status", args: [] },
+        theme,
+        { cwd: ctx.cwd },
+      ).render(50);
+      const toolCompactLines = captured.renderResult(
+        execution,
+        { expanded: false, isPartial: false },
+        theme,
+        {},
+      ).render(50);
+      const toolExpandedLines = captured.renderResult(
+        execution,
+        { expanded: true, isPartial: false },
+        theme,
+        {},
+      ).render(50);
       const schema = captured.parameters;
       const commandSchema = schema.properties?.command;
       const commands = commandSchema?.enum ?? [];
@@ -716,7 +740,16 @@ export default async function (pi) {
         executionText: execution.content?.[0]?.text ?? "",
         tuiLineCount: lines.length,
         tuiText: lines.join("\\n"),
-        tuiMaxWidth: Math.max(...lines.map((line) => visibleWidth(line))),
+        tuiWidths,
+        tuiWithinBounds: tuiRenders.map((rendered, index) =>
+          rendered.every((line) => visibleWidth(line) <= tuiWidths[index]),
+        ),
+        toolCallText: toolCallLines.join("\\n"),
+        toolCompactText: toolCompactLines.join("\\n"),
+        toolCompactLineCount: toolCompactLines.length,
+        toolExpandedLineCount: toolExpandedLines.length,
+        toolTranscriptWithinBounds: [...toolCallLines, ...toolCompactLines, ...toolExpandedLines]
+          .every((line) => visibleWidth(line) <= 50),
       }));
     },
   });

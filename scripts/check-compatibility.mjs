@@ -5,15 +5,15 @@ import { fileURLToPath } from "node:url";
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const manifest = await readJson(join(projectRoot, "package.json"));
 const expectedNodeRange = ">=22.19.0 <23 || >=24 <25";
-const expectedPiVersion = "0.84.4";
+const expectedPiVersion = "0.85.1";
 const expectedEffectVersion = "3.22.1";
 const expectedEffectIntegrity =
   "sha512-TNoXushmPOBAjJlthF5d2QwnX2xBPEtcNJr5XKNKbRLbDvBcOYkXlYDfvGfSA0zriwLFuCll5MDtNMAdZL17PQ==";
 const expectedJscpdVersion = "5.1.2";
 const expectedPeerRanges = Object.freeze({
-  "@earendil-works/pi-ai": ">=0.84.4 <0.85.0",
-  "@earendil-works/pi-coding-agent": ">=0.84.4 <0.85.0",
-  "@earendil-works/pi-tui": ">=0.84.4 <0.85.0",
+  "@earendil-works/pi-ai": ">=0.84.4 <0.85.0 || >=0.85.1 <0.86.0",
+  "@earendil-works/pi-coding-agent": ">=0.84.4 <0.85.0 || >=0.85.1 <0.86.0",
+  "@earendil-works/pi-tui": ">=0.84.4 <0.85.0 || >=0.85.1 <0.86.0",
   typebox: ">=1.3.7 <2",
 });
 

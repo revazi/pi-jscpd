@@ -22,10 +22,10 @@ source and package are MIT licensed; see the [release policy](release.md).
 
 | Component | Supported range | Tested fixture | Notes |
 | --- | --- | --- | --- |
-| Node.js | `>=22.19.0 <23 || >=24 <25` | `22.19.0`, `24.12.0` | Node 22.19.0 is Pi 0.84.4's minimum; Node 24 is the second supported LTS line. |
-| `@earendil-works/pi-coding-agent` | `>=0.84.4 <0.85.0` | `0.84.4` | The supported 0.84 patch line only. |
-| `@earendil-works/pi-ai` | `>=0.84.4 <0.85.0` | `0.84.4` | Kept on the same tested Pi release line. |
-| `@earendil-works/pi-tui` | `>=0.84.4 <0.85.0` | `0.84.4` | Required by the interactive overlay. |
+| Node.js | `>=22.19.0 <23 || >=24 <25` | `22.19.0`, `24.12.0` | Node 22.19.0 is Pi's minimum; Node 24 is the second supported LTS line. |
+| `@earendil-works/pi-coding-agent` | `>=0.84.4 <0.85.0` or `>=0.85.1 <0.86.0` | `0.85.1` | Excludes the 0.85.0 SDK import regression. |
+| `@earendil-works/pi-ai` | `>=0.84.4 <0.85.0` or `>=0.85.1 <0.86.0` | `0.85.1` | Kept on the same tested Pi release line. |
+| `@earendil-works/pi-tui` | `>=0.84.4 <0.85.0` or `>=0.85.1 <0.86.0` | `0.85.1` | Required by the interactive overlay. |
 | `typebox` | `>=1.3.7 <2` | `1.3.7` | Required by the agent-tool schema. |
 | `effect` | Exact `3.22.1` | `3.22.1` | Reviewed MIT runtime for scoped process/analyzer, bounded-filesystem, lifecycle domain-state, scheduling, automatic delivery, application workflows, and the single managed Pi runtime. |
 | `jscpd` | Compatible v5 | `5.1.2` | Exact runtime dependency and fallback analyzer. |
@@ -49,9 +49,50 @@ and integrity, and the pinned jscpd runtime before type checking and tests.
 The supported ranges cover the Node 22 and 24 LTS lines, not the intervening
 non-LTS Node 23 line. They are a contract, not a claim that every patch
 combination was run separately. The minimum Node release and the current Node 24 fixture receive
-the full project check; Pi 0.84.4 is the API fixture. A future Pi `0.85` release,
-Node 25 release, or TypeBox 2 release requires an explicit compatibility review
-and range update rather than being accepted automatically.
+the full project check; Pi 0.85.1 is the exact API fixture, while 0.84.4 remains
+the supported lower bound established by the previous certification. A future
+Pi `0.86` release, Node 25 release, or TypeBox 2 release requires an explicit
+compatibility review and range update rather than being accepted automatically.
+
+## Pi 0.85 compatibility review
+
+The 0.85.0 and 0.85.1 changelogs, published documentation, and public type
+declarations were compared with 0.84.4 before widening support. No breaking
+change affects the extension APIs used by `pi-jscpd`: command/tool registration,
+`agent_settled`, `session_shutdown`, `ctx.mode`, `ctx.hasUI`, `ui.custom()`, tool
+renderers, `CONFIG_DIR_NAME`, `RpcClient`, and the imported TUI width/key/input
+utilities retain compatible contracts.
+
+Relevant host changes are bounded:
+
+- TUI components may now implement an optional normalized `handleMouse()` method
+  in fullscreen mode. The jscpd overlay remains keyboard-driven; it does not
+  implement the new optional method or claim mouse-navigation support.
+- Pi's default editor embeds its working indicator; custom editors may opt in to
+  that behavior. `pi-jscpd` provides an overlay rather than replacing the editor,
+  so no migration is required.
+- RPC `abort` now waits for the session to become idle, and 0.85.0 fixed aborting
+  manual compaction. This strengthens deterministic shutdown for RPC probes
+  without changing the commands used by certification.
+- Skill loading can fall back to Bash when Read is unavailable. The packaged
+  `jscpd` skill and its explicit `/skill:jscpd` discovery contract are unchanged.
+- Pi 0.85.0 accidentally published unsupported experimental SDK paths; 0.85.1
+  removed those paths while preserving the supported local SDK and stdio RPC
+  APIs. Certification therefore pins 0.85.1 and peer ranges explicitly exclude
+  0.85.0 across the aligned Pi package set.
+
+The 0.85 line also changes fullscreen transcript controls and fixes built-in
+tools to honor `ctx.cwd`; neither changes the extension's public contract. The
+exact 0.85.1 fixture passed type checking, transcript and narrow-width component
+tests, RPC/JSON/print command paths, packaged skill/tool loading, active-scan
+shutdown, and temporary-report cleanup on both supported Node fixtures.
+
+A tmux-backed Pi 0.85.1 TUI smoke also opened the real `/jscpd` overlay at 50,
+80, and 120 columns. Each render stayed within the terminal width, keyboard
+close remained responsive, and a second smoke cancelled an active synthetic
+jscpd process tree from the overlay with no remaining child process or report
+directory. The synthetic analyzer validates host interaction and owned cleanup;
+it is not evidence about production analyzer latency or finding quality.
 
 ## Packed-artifact certification
 
@@ -65,14 +106,14 @@ through npm just as a user installation would; runtime checks remain offline. It
 - installs that exact tarball with lifecycle scripts disabled in a restrictive
   disposable location and verifies exact, importable Effect `3.22.1` plus jscpd
   `5.1.2` dependencies;
-- uses the locked Pi `0.84.4` CLI with isolated home, agent, session, and
+- uses the locked Pi `0.85.1` CLI with isolated home, agent, session, and
   temporary directories and only the explicit installed package enabled;
 - verifies that Pi discovers exactly one packaged `/skill:jscpd`, then verifies
   `/jscpd` discovery and provider-free help/status behavior through RPC,
-  exercises the registered `jscpd_run` contract, Effect-owned analyzer resources,
-  and installed overlay component, proves the installed artifact resolves and
-  probes bundled jscpd `5.1.2`, and
-  checks JSON, print, and non-TUI fallback paths; and
+  exercises the registered `jscpd_run` contract, compact and expanded transcript
+  renderers, Effect-owned analyzer resources, and installed overlay component at
+  50, 80, and 120 columns, proves the installed artifact resolves and probes
+  bundled jscpd `5.1.2`, and checks JSON, print, and non-TUI fallback paths; and
 - separately places a deterministic fake jscpd v5 executable on the disposable
   `PATH`, then stops Pi during an active scan and asserts that the process tree
   and every `pi-jscpd-*` report directory are gone.
