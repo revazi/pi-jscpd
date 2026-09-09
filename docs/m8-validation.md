@@ -15,8 +15,10 @@ stress test. It includes JavaScript, Python, and Bash according to the analyzer.
 No original source or configuration was changed. Pi runs used isolated home,
 agent, and temporary directories, offline mode, no session persistence, no
 project trust approval, and only explicitly loaded measurement resources. No
-provider calls were made. Analyzer reports existed only in owned temporary
-workspaces; no raw reports or terminal captures are retained.
+remote provider was contacted. Later transcript and mutation checks used a local
+scripted stream, explicitly distinguished from model-selected behavior below.
+Analyzer reports existed only in owned temporary workspaces; no raw reports or
+terminal captures are retained.
 
 ## Observed results
 
@@ -84,8 +86,97 @@ prove component width correctness; component bounds are separately checked by
 [package certification](compatibility.md). An initial probe expected the word
 “duplicate” at every width; the wider layout instead displayed “findings”. The
 probe predicate was corrected. That was a measurement-script error, not an
-extension defect. Fullscreen behavior, selection/editor handoff, and actual
-compact/expanded transcript interaction still need acceptance.
+extension defect. Follow-up live transcript and handoff checks are below.
+
+### Follow-up cancellation, failures, and cleanup: project B
+
+Three further real scans received an AbortSignal scheduled for 80 ms after tool
+invocation. Monotonic timestamps immediately before `abort()` and immediately
+after the tool callback settled produced:
+
+| Run | Actual abort delivery from invocation | Abort to settlement |
+| --- | --- | --- |
+| 1 | 84 ms | 6.51 ms |
+| 2 | 83 ms | 7.85 ms |
+| 3 | 81 ms | 3.33 ms |
+
+Every result was `scan-cancelled`; each cancellation left zero report directories.
+An external observer sampled only PID, PPID, process group, and executable-name
+metadata. Across the full cancellation/failure/recovery sequence it observed 11
+child PIDs in seven groups. None of those children or group members remained at
+the end of the sequence, either before or after Pi shutdown. IDs and raw process
+listings were discarded. Sampling does not prove the absence of an arbitrarily
+short-lived unobserved descendant or establish each group's exact exit time.
+
+An initial probe ran synchronous process enumeration inside Pi's event loop and
+substantially distorted timer delivery and settlement. Those latency samples
+were rejected; the accepted measurements moved observation outside Pi. They
+still include normal scheduler and system-load variation, not a latency SLA.
+
+A controlled config-service seam set the production scan timeout to 100 ms only
+after baseline acceptance. The real analyzer returned `scan-timed-out` at 106 ms.
+A nonexistent target returned `unsupported-path`. A subsequent JavaScript scope
+scan completed cleanly. These are real-host fail-open observations with a
+controlled timeout, not project-config trust acceptance. There were no extension
+errors, remote provider calls, stderr output, or remaining report directories.
+
+### Live transcripts and editor handoff: project B
+
+A local scripted provider emitted one predetermined `jscpd_run` scan call and a
+completion message. Pi executed the actual tool through its normal event pipeline
+and displayed its actual result. The script performed no network I/O, read no
+credentials, and made no decisions about the findings. This validates live host
+rendering and dispatch, **not** LLM judgment or a production provider transport.
+Only `jscpd_run` was available for the scripted action; built-in tools were off.
+
+Regular and experimental fullscreen modes were each exercised at 50, 80, and
+120 columns, with 36 rows. An instrumented result component counted its real
+rendered lines without changing text or retaining output:
+
+| Terminal width | Component width | Compact lines | Expanded lines (both modes) |
+| --- | --- | --- | --- |
+| 50 | 48 | 1 | 81 |
+| 80 | 78 | 1 | 54 |
+| 120 | 118 | 1 | 50 |
+
+Ctrl+O expanded and collapsed the live transcript at every size. All six real
+scans returned findings: 10 surfaced, 48 omitted, no tool error. In each session,
+`/jscpd` project scan followed by `s` displayed a one-finding selection marker;
+`e` filled the editor with the duplicate-block review prompt. The prompt was
+cleared rather than submitted. Local stream-call counts remained unchanged
+across the handoff, verifying that it did not start another turn. Each session
+shut down normally and left zero report directories.
+
+This is stronger than frame-change-only smoke evidence, but is still automated
+keyboard acceptance rather than a human navigation/usefulness assessment.
+
+### Controlled mutation and positive coexistence: public synthetic fixture
+
+Two fresh temporary projects contained a generated Python implementation, not a
+copy of a private repository. The same local scripted stream used Pi's real
+built-in `write` tool to add a short unique note, then an identical Python copy.
+No production lifecycle event or analyzer report was fabricated.
+
+| Observation | Normal defaults | Controlled positive Fallow signal |
+| --- | --- | --- |
+| Unique-note checkpoint | Last check clean; zero automatic messages | Not attempted; zero automatic messages |
+| Duplicate-copy checkpoint | One finding; one automatic message | Not attempted; zero automatic messages |
+| Subsequent explicit changed scan | Clean: already acknowledged automatically | One finding, zero omitted |
+| Coexistence | No positive signal supplied | Detected; automatic checks disabled |
+
+For the positive case, the fixture had `.fallowrc.json` with
+`duplicates.enabled: true`. Only the coexistence service's input trust flag was
+supplied through its existing injection seam so the real parser could inspect
+this generated file; Pi itself still ran with `--no-approve`. **This is controlled
+real-host workflow evidence, not acceptance of an actual trusted project's
+configuration or a running second analyzer.** No Fallow process was launched.
+Explicit jscpd analysis remained available while automatic warnings were
+suppressed. Both sessions had zero extension errors or stderr output; all owned
+reports and generated sources were removed.
+
+The fixture establishes clean silence, new-finding delivery, acknowledgement,
+and positive-signal suppression through real tool/lifecycle dispatch. It does
+not satisfy the representative-real-repository or finding-usefulness matrix.
 
 ## Reproduction procedure
 
@@ -113,19 +204,43 @@ compact/expanded transcript interaction still need acceptance.
    `s`, then exercise Down/Enter, `/`, a Python filter, Enter, `x`, PageDown,
    and `q`. Quit normally; inspect owned reports and child processes before
    removing the isolated workspace. Keep aggregate observations, not captures.
-5. Never enable a real provider or automatically submit a finding handoff.
-   Do not infer project trust for a child from the parent session. Mutations for
-   changed-only scenarios belong only in an explicitly approved disposable copy.
+5. For precise cancellation, timestamp actual `abort()` delivery and callback
+   settlement in Pi. Enumerate its descendants and process groups from an
+   external process, not synchronous callbacks in the measured event loop.
+   Retain counts only; check the observed IDs/groups before and after shutdown.
+   For a controlled timeout, wrap the production config service's `current()`
+   result to set `timeoutMs: 100` after baseline acceptance, without changing
+   target policy. Restore it before testing absent-target failure and recovery.
+6. For live transcripts, register a no-I/O local scripted provider using Pi's
+   `streamSimple` API. It emits one predetermined `jscpd_run` tool call followed
+   by a stop message. Do not replace tool execution. Count the original result
+   component's rendered lines for compact/expanded states, press Ctrl+O twice,
+   and repeat in regular/fullscreen modes at each width. Select one overlay
+   finding and load it into the editor; clear it without submission and confirm
+   stream-call counts did not change. Disable all built-in tools for real targets.
+7. For synthetic mutation checks, create a temporary project containing one
+   generated Python function exceeding jscpd's normal minimum thresholds. Permit
+   only built-in `write` and `jscpd_run` in the local scripted session. Write a
+   short unique note, await the automatic clean result, then write an identical
+   Python file and await the automatic finding. Check acknowledgement with an
+   explicit changed scan. Repeat in a fresh fixture with the controlled positive
+   Fallow signal described above; expect no automatic attempts but an explicit
+   changed finding. Record aggregate states only, then remove the fixture.
+8. Never enable a remote provider or automatically submit a finding handoff.
+   Do not infer project trust for a child from the parent session. Mutation
+   scenarios belong only in disposable, explicitly scoped fixtures or copies.
+   Launch drivers with an allowlisted environment, isolated home/agent/temp
+   directories, no discovery, offline mode, and bounded run deadlines.
 
 ## Remaining acceptance and decision
 
 - A genuinely larger representative target is still needed.
-- Real-analyzer cancellation needs exact abort-to-settlement timing and direct
-  process-tree cleanup checks before it can be marked fully verified.
-- Controlled timeout/failure and configured Fallow overlap need real-host
-  observations; ambiguous evidence is not positive coexistence acceptance.
-- Real compact/expanded transcripts, fullscreen UI, selection/handoff, and a
-  changed-only mutation/clean-checkpoint scenario remain unexecuted here.
+- Cancellation, observed process-group cleanup, controlled timeout/failure,
+  live compact/expanded transcripts, fullscreen UI, and selection/handoff now
+  have real-host observations against project B.
+- Positive coexistence and mutation/clean-checkpoint behavior now have controlled
+  real-host observations, but still need representative project-policy/workflow
+  acceptance. No child project trust approval or second analyzer was exercised.
 - Finding usefulness is unassessed: actionable, intentional, and uncertain
   counts are unknown. Do not label the 58 historical pairs false positives or
   new session warnings. A bounded review needs project-owner context.
