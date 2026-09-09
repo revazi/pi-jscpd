@@ -23,14 +23,18 @@ pi install npm:pi-jscpd
 separate analyzer setup or runtime download. It prefers a compatible project or
 `PATH` installation and otherwise uses its bundled analyzer.
 
-Start Pi in your project and verify the setup:
+Start (or restart) Pi in your project, check readiness, then scan a directory
+that exists in your project:
 
 ```text
 /jscpd status
+/jscpd scan src
 ```
 
-If no compatible binary is available, the extension stays dormant and Pi
-continues normally.
+No extension configuration is required. A scoped scan finds matches only within
+its targets; use `/jscpd scan` to include the whole project. If no compatible
+binary is available, the extension stays dormant and Pi continues normally;
+status explains how to recover.
 
 In TUI sessions, the extension performs one best-effort, metadata-only npm check
 and shows a warning only when a newer `pi-jscpd` release is available. The check
@@ -78,6 +82,10 @@ description at startup and loads its full workflow guidance on demand when a
 duplication task matches or the user invokes the skill command. The extension
 and `jscpd_run` tool remain usable when skills are disabled.
 
+For short walkthroughs, see [clean scans, new session duplication, and intentional
+duplication](docs/adoption.md). A finding is a reason to inspect, not permission
+to refactor.
+
 ## How session checks work
 
 At session start, the extension captures one bounded, in-memory project baseline.
@@ -102,6 +110,13 @@ attributed because Pi does not provide a stable structured file list for them.
 Use `/jscpd scan` when changes happened outside built-in `write` or `edit`.
 
 ## Interactive overview
+
+![Real /jscpd findings view: one Python duplicate block, both current locations, and advisory review guidance](docs/images/jscpd-findings.png)
+
+*Real Pi TUI, disposable synthetic project, explicit project scan and Enter to
+expand. Monochrome terminal-cell capture cropped to the overlay; no mock results.
+This is current duplication, not a session-delta example.
+[Capture details and text alternative](docs/adoption.md#visual-provenance).*
 
 Bare `/jscpd` opens a status-first, Fallow-style bounded TUI with:
 
@@ -158,7 +173,14 @@ settings. The extension does not maintain a parallel clone policy.
 
 ## Fallow coexistence
 
-Pi Fallow can also detect duplication. With the default `auto` policy,
+| Choose | When it fits |
+| --- | --- |
+| `pi-jscpd` | Focused polyglot duplicate-block review, session deltas, or reuse of existing jscpd detection/CI policy |
+| Pi Fallow | Broader JavaScript/TypeScript codebase analysis, including duplication, dead code, complexity, and related checks |
+| Both | Fallow's broader checks plus scoped jscpd analysis where its formats or existing policy add value; avoid checking the same duplication scope twice without a reason |
+
+Neither replaces the other's full workflow or your repository's tests and CI
+policy. Pi Fallow can also detect duplication. With the default `auto` policy,
 `pi-jscpd` conservatively detects supported signs of active Fallow duplication
 analysis and moves automatic jscpd checks to on-demand mode to avoid duplicate
 warnings.
