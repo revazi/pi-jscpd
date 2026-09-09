@@ -178,9 +178,88 @@ The fixture establishes clean silence, new-finding delivery, acknowledgement,
 and positive-signal suppression through real tool/lifecycle dispatch. It does
 not satisfy the representative-real-repository or finding-usefulness matrix.
 
+### Current-checkout usefulness triage: project B
+
+The approved working tree continued evolving between validation sessions. A fresh
+read-only review found **60 pairs across 141 sources**, rather than the earlier
+58/134. Analyzed lines ranged from 43,766 to 43,776 between invocations; duplicated
+lines remained 591. This is a later working-tree observation, **not** a measured
+session delta or a regression. Before/after in-memory content fingerprints matched
+within each review invocation and across the subsequent three-session host run.
+No paths, identifiers, source fragments, AST dumps, or fingerprints were retained.
+
+| Pair location | Count |
+| --- | --- |
+| Python implementation on both sides | 16 |
+| Implementation matched to a test | 1 |
+| Tests on both sides | 38 |
+| Documentation and other scripts/resources | 5 |
+| **Total** | **60** |
+
+Pair formats were Python (46), JavaScript (10), Markdown (3), and Bash (1).
+A bounded structural triage covered all 60 locations and examined Python
+statement/function context in memory. It produced the following **provisional
+review priorities**, not a semantic audit or maintainer-approved refactor list:
+
+| Assessment | Pairs | Evidence and action |
+| --- | --- | --- |
+| Production inspection candidates | 4 | Identical nonempty complete-statement lists inside distinct implementation functions; inspect before considering extraction |
+| Likely expected test repetition; lower priority | 26 | Both enclosing Python functions are tests containing assertions; preserve independent test readability by default |
+| Uncertain | 30 | Remaining implementation, test helpers/JS, cross-boundary, documentation, and script matches lack enough semantic evidence for a recommendation |
+
+The four production candidates span 8, 7, 7, and 11 lines: three same-file pairs
+and one cross-file pair. Their repeated operations involve list construction
+and iteration, path resolution/validation, and conditional input guards. These
+are useful leads, not four independent ready-to-apply refactors: surrounding
+context managers, policy differences, free variables, and error behavior still
+matter. The enclosing function bodies are not identical.
+
+Of the 26 lower-priority Python test pairs, 25 join distinct test functions; one
+repeats within a test. This supports leaving those patterns alone during the
+current refactor, **not** claiming the owner intended every duplicate or that
+tests should be ignored globally. No extraction is confirmed safe, and no
+maintainer-intent count is claimed. In particular, 38 test/test pairs are not
+38 proven false positives.
+
+Other implementation matches include fragments of string constants, dictionary
+construction, function boundaries, and repeated branches. Token duplication alone
+is insufficient to recommend merging those contracts. AST inspection was only a
+local review aid; it did not replace jscpd detection, filter results, change
+ranking, or introduce a Python dependency into the extension.
+
+### Current real-host scope and installed-Fallow checks: project B
+
+Three fresh isolated Pi 0.85.1 processes explicitly loaded both the source jscpd
+extension and installed pi-fallow 0.5.1. Both tools registered successfully.
+No Fallow analyzer process, mutation tool, or provider was invoked; all results
+below came from the real registered jscpd tool and production services.
+
+| Operation | Runs (ms) | Results in every run |
+| --- | --- | --- |
+| Baseline | 255, 266, 239 | Accepted |
+| Full project | 177, 163, 161 | 60 pairs; 10 surfaced, 50 omitted |
+| Python implementation | 65, 61, 59 | 16 pairs; 10 surfaced, 6 omitted |
+| JavaScript extensions | 57, 53, 50 | Clean |
+| Two Bash files with an existing match | 58, 57, 53 | One pair; one surfaced, zero omitted |
+| No-mutation changed | 1, 1, 1 | Clean; zero surfaced/omitted |
+
+This adds explicit real-host Python and Bash scope coverage, not merely detected
+format names. The Bash scope was selected from the real full-project report,
+without changing ignore rules or thresholds; it is intentionally not a random
+sample or a whole-repository Bash census.
+
+The checkout contains JSONC Fallow policy. With Pi project trust left unapproved,
+coexistence remained **ambiguous / automatic allowed**, even with the actual
+Fallow tool registered. This is successful two-extension loading and conservative
+ambiguous-policy behavior, not positive configured-duplication acceptance. The
+separate positive-signal fixture above remains the evidence for suppression.
+All three sessions had zero extension errors, stderr output, provider turns, or
+remaining report directories. The original working-tree contents were unchanged.
+
 ## Reproduction procedure
 
-1. Obtain explicit approval for the target. Record only a repository alias,
+1. Use an explicitly approved target; reuse its existing authorization while
+   scope remains unchanged. Record only a repository alias,
    size bucket, format mix, versions, and whether the working tree is dirty.
    Do not alter its existing detection policy.
 2. Run the pinned local analyzer with the target as cwd and argument array
@@ -232,20 +311,49 @@ not satisfy the representative-real-repository or finding-usefulness matrix.
    Launch drivers with an allowlisted environment, isolated home/agent/temp
    directories, no discovery, offline mode, and bounded run deadlines.
 
+9. For privacy-preserving triage, consume the bounded real report in memory.
+   Count pair formats and coarse source/test/documentation areas. For Python,
+   parse the existing source without importing or executing it; find the smallest
+   enclosing function covering each occurrence, count complete statements within
+   the reported line span, and compare their `ast.dump` values in memory. Treat
+   nonempty identical lists in distinct implementation functions as inspection
+   candidates, not extraction approvals. Check test-function names and assertions
+   before assigning lower priority; leave unsupported semantic judgments uncertain.
+   Emit only aggregate counts and generic structural descriptions. Discard every
+   raw report and fingerprint, and never turn this local aid into a detection rule.
+10. To reproduce installed-extension coexistence, explicitly load a reviewed local
+    pi-fallow entrypoint alongside jscpd into the isolated RPC host, with all
+    discovery and built-in tools disabled. Check both registrations and jscpd
+    status; do not run Fallow merely to establish tool presence. Repeat full,
+    implementation, clean JavaScript, and report-selected Bash scopes in three
+    fresh processes. Keep trust unchanged and distinguish ambiguous from positive
+    policy evidence.
+
 ## Remaining acceptance and decision
 
-- A genuinely larger representative target is still needed.
+- The approved repository's measured size is a documented coverage limit. No
+  larger-repository latency claim is made; do not substitute a synthetic expansion
+  or repeatedly request another target as a prerequisite for this scoped report.
 - Cancellation, observed process-group cleanup, controlled timeout/failure,
   live compact/expanded transcripts, fullscreen UI, and selection/handoff now
   have real-host observations against project B.
 - Positive coexistence and mutation/clean-checkpoint behavior now have controlled
   real-host observations, but still need representative project-policy/workflow
   acceptance. No child project trust approval or second analyzer was exercised.
-- Finding usefulness is unassessed: actionable, intentional, and uncertain
-  counts are unknown. Do not label the 58 historical pairs false positives or
-  new session warnings. A bounded review needs project-owner context.
+- Usefulness now has a bounded triage: four production inspection candidates,
+  26 likely expected test repetitions, and 30 uncertain pairs in the current
+  60-pair snapshot. Safe extraction and maintainer intent remain unproven; do not
+  convert these review priorities into automatic fixes or a false-positive rate.
 
-Small/medium-project timings show no demonstrated performance problem. They do
-not establish large-project latency, attribution quality, or navigation ease.
-Keep #99 open and defer all candidate feature decisions. File a separate minimal
-reproduction issue if further validation establishes an actual product defect.
+**Scoped conclusion: no demonstrated product problem should drive a new feature
+milestone.** Existing explicit scope controls already isolate useful implementation
+leads from test-heavy historical debt. The full-project test/test share (38/60)
+is not evidence that automatic session-delta warnings are noisy. Keep advisory,
+quiet defaults and current thresholds; do not start a performance, navigation,
+team-policy, or noise feature on this evidence. Adoption/feedback work can use
+this report without waiting for another target.
+
+No extension defect was established, so no speculative defect issue was filed.
+The requested review of the approved repository is recorded. Keep #99 open for
+its formally incomplete representative-size and real positive-policy matrix;
+that limitation does not invalidate the completed local observations.
