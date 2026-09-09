@@ -85,7 +85,7 @@ describe("Pi package manifest", () => {
   it("pins development tooling fixtures", async () => {
     const manifest = await readManifest();
 
-    for (const name of ["@biomejs/biome", "@types/node", "typescript", "vitest"]) {
+    for (const name of ["@biomejs/biome", "@types/node", "typescript", "vitest", "yaml"]) {
       expect(manifest.devDependencies?.[name]).toMatch(/^\d+\.\d+\.\d+$/);
     }
   });
