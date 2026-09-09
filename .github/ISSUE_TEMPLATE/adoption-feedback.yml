@@ -1,0 +1,245 @@
+name: Validation and adoption feedback
+description: Share optional, sanitized observations about scans and onboarding.
+title: "feedback: "
+labels:
+  - documentation
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is voluntary workflow feedback, not telemetry. Nothing is collected or submitted automatically; review your answers before choosing Submit new issue. Submissions are public.
+
+        Do NOT include credentials, private paths, source fragments, raw reports, raw child output, terminal captures, or account/repository identifiers. Use buckets, generic format names, and short summaries rather than exact repository statistics. Do not attach files or paste command output.
+
+        Choose Unknown / Not tested where appropriate; no new scan, repository access, or timing instrumentation is required. Findings are advisory: an inspection candidate is not a confirmed defect or an approved refactor.
+
+        For a reproducible defect, use the [bug report](https://github.com/revazi/pi-jscpd/issues/new?template=bug-report.yml); this form also accepts mixed or uncertain feedback. Report suspected vulnerabilities [privately](https://github.com/revazi/pi-jscpd/security/advisories/new), never here. See [onboarding](https://github.com/revazi/pi-jscpd/blob/main/docs/adoption.md) and [compatibility](https://github.com/revazi/pi-jscpd/blob/main/docs/compatibility.md).
+  - type: dropdown
+    id: feedback-kind
+    attributes:
+      label: Feedback kind
+      options:
+        - Workflow or onboarding feedback (no demonstrated defect)
+        - Suspected reproducible defect (prefer the bug report)
+        - Both workflow feedback and a suspected defect
+        - Unsure
+    validations:
+      required: true
+  - type: input
+    id: pi-version
+    attributes:
+      label: Pi version
+      description: Version only, or Unknown. Do not paste startup output.
+      placeholder: 0.85.1
+    validations:
+      required: true
+  - type: input
+    id: node-version
+    attributes:
+      label: Node version
+      description: Version only, or Unknown.
+      placeholder: v24.12.0
+    validations:
+      required: true
+  - type: input
+    id: extension-version
+    attributes:
+      label: pi-jscpd version
+      description: Package version only, or Unknown; no installation paths or package listings.
+      placeholder: 0.2.1
+    validations:
+      required: true
+  - type: dropdown
+    id: repository-size
+    attributes:
+      label: Approximate analyzed-source count
+      description: Choose a bucket if already known; do not count files just for this form. Exclude dependencies and ignored artifacts.
+      options:
+        - Unknown
+        - 1–99 source files
+        - 100–999 source files
+        - 1,000–9,999 source files
+        - 10,000 or more source files
+  - type: dropdown
+    id: formats
+    attributes:
+      label: Language or format mix
+      description: Select generic formats only. No framework, service, project, or module names are needed.
+      multiple: true
+      options:
+        - Unknown
+        - JavaScript / TypeScript
+        - Python
+        - Bash / shell
+        - Go
+        - Rust
+        - Java / Kotlin
+        - C / C++ / C#
+        - Ruby / PHP
+        - HTML / CSS / embedded web formats
+        - Markdown / other documentation
+        - Other formats
+  - type: dropdown
+    id: scan-scope
+    attributes:
+      label: Operation behind these observations
+      description: Keep timings and finding buckets about the same operation. Do not list targets or paths.
+      options:
+        - Not tested
+        - Full-project scan
+        - Scoped scan (implementation only)
+        - Scoped scan (tests or fixtures only)
+        - Scoped scan (mixed or other targets)
+        - Explicit changed check
+        - Automatic session checkpoint
+        - Unknown
+  - type: dropdown
+    id: scan-latency
+    attributes:
+      label: Approximate scan latency
+      description: Use an existing observation, not an invented precise measurement. Include application completion if known, not Pi startup.
+      options:
+        - Not tested / Unknown
+        - Under 100 ms
+        - 100–499 ms
+        - 500–999 ms
+        - 1–4 seconds
+        - 5–29 seconds
+        - 30 seconds or longer
+        - Did not complete (cancelled, timed out, or failed)
+  - type: dropdown
+    id: baseline-latency
+    attributes:
+      label: Approximate baseline latency
+      description: The initial baseline runs in the background and is distinct from a requested scan. If its timing was not separately observable, choose Unknown; do not infer it from startup time.
+      options:
+        - Not tested / Unknown
+        - Under 100 ms
+        - 100–499 ms
+        - 500–999 ms
+        - 1–4 seconds
+        - 5–29 seconds
+        - 30 seconds or longer
+        - Did not complete (cancelled, timed out, or failed)
+  - type: dropdown
+    id: cancellation
+    attributes:
+      label: Cancellation behavior
+      description: Describe only what you observed. A responsive UI alone does not prove child-process or report cleanup.
+      options:
+        - Not tested / Unknown
+        - Cancellation settled and Pi remained usable; cleanup not checked
+        - Cancellation settled; owned child/report cleanup also checked
+        - Cancellation appeared delayed but eventually settled
+        - Pi remained stuck or unusable after cancellation
+        - A leftover child process or report was observed
+  - type: dropdown
+    id: coexistence
+    attributes:
+      label: Fallow coexistence
+      description: Optional status summary only; do not paste configuration or status output.
+      options:
+        - Not tested / Unknown
+        - No Fallow overlap observed
+        - Detected overlap; automatic jscpd checks on demand
+        - Ambiguous overlap; automatic jscpd checks allowed
+        - Explicit on-demand policy
+        - Explicit allow policy for both analyzers
+  - type: dropdown
+    id: review-coverage
+    attributes:
+      label: Finding review coverage
+      description: The three count buckets below refer only to the pairs you reviewed in the same scan, not unique defects or all repository debt. Omitted findings are not clean or reviewed.
+      options:
+        - Not reviewed / Unknown
+        - Some displayed pairs (bounded sample)
+        - All displayed pairs; omitted pairs not reviewed
+        - All reported pairs; none omitted
+  - type: dropdown
+    id: actionable-count
+    attributes:
+      label: Inspection-candidate pairs
+      description: Pairs worth further inspection, not approved refactors. Put unresolved judgments in Uncertain instead; do not count a pair twice.
+      options:
+        - Not reviewed / Unknown
+        - "0"
+        - 1–5
+        - 6–20
+        - 21–100
+        - More than 100
+  - type: dropdown
+    id: expected-count
+    attributes:
+      label: Likely expected repetition pairs
+      description: For example independent tests or fixtures. This is a provisional assessment, not a proven false-positive rate or a reason to exclude all tests.
+      options:
+        - Not reviewed / Unknown
+        - "0"
+        - 1–5
+        - 6–20
+        - 21–100
+        - More than 100
+  - type: dropdown
+    id: uncertain-count
+    attributes:
+      label: Uncertain pairs
+      description: Reviewed pairs without enough behavioral or maintainer-intent evidence to classify. Do not include pairs you did not inspect.
+      options:
+        - Not reviewed / Unknown
+        - "0"
+        - 1–5
+        - 6–20
+        - 21–100
+        - More than 100
+  - type: dropdown
+    id: pain-points
+    attributes:
+      label: Workflow pain points
+      description: Select applicable areas; briefly explain below without identifying your repository.
+      multiple: true
+      options:
+        - None observed
+        - Not tested / Unknown
+        - Installation or first scan
+        - Scoped scan or existing-versus-new interpretation
+        - Finding navigation, expansion, search, or editor handoff
+        - Configuration or intentional exclusions
+        - Fallow coexistence
+        - Scan or baseline latency
+        - Cancellation or cleanup
+        - Finding usefulness or repeated warnings
+        - Team workflow or CI policy alignment
+        - Other
+  - type: textarea
+    id: observations
+    attributes:
+      label: Bounded observations (optional)
+      description: At most six short bullets. Separate observed behavior, expected behavior, and uncertainty. Use generic descriptions only; no paths, source, raw reports/output, captures, identifiers, or attachments. A public issue number can link an already reported defect.
+      placeholder: "Observed: finding detail was readable, but I was unsure whether the block was new. Expected: clearer explanation. Not tested: automatic checks."
+  - type: dropdown
+    id: next-direction
+    attributes:
+      label: Which next direction would your observations support?
+      description: Select only directions supported by your experience. This is input for prioritization, not a feature commitment or permission to refactor.
+      multiple: true
+      options:
+        - No new feature needed; existing workflow fits
+        - Unknown / More evidence needed
+        - Clearer onboarding or examples
+        - Scan performance investigation
+        - Finding navigation improvements
+        - Attribution or intentional-duplication guidance
+        - Team or CI policy integration
+        - Investigate a reproducible defect first
+        - Other
+  - type: checkboxes
+    id: privacy-review
+    attributes:
+      label: Before submitting
+      options:
+        - label: I removed credentials, private paths, source fragments, raw reports, raw child output, terminal captures, account/repository identifiers, and attachments.
+          required: true
+        - label: I used buckets or Unknown rather than identifying repository statistics, and marked untested or uncertain observations honestly.
+          required: true
+        - label: I understand this is a public, voluntary submission; findings do not authorize source changes.
+          required: true

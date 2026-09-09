@@ -69,8 +69,8 @@ describe("Pi package manifest", () => {
 
     expect(manifest.engines?.node).toBe(">=22.19.0 <23 || >=24 <25");
     for (const name of piPackages) {
-      expect(manifest.peerDependencies?.[name]).toBe(">=0.84.4 <0.85.0");
-      expect(manifest.devDependencies?.[name]).toBe("0.84.4");
+      expect(manifest.peerDependencies?.[name]).toBe(">=0.84.4 <0.85.0 || >=0.85.1 <0.86.0");
+      expect(manifest.devDependencies?.[name]).toBe("0.85.1");
     }
     expect(manifest.peerDependencies?.typebox).toBe(">=1.3.7 <2");
     expect(manifest.devDependencies?.typebox).toBe("1.3.7");
@@ -85,7 +85,7 @@ describe("Pi package manifest", () => {
   it("pins development tooling fixtures", async () => {
     const manifest = await readManifest();
 
-    for (const name of ["@biomejs/biome", "@types/node", "typescript", "vitest"]) {
+    for (const name of ["@biomejs/biome", "@types/node", "typescript", "vitest", "yaml"]) {
       expect(manifest.devDependencies?.[name]).toMatch(/^\d+\.\d+\.\d+$/);
     }
   });

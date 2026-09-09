@@ -23,6 +23,30 @@ agent flow is insufficient. Do not propose an independent clone detector,
 automatic source edits, surprise binary installation, or mandatory
 JavaScript-only parsing in the core workflow.
 
+## Validation and adoption feedback
+
+Use the [feedback form](https://github.com/revazi/pi-jscpd/issues/new?template=adoption-feedback.yml)
+for installation, scoped scans, finding review, navigation, configuration, and
+team-workflow observations. Prefer the [bug report](https://github.com/revazi/pi-jscpd/issues/new?template=bug-report.yml)
+for a reproducible defect and the [feature request](https://github.com/revazi/pi-jscpd/issues/new?template=feature-request.yml)
+for a concrete proposal. Suspected vulnerabilities belong in private reporting
+under [SECURITY.md](SECURITY.md).
+
+Feedback is optional and manually submitted to a public issue. Supply only
+versions, coarse size/latency/count buckets, generic formats, and at most six
+short observation bullets. Do not include credentials, private paths, source
+fragments, raw reports, raw child output, terminal captures, account/repository
+identifiers, or attachments. Choose Unknown / Not tested rather than conducting
+new scans or sharing identifying details. The form is guidance, not an automatic
+redaction mechanism: review every answer before submitting.
+
+Distinguish the pairs actually inspected from omitted/unreviewed findings, and
+keep inspection candidates, likely expected repetition, and uncertain judgments
+separate. These are provisional priorities—not approved refactors or a measured
+false-positive rate. Feedback informs the next milestone; it does not activate a
+feature candidate by itself. Existing [validation limitations](docs/m8-validation.md#remaining-acceptance-and-decision)
+remain explicit.
+
 ## Development setup
 
 Use a host from the [compatibility matrix](docs/compatibility.md). Install the
@@ -42,7 +66,11 @@ approved Effect runtime boundary, type checks strict ESM TypeScript, runs
 Biome's formatting/lint checks, and executes the network-free test suite. The
 documentation and hygiene checks validate public local links, release metadata,
 ignored/private path policy, package metadata, and the non-publishing readiness
-workflow. `pack:certify` installs and exercises the exact tarball.
+workflow. Tests also parse every issue-template YAML file, validate the form
+fields used by this repository, and check feedback privacy/bucket requirements
+and issue-template links without contacting GitHub. The exact-pinned development
+`yaml` dependency is only a validation parser; it adds no extension runtime
+service. `pack:certify` installs and exercises the exact tarball.
 CI repeats those checks on Node 22.19.0 and 24.12.0.
 
 Tests must not require network access, read or modify global Pi configuration,

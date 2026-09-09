@@ -112,7 +112,7 @@ and failed automatic checks stay out of model context.
 ## Conformance evidence
 
 The final non-publishing gate passes on Node 22.19.0 and 24.12.0 with the pinned
-Pi 0.84.4, TypeBox 1.3.7, Effect 3.22.1, and jscpd 5.1.2 fixtures. Evidence covers:
+Pi 0.85.1, TypeBox 1.3.7, Effect 3.22.1, and jscpd 5.1.2 fixtures. Evidence covers:
 
 - strict TypeScript and Biome checks;
 - architecture, documentation-link, and repository-hygiene gates;
