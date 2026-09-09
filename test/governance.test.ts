@@ -140,6 +140,7 @@ describe("public repository safeguards", () => {
       ".github/ISSUE_TEMPLATE/config.yml",
       ".github/ISSUE_TEMPLATE/bug-report.yml",
       ".github/ISSUE_TEMPLATE/feature-request.yml",
+      ".github/ISSUE_TEMPLATE/adoption-feedback.yml",
       ".github/pull_request_template.md",
     ];
 

@@ -218,6 +218,19 @@ and limitations.
 See the [compatibility policy](docs/compatibility.md) for the exact tested
 fixtures and certification matrix.
 
+## Share feedback
+
+Tried a scan or the onboarding examples? Use the optional [validation and adoption
+feedback form](https://github.com/revazi/pi-jscpd/issues/new?template=adoption-feedback.yml).
+It asks for version information and coarse size, latency, and finding-review
+buckets; “Unknown” and “Not tested” are welcome. No new scan is required.
+
+Submissions are public and manual—no telemetry or automatic submission is added.
+Do not include credentials, private paths, source fragments, raw reports, raw
+child output, terminal captures, or account/repository identifiers. For a
+reproducible defect, prefer the [bug report](https://github.com/revazi/pi-jscpd/issues/new?template=bug-report.yml);
+report vulnerabilities [privately](SECURITY.md).
+
 ## More Pi packages by Revaz
 
 | Package | Purpose |
