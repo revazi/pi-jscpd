@@ -19,6 +19,8 @@ languages, and statistics.
 | --- | --- | --- | --- |
 | Clean checks stay out of the model | Never blocks a write or edits source | Uses jscpd’s languages, not a JS-only parser | A missing analyzer never breaks Pi |
 
+[Install](#install) · [Usage](#usage) · [pi-jscpd benchmarks](#pi-jscpd-benchmarks) · [Overview](#interactive-overview) · [Safety](#safety-and-privacy)
+
 ## 📦 Install
 
 ```sh
@@ -53,16 +55,16 @@ offline) to disable it.
 Run `/jscpd` to open the interactive overview. Opening it shows status only; it
 never starts an implicit scan.
 
-| Command | Purpose |
-| --- | --- |
-| `/jscpd` | Open the responsive overview |
-| `/jscpd changed` | Show unacknowledged duplication introduced this session |
-| `/jscpd scan` | Scan the whole project |
-| `/jscpd scan src tests` | Scan specific in-project files or directories |
-| `/jscpd status` | Show binary, configuration, mode, and last-check status |
-| `/jscpd off` | Disable scans for the current session |
-| `/jscpd on` | Re-enable scans for the current session |
-| `/jscpd help` | Show command help |
+| | Command | Purpose |
+| --- | --- | --- |
+| 🖥️ | `/jscpd` | Open the responsive overview |
+| 🆕 | `/jscpd changed` | Show unacknowledged duplication introduced this session |
+| 🔍 | `/jscpd scan` | Scan the whole project |
+| 📂 | `/jscpd scan src tests` | Scan specific in-project files or directories |
+| 📋 | `/jscpd status` | Show binary, configuration, mode, and last-check status |
+| ⏸️ | `/jscpd off` | Disable scans for the current session |
+| ▶️ | `/jscpd on` | Re-enable scans for the current session |
+| ❓ | `/jscpd help` | Show command help |
 
 Pi can use the same operations through the `jscpd_run` tool:
 
@@ -92,11 +94,12 @@ For short walkthroughs, see [clean scans, new session duplication, and intention
 duplication](docs/adoption.md). A finding is a reason to inspect, not permission
 to refactor.
 
-## 📊 Benchmarks
+## 📊 pi-jscpd benchmarks
 
-Real **`pi-jscpd`** `/jscpd scan` on isolated Pi 0.85.1, packaged jscpd `5.1.2`.
-Full-tree snapshots, not session findings and not a quality ranking. Median of
-three fresh host processes on macOS arm64 / Node 24.12.0, 2026-09-17.
+These are **pi-jscpd** benchmarks, not a raw `jscpd` CLI. Each cell is an isolated
+Pi 0.85.1 `/jscpd scan` through this extension (packaged jscpd `5.1.2` still
+detects). Full-tree snapshots, not session findings and not a quality ranking.
+Median of three fresh host processes on macOS arm64 / Node 24.12.0, 2026-09-17.
 
 | | Project | Version | Outcome | Blocks | Dup. lines | `/jscpd scan` |
 | --- | --- | --- | --- | ---: | ---: | ---: |
@@ -109,7 +112,7 @@ three fresh host processes on macOS arm64 / Node 24.12.0, 2026-09-17.
 
 ⚡ under 1 s · ⏱️ about 1 s · 🛟 fail-open (invalid report, Pi kept running).
 Version links open the exact scanned commit. Method and sample times:
-[public framework snapshots](docs/benchmarks.md). Scheduled refresh:
+[pi-jscpd benchmark method](docs/benchmarks.md). Scheduled refresh:
 [#111](https://github.com/revazi/pi-jscpd/issues/111).
 
 ## 🔄 How session checks work
@@ -121,11 +124,11 @@ and `edit` tools.
 After Pi settles, one coalesced background check compares the current project
 with the baseline:
 
-- clean checks stay out of model context;
-- failures remain advisory and available through `/jscpd status`;
-- new duplicate blocks are reported with both locations;
-- existing repository duplication is omitted from changed-only results; and
-- actionable automatic findings never trigger a surprise model turn.
+- 🤫 clean checks stay out of model context;
+- ⚠️ failures remain advisory and available through `/jscpd status`;
+- 📍 new duplicate blocks are reported with both locations;
+- 🗂️ existing repository duplication is omitted from changed-only results; and
+- 🚫 actionable automatic findings never trigger a surprise model turn.
 
 Displayed findings are acknowledged for the active conversation branch so the
 same unchanged block is not repeatedly reported. Baselines, source bytes,
@@ -146,16 +149,16 @@ This is current duplication, not a session-delta example.
 
 Bare `/jscpd` opens a status-first, Fallow-style bounded TUI with:
 
-- a framed overview of mode, binary, configuration, last check, and explicit
+- 📋 a framed overview of mode, binary, configuration, last check, and explicit
   changed/project scan actions;
-- a searchable, scrollable findings navigator that retains up to 100 findings,
+- 🔎 a searchable, scrollable findings navigator that retains up to 100 findings,
   initially shows 10, and reveals the next 10 with `L` or by navigating past the
   last shown row—without rescanning or changing configuration;
-- both duplicate locations, size, format, session relationship, inline detail,
+- 📍 both duplicate locations, size, format, session relationship, inline detail,
   verification, and omission/ambiguity context;
-- `j`/`k`, arrows, Home/End, paging, expand/collapse, search, and multi-selection
+- ⌨️ `j`/`k`, arrows, Home/End, paging, expand/collapse, search, and multi-selection
   controls consistent with Pi Fallow's navigator; and
-- a bounded `e`/`a` handoff that closes the overlay and loads selected findings
+- ✉️ a bounded `e`/`a` handoff that closes the overlay and loads selected findings
   into Pi's editor for user review.
 
 The extra overlay cache is in-memory and TUI-only. `maxFindings` still caps
@@ -199,11 +202,11 @@ settings. The extension does not maintain a parallel clone policy.
 
 ## 🤝 Fallow coexistence
 
-| Choose | When it fits |
-| --- | --- |
-| `pi-jscpd` | Focused polyglot duplicate-block review, session deltas, or reuse of existing jscpd detection/CI policy |
-| Pi Fallow | Broader JavaScript/TypeScript codebase analysis, including duplication, dead code, complexity, and related checks |
-| Both | Fallow's broader checks plus scoped jscpd analysis where its formats or existing policy add value; avoid checking the same duplication scope twice without a reason |
+| | Choose | When it fits |
+| --- | --- | --- |
+| 🧬 | `pi-jscpd` | Focused polyglot duplicate-block review, session deltas, or reuse of existing jscpd detection/CI policy |
+| 🌿 | Pi Fallow | Broader JavaScript/TypeScript codebase analysis, including duplication, dead code, complexity, and related checks |
+| 🤝 | Both | Fallow's broader checks plus scoped jscpd analysis where its formats or existing policy add value; avoid checking the same duplication scope twice without a reason |
 
 Neither replaces the other's full workflow or your repository's tests and CI
 policy. Pi Fallow can also detect duplication. With the default `auto` policy,
@@ -220,16 +223,16 @@ and limitations.
 
 ## 🔒 Safety and privacy
 
-- Advisory and read-only by default.
-- Never downloads packages at runtime or mutates source.
-- Invokes binaries with argument arrays, never a shell command string.
-- Keeps reports in restrictive temporary directories and removes them after
+- 🧭 Advisory and read-only by default.
+- 📦 Never downloads packages at runtime or mutates source.
+- 🧱 Invokes binaries with argument arrays, never a shell command string.
+- 🧹 Keeps reports in restrictive temporary directories and removes them after
   success, failure, timeout, cancellation, or shutdown.
-- Bounds process time, output, report size, findings, paths, and persisted state.
-- Omits source fragments, raw child output, temporary paths, and internal
+- ⏱️ Bounds process time, output, report size, findings, paths, and persisted state.
+- 🙈 Omits source fragments, raw child output, temporary paths, and internal
   fingerprints from results.
-- Reads extension configuration only for trusted projects.
-- Fails open so analyzer problems do not break the Pi session.
+- 🔐 Reads extension configuration only for trusted projects.
+- 🛟 Fails open so analyzer problems do not break the Pi session.
 
 ## ✅ Requirements
 
@@ -289,18 +292,18 @@ workflow files.
 
 Useful documentation:
 
-- [Public framework snapshots](docs/benchmarks.md)
-- [First scans and safe finding review](docs/adoption.md)
-- [Effect architecture and conformance](docs/effect-architecture.md)
-- [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
-- [`/jscpd` overlay contract](docs/overlay-interaction.md)
-- [Fallow coexistence](docs/fallow-coexistence.md)
-- [Compatibility and packed-artifact certification](docs/compatibility.md)
-- [Real-project validation evidence](docs/m8-validation.md)
-- [Release preparation and publication policy](docs/release.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [Changelog](CHANGELOG.md)
+- 📊 [pi-jscpd benchmarks](docs/benchmarks.md)
+- ✨ [First scans and safe finding review](docs/adoption.md)
+- 🧬 [Effect architecture and conformance](docs/effect-architecture.md)
+- ⏱️ [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
+- 🖥️ [`/jscpd` overlay contract](docs/overlay-interaction.md)
+- 🤝 [Fallow coexistence](docs/fallow-coexistence.md)
+- ✅ [Compatibility and packed-artifact certification](docs/compatibility.md)
+- 📋 [Real-project validation evidence](docs/m8-validation.md)
+- 🏷️ [Release preparation and publication policy](docs/release.md)
+- 👋 [Contributing](CONTRIBUTING.md)
+- 🔐 [Security policy](SECURITY.md)
+- 📝 [Changelog](CHANGELOG.md)
 
 ## 📄 License
 

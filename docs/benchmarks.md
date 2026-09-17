@@ -1,6 +1,6 @@
-# 📊 Public framework snapshots
+# 📊 pi-jscpd benchmarks
 
-These rows measure **`pi-jscpd`**, not a raw `jscpd` CLI. Each sample loads the
+These rows are **pi-jscpd benchmarks**, not a raw `jscpd` CLI. Each sample loads the
 source extension into an isolated Pi 0.85.1 RPC host and runs `/jscpd scan` on a
 pinned public tree. jscpd `5.1.2` remains the detector; the times and outcomes
 include capability resolution, report decoding, normalization, and the public
@@ -16,7 +16,7 @@ Three fresh Pi processes per project. **Scan** is milliseconds from `/jscpd scan
 until the extension notify. Host ready (start + command discovery) was about
 1.2–1.5 s and is **not** included in scan time.
 
-## Snapshot
+## pi-jscpd snapshot
 
 | Project | Pin | Outcome | Sources | Duplicate blocks | Dup. lines | Median `/jscpd scan` |
 | --- | --- | --- | ---: | ---: | ---: | ---: |

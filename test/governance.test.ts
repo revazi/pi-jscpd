@@ -183,8 +183,11 @@ describe("public repository safeguards", () => {
       "prettier/prettier",
     ];
 
-    expect(readme).toContain("## 📊 Benchmarks");
+    expect(readme).toContain("## 📊 pi-jscpd benchmarks");
+    expect(readme).toContain("not a raw `jscpd` CLI");
     expect(readme).toContain("`/jscpd scan`");
+    expect(benchmarks).toContain("# 📊 pi-jscpd benchmarks");
+    expect(benchmarks).toContain("not a raw `jscpd` CLI");
     expect(benchmarks).toContain("not a code-quality ranking");
     expect(benchmarks).toContain("pi-jscpd");
     expect(benchmarks).toContain("invalid structured report");
