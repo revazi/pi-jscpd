@@ -171,6 +171,33 @@ describe("public repository safeguards", () => {
     expect(skill).toContain("When status reports that Fallow duplication overlap");
   });
 
+  it("publishes dated public-framework benchmark snapshots", async () => {
+    const readme = await projectFile("README.md");
+    const benchmarks = await projectFile("docs/benchmarks.md");
+    const repos = [
+      "vitejs/vite",
+      "facebook/react",
+      "vuejs/core",
+      "sveltejs/svelte",
+      "expressjs/express",
+      "prettier/prettier",
+    ];
+
+    expect(readme).toContain("## 📊 pi-jscpd benchmarks");
+    expect(readme).toContain("not a raw `jscpd` CLI");
+    expect(readme).toContain("`/jscpd scan`");
+    expect(benchmarks).toContain("# 📊 pi-jscpd benchmarks");
+    expect(benchmarks).toContain("not a raw `jscpd` CLI");
+    expect(benchmarks).toContain("not a code-quality ranking");
+    expect(benchmarks).toContain("pi-jscpd");
+    expect(benchmarks).toContain("invalid structured report");
+    expect(benchmarks).toContain("5.1.2");
+    for (const repo of repos) {
+      expect(readme).toContain(`https://github.com/${repo}`);
+      expect(benchmarks).toContain(`https://github.com/${repo}`);
+    }
+  });
+
   it("publishes contribution, security, change, issue, and PR guidance", async () => {
     const paths = [
       "CHANGELOG.md",

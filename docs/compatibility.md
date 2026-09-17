@@ -1,4 +1,4 @@
-# Compatibility policy
+# ✅ Compatibility policy
 
 `pi-jscpd` deliberately has a narrow, tested host contract. The package uses
 Pi's extension, event, tool, custom-message, and TUI APIs directly, so an open

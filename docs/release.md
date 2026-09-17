@@ -1,4 +1,4 @@
-# Release and publication policy
+# 🏷️ Release and publication policy
 
 `pi-jscpd` releases are explicitly authorized by
 [Revaz Zakalashvili](https://github.com/revazi) and published from reviewed tags

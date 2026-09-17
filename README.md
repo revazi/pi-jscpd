@@ -6,14 +6,22 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![GitHub issues](https://img.shields.io/github/issues/revazi/pi-jscpd.svg)](https://github.com/revazi/pi-jscpd/issues)
 
-A quiet, read-only duplication guardrail for the [Pi coding agent](https://github.com/earendil-works/pi), powered by [jscpd](https://github.com/kucherenko/jscpd).
+A quiet, read-only duplication guardrail for the
+[Pi coding agent](https://github.com/earendil-works/pi), powered by
+[jscpd](https://github.com/kucherenko/jscpd).
 
 `pi-jscpd` detects duplicate blocks introduced during a Pi session, shows both
 locations, and helps you inspect, refactor, test, and verify the result. jscpd
 remains the source of truth for tokenization, clone detection, supported
 languages, and statistics.
 
-## Install
+| 🤫 Quiet | 🧭 Advisory | 🌍 Polyglot | 🛟 Fail open |
+| --- | --- | --- | --- |
+| Clean checks stay out of the model | Never blocks a write or edits source | Uses jscpd’s languages, not a JS-only parser | A missing analyzer never breaks Pi |
+
+[Install](#install) · [Usage](#usage) · [pi-jscpd benchmarks](#pi-jscpd-benchmarks) · [Overview](#interactive-overview) · [Safety](#safety-and-privacy)
+
+## 📦 Install
 
 ```sh
 pi install npm:pi-jscpd
@@ -42,21 +50,21 @@ is bounded to 1.5 seconds, never sends project data, and never downloads or
 installs package content. Set `PI_JSCPD_DISABLE_UPDATE_NOTICE=1` (or run Pi
 offline) to disable it.
 
-## Usage
+## ⌨️ Usage
 
 Run `/jscpd` to open the interactive overview. Opening it shows status only; it
 never starts an implicit scan.
 
-| Command | Purpose |
-| --- | --- |
-| `/jscpd` | Open the responsive overview |
-| `/jscpd changed` | Show unacknowledged duplication introduced this session |
-| `/jscpd scan` | Scan the whole project |
-| `/jscpd scan src tests` | Scan specific in-project files or directories |
-| `/jscpd status` | Show binary, configuration, mode, and last-check status |
-| `/jscpd off` | Disable scans for the current session |
-| `/jscpd on` | Re-enable scans for the current session |
-| `/jscpd help` | Show command help |
+| | Command | Purpose |
+| --- | --- | --- |
+| 🖥️ | `/jscpd` | Open the responsive overview |
+| 🆕 | `/jscpd changed` | Show unacknowledged duplication introduced this session |
+| 🔍 | `/jscpd scan` | Scan the whole project |
+| 📂 | `/jscpd scan src tests` | Scan specific in-project files or directories |
+| 📋 | `/jscpd status` | Show binary, configuration, mode, and last-check status |
+| ⏸️ | `/jscpd off` | Disable scans for the current session |
+| ▶️ | `/jscpd on` | Re-enable scans for the current session |
+| ❓ | `/jscpd help` | Show command help |
 
 Pi can use the same operations through the `jscpd_run` tool:
 
@@ -86,7 +94,28 @@ For short walkthroughs, see [clean scans, new session duplication, and intention
 duplication](docs/adoption.md). A finding is a reason to inspect, not permission
 to refactor.
 
-## How session checks work
+## 📊 pi-jscpd benchmarks
+
+These are **pi-jscpd** benchmarks, not a raw `jscpd` CLI. Each cell is an isolated
+Pi 0.85.1 `/jscpd scan` through this extension (packaged jscpd `5.1.2` still
+detects). Full-tree snapshots, not session findings and not a quality ranking.
+Median of three fresh host processes on macOS arm64 / Node 24.12.0, 2026-09-17.
+
+| | Project | Version | Outcome | Blocks | Dup. lines | `/jscpd scan` |
+| --- | --- | --- | --- | ---: | ---: | ---: |
+| ⚡ | [Vite](https://github.com/vitejs/vite) | [v8.3.0](https://github.com/vitejs/vite/tree/434e8e9495436a60789f2b588a04a6a24a3d1661) | Findings | 524 | 5.91% | 520 ms |
+| 🛟 | [React](https://github.com/facebook/react) | [v19.3.0](https://github.com/facebook/react/tree/1d34f91dfde6bba84d08b683aaba164c7194dacb) | Fail-open | — | — | 2.68 s |
+| ⚡ | [Vue](https://github.com/vuejs/core) | [v3.5.43](https://github.com/vuejs/core/tree/5be58b4c475c1d14b4abacbfeda610394a0ee4e5) | Findings | 805 | 6.71% | 417 ms |
+| 🛟 | [Svelte](https://github.com/sveltejs/svelte) | [svelte@5.57.0](https://github.com/sveltejs/svelte/tree/7bc0a70fe64dbb3fa3848b741963f31d1e10a8dc) | Fail-open | — | — | 808 ms |
+| ⚡ | [Express](https://github.com/expressjs/express) | [v5.2.1](https://github.com/expressjs/express/tree/dbac741a49a5a64336b70c06e85c2e2706e36336) | Findings | 274 | 11.19% | 152 ms |
+| ⏱️ | [Prettier](https://github.com/prettier/prettier) | [3.9.8](https://github.com/prettier/prettier/tree/4f2ab6765d7cb29408a2abdac75d023d64d44107) | Findings | 981 | 4.89% | 1.23 s |
+
+⚡ under 1 s · ⏱️ about 1 s · 🛟 fail-open (invalid report, Pi kept running).
+Version links open the exact scanned commit. Method and sample times:
+[pi-jscpd benchmark method](docs/benchmarks.md). Scheduled refresh:
+[#111](https://github.com/revazi/pi-jscpd/issues/111).
+
+## 🔄 How session checks work
 
 At session start, the extension captures one bounded, in-memory project baseline.
 It then tracks successful writes and edits made through Pi's built-in `write`
@@ -95,11 +124,11 @@ and `edit` tools.
 After Pi settles, one coalesced background check compares the current project
 with the baseline:
 
-- clean checks stay out of model context;
-- failures remain advisory and available through `/jscpd status`;
-- new duplicate blocks are reported with both locations;
-- existing repository duplication is omitted from changed-only results; and
-- actionable automatic findings never trigger a surprise model turn.
+- 🤫 clean checks stay out of model context;
+- ⚠️ failures remain advisory and available through `/jscpd status`;
+- 📍 new duplicate blocks are reported with both locations;
+- 🗂️ existing repository duplication is omitted from changed-only results; and
+- 🚫 actionable automatic findings never trigger a surprise model turn.
 
 Displayed findings are acknowledged for the active conversation branch so the
 same unchanged block is not repeatedly reported. Baselines, source bytes,
@@ -109,7 +138,7 @@ Manual edits, shell commands, custom mutation tools, deletes, and renames are no
 attributed because Pi does not provide a stable structured file list for them.
 Use `/jscpd scan` when changes happened outside built-in `write` or `edit`.
 
-## Interactive overview
+## 🖥️ Interactive overview
 
 ![Real /jscpd findings view: one Python duplicate block, both current locations, and advisory review guidance](docs/images/jscpd-findings.png)
 
@@ -120,16 +149,16 @@ This is current duplication, not a session-delta example.
 
 Bare `/jscpd` opens a status-first, Fallow-style bounded TUI with:
 
-- a framed overview of mode, binary, configuration, last check, and explicit
+- 📋 a framed overview of mode, binary, configuration, last check, and explicit
   changed/project scan actions;
-- a searchable, scrollable findings navigator that retains up to 100 findings,
+- 🔎 a searchable, scrollable findings navigator that retains up to 100 findings,
   initially shows 10, and reveals the next 10 with `L` or by navigating past the
   last shown row—without rescanning or changing configuration;
-- both duplicate locations, size, format, session relationship, inline detail,
+- 📍 both duplicate locations, size, format, session relationship, inline detail,
   verification, and omission/ambiguity context;
-- `j`/`k`, arrows, Home/End, paging, expand/collapse, search, and multi-selection
+- ⌨️ `j`/`k`, arrows, Home/End, paging, expand/collapse, search, and multi-selection
   controls consistent with Pi Fallow's navigator; and
-- a bounded `e`/`a` handoff that closes the overlay and loads selected findings
+- ✉️ a bounded `e`/`a` handoff that closes the overlay and loads selected findings
   into Pi's editor for user review.
 
 The extra overlay cache is in-memory and TUI-only. `maxFindings` still caps
@@ -140,7 +169,7 @@ runs project tests, or refactors automatically. In RPC, JSON, and print modes,
 explicit subcommands remain available and the bare command uses a bounded
 non-interactive fallback.
 
-## Configuration
+## ⚙️ Configuration
 
 Project configuration is optional:
 
@@ -171,13 +200,13 @@ Clone thresholds, formats, ignore rules, and other detection policy belong in
 jscpd's normal configuration, such as `.jscpd.json` or package-level jscpd
 settings. The extension does not maintain a parallel clone policy.
 
-## Fallow coexistence
+## 🤝 Fallow coexistence
 
-| Choose | When it fits |
-| --- | --- |
-| `pi-jscpd` | Focused polyglot duplicate-block review, session deltas, or reuse of existing jscpd detection/CI policy |
-| Pi Fallow | Broader JavaScript/TypeScript codebase analysis, including duplication, dead code, complexity, and related checks |
-| Both | Fallow's broader checks plus scoped jscpd analysis where its formats or existing policy add value; avoid checking the same duplication scope twice without a reason |
+| | Choose | When it fits |
+| --- | --- | --- |
+| 🧬 | `pi-jscpd` | Focused polyglot duplicate-block review, session deltas, or reuse of existing jscpd detection/CI policy |
+| 🌿 | Pi Fallow | Broader JavaScript/TypeScript codebase analysis, including duplication, dead code, complexity, and related checks |
+| 🤝 | Both | Fallow's broader checks plus scoped jscpd analysis where its formats or existing policy add value; avoid checking the same duplication scope twice without a reason |
 
 Neither replaces the other's full workflow or your repository's tests and CI
 policy. Pi Fallow can also detect duplication. With the default `auto` policy,
@@ -192,20 +221,20 @@ Explicit `/jscpd changed`, project scans, and scoped scans remain available. Set
 See [Fallow coexistence](docs/fallow-coexistence.md) for the supported signals
 and limitations.
 
-## Safety and privacy
+## 🔒 Safety and privacy
 
-- Advisory and read-only by default.
-- Never downloads packages at runtime or mutates source.
-- Invokes binaries with argument arrays, never a shell command string.
-- Keeps reports in restrictive temporary directories and removes them after
+- 🧭 Advisory and read-only by default.
+- 📦 Never downloads packages at runtime or mutates source.
+- 🧱 Invokes binaries with argument arrays, never a shell command string.
+- 🧹 Keeps reports in restrictive temporary directories and removes them after
   success, failure, timeout, cancellation, or shutdown.
-- Bounds process time, output, report size, findings, paths, and persisted state.
-- Omits source fragments, raw child output, temporary paths, and internal
+- ⏱️ Bounds process time, output, report size, findings, paths, and persisted state.
+- 🙈 Omits source fragments, raw child output, temporary paths, and internal
   fingerprints from results.
-- Reads extension configuration only for trusted projects.
-- Fails open so analyzer problems do not break the Pi session.
+- 🔐 Reads extension configuration only for trusted projects.
+- 🛟 Fails open so analyzer problems do not break the Pi session.
 
-## Requirements
+## ✅ Requirements
 
 | Component | Supported |
 | --- | --- |
@@ -218,7 +247,7 @@ and limitations.
 See the [compatibility policy](docs/compatibility.md) for the exact tested
 fixtures and certification matrix.
 
-## Share feedback
+## 💬 Share feedback
 
 Tried a scan or the onboarding examples? Use the optional [validation and adoption
 feedback form](https://github.com/revazi/pi-jscpd/issues/new?template=adoption-feedback.yml).
@@ -231,7 +260,7 @@ child output, terminal captures, or account/repository identifiers. For a
 reproducible defect, prefer the [bug report](https://github.com/revazi/pi-jscpd/issues/new?template=bug-report.yml);
 report vulnerabilities [privately](SECURITY.md).
 
-## More Pi packages by Revaz
+## 🧩 More Pi packages by Revaz
 
 | Package | Purpose |
 | --- | --- |
@@ -241,7 +270,7 @@ report vulnerabilities [privately](SECURITY.md).
 | [`pi-tmux-orchestrator`](https://www.npmjs.com/package/pi-tmux-orchestrator) | Multi-agent coordination in tmux |
 | [`@tasklight/pi-tasklight`](https://www.npmjs.com/package/@tasklight/pi-tasklight) | Tasklight notifications for Pi |
 
-## Development
+## 🛠️ Development
 
 ```sh
 npm ci --ignore-scripts
@@ -263,17 +292,19 @@ workflow files.
 
 Useful documentation:
 
-- [Effect architecture and conformance](docs/effect-architecture.md)
-- [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
-- [`/jscpd` overlay contract](docs/overlay-interaction.md)
-- [Fallow coexistence](docs/fallow-coexistence.md)
-- [Compatibility and packed-artifact certification](docs/compatibility.md)
-- [Real-project validation evidence](docs/m8-validation.md)
-- [Release preparation and publication policy](docs/release.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [Changelog](CHANGELOG.md)
+- 📊 [pi-jscpd benchmarks](docs/benchmarks.md)
+- ✨ [First scans and safe finding review](docs/adoption.md)
+- 🧬 [Effect architecture and conformance](docs/effect-architecture.md)
+- ⏱️ [Automatic checkpoint lifecycle](docs/automatic-checkpoint.md)
+- 🖥️ [`/jscpd` overlay contract](docs/overlay-interaction.md)
+- 🤝 [Fallow coexistence](docs/fallow-coexistence.md)
+- ✅ [Compatibility and packed-artifact certification](docs/compatibility.md)
+- 📋 [Real-project validation evidence](docs/m8-validation.md)
+- 🏷️ [Release preparation and publication policy](docs/release.md)
+- 👋 [Contributing](CONTRIBUTING.md)
+- 🔐 [Security policy](SECURITY.md)
+- 📝 [Changelog](CHANGELOG.md)
 
-## License
+## 📄 License
 
 [MIT](./LICENSE) © 2026 Revaz Zakalashvili

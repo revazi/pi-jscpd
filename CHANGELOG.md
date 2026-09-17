@@ -7,6 +7,12 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added an explicit **pi-jscpd** benchmarks table and `docs/benchmarks.md` for
+  isolated `/jscpd scan` runs on pinned public Vite, React, Vue, Svelte,
+  Express, and Prettier trees, including fail-open invalid-report outcomes.
+
 ### Changed
 
 - Concentrated the approved public version in one reviewed source so release

@@ -1,4 +1,4 @@
-# Automatic advisory checkpoint decision
+# ⏱️ Automatic advisory checkpoint decision
 
 Status: **implemented with Effect-owned scheduling and automatic delivery**
 
