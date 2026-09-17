@@ -23,6 +23,13 @@ compatibility, strict types, Biome, the network-free test suite, the exact packe
 and installed artifact, and the package dry run. CI repeats these checks on Node
 22.19.0 and 24.12.0.
 
+The reviewed version literal lives in `scripts/approved-release-version.mjs`.
+Repository hygiene, package certification, the manual readiness workflow, and
+tagged publication compare `package.json`, `package-lock.json`, and the
+changelog heading against that value and fail closed on mismatch. Tests and
+workflows must not embed a second copy. Updating the file does not authorize a
+tag or npm publish.
+
 The manual **Release readiness (no publish)** workflow validates an exact
 40-character commit that must resolve to `origin/main`. It has read-only
 repository permission, receives no registry credential, retains no package
@@ -62,7 +69,8 @@ Published versions follow Semantic Versioning. For each approved release:
 
 1. Move relevant entries from `Unreleased` to
    `## [MAJOR.MINOR.PATCH] - YYYY-MM-DD` and update comparison links.
-2. Update `package.json` and `package-lock.json` together.
+2. Set `scripts/approved-release-version.mjs` to the approved version and update
+   `package.json` and `package-lock.json` to the same value.
 3. Confirm the package is publishable and `publishConfig` still requests public
    access and provenance.
 4. Merge the reviewed release commit to `main` and wait for both supported-Node

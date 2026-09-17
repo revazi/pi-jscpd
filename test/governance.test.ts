@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -41,7 +42,10 @@ describe("public repository safeguards", () => {
     expect(workflow).toContain("permissions: {}");
     expect(workflow).toContain("persist-credentials: false");
     expect(workflow).toMatch(/ref: \$\{\{ inputs\.reviewed_sha \}\}/);
-    expect(workflow).toContain('= "0.2.1"');
+    expect(workflow).toContain('APPROVED_VERSION="$(node scripts/approved-release-version.mjs)"');
+    expect(workflow).toContain(
+      'test "$(node -p "require(\'./package.json\').version")" = "$APPROVED_VERSION"',
+    );
     expect(workflow).toContain("Boolean(require('./package.json').private)");
     expect(workflow).toContain('= "false"');
     expect(workflow).toContain("npm run release:check");
@@ -69,6 +73,8 @@ describe("public repository safeguards", () => {
     expect(workflow).toContain("persist-credentials: false");
     expect(workflow).toContain("npm@11.6.2");
     expect(workflow).toContain("Boolean(require('./package.json').private)");
+    expect(workflow).toContain('APPROVED_VERSION="$(node scripts/approved-release-version.mjs)"');
+    expect(workflow).toContain('test "$PACKAGE_VERSION" = "$APPROVED_VERSION"');
     expect(workflow).toContain("npm ci --ignore-scripts");
     expect(workflow).toContain("npm run release:check");
     expect(workflow).toContain("npm publish --access public --provenance --ignore-scripts");
@@ -80,6 +86,42 @@ describe("public repository safeguards", () => {
     expect(workflow).not.toContain("NODE_AUTH_TOKEN");
     for (const action of workflow.matchAll(/uses: ([^\s]+)/g)) {
       expect(action[1]).toMatch(/@[a-f0-9]{40}$/);
+    }
+  });
+
+  it("keeps one reviewed approved-release version for publication guards", async () => {
+    // @ts-expect-error The approved-version script intentionally has no published type surface.
+    const approvedModule = (await import("../scripts/approved-release-version.mjs")) as {
+      APPROVED_RELEASE_VERSION: string;
+      assertApprovedReleaseVersion: (actual: string, label?: string) => void;
+    };
+    const { APPROVED_RELEASE_VERSION, assertApprovedReleaseVersion } = approvedModule;
+
+    expect(APPROVED_RELEASE_VERSION).toMatch(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
+    expect(
+      execFileSync(process.execPath, ["scripts/approved-release-version.mjs"], {
+        encoding: "utf8",
+      }),
+    ).toBe(`${APPROVED_RELEASE_VERSION}\n`);
+    expect(() => assertApprovedReleaseVersion(APPROVED_RELEASE_VERSION, "match")).not.toThrow();
+    expect(() => assertApprovedReleaseVersion("0.0.0", "mismatch")).toThrow(
+      /differs from the approved release/,
+    );
+
+    const guardFiles = [
+      "scripts/check-repository-hygiene.mjs",
+      "scripts/package-certify.mjs",
+      ".github/workflows/release-readiness.yml",
+      ".github/workflows/release.yml",
+      "test/governance.test.ts",
+      "test/package.test.ts",
+    ];
+    for (const path of guardFiles) {
+      const content = await projectFile(path);
+      expect(content, path).not.toContain(APPROVED_RELEASE_VERSION);
+      if (path.startsWith("scripts/")) {
+        expect(content).toContain('from "./approved-release-version.mjs"');
+      }
     }
   });
 
