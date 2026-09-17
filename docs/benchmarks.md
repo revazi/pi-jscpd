@@ -18,47 +18,44 @@ until the extension notify. Host ready (start + command discovery) was about
 
 ## pi-jscpd snapshot
 
-| Project | Pin | Outcome | Sources | Duplicate blocks | Dup. lines | Median `/jscpd scan` |
-| --- | --- | --- | ---: | ---: | ---: | ---: |
-| [Vite](https://github.com/vitejs/vite) | [v8.3.0](https://github.com/vitejs/vite/tree/434e8e9495436a60789f2b588a04a6a24a3d1661) | Findings | 1,107 | 524 | 5.91% | 520 ms |
-| [React](https://github.com/facebook/react) | [v19.3.0](https://github.com/facebook/react/tree/1d34f91dfde6bba84d08b683aaba164c7194dacb) | Fail-open, invalid report | — | — | — | 2.68 s |
-| [Vue](https://github.com/vuejs/core) | [v3.5.43](https://github.com/vuejs/core/tree/5be58b4c475c1d14b4abacbfeda610394a0ee4e5) | Findings | 598 | 805 | 6.71% | 417 ms |
-| [Svelte](https://github.com/sveltejs/svelte) | [svelte@5.57.0](https://github.com/sveltejs/svelte/tree/7bc0a70fe64dbb3fa3848b741963f31d1e10a8dc) | Fail-open, invalid report | — | — | — | 808 ms |
-| [Express](https://github.com/expressjs/express) | [v5.2.1](https://github.com/expressjs/express/tree/dbac741a49a5a64336b70c06e85c2e2706e36336) | Findings | 183 | 274 | 11.19% | 152 ms |
-| [Prettier](https://github.com/prettier/prettier) | [3.9.8](https://github.com/prettier/prettier/tree/4f2ab6765d7cb29408a2abdac75d023d64d44107) | Findings | 3,320 | 981 | 4.89% | 1.23 s |
+| Project | Pin | Sources | Duplicate blocks | Dup. lines | Median `/jscpd scan` |
+| --- | --- | ---: | ---: | ---: | ---: |
+| [Vite](https://github.com/vitejs/vite) | [v8.3.0](https://github.com/vitejs/vite/tree/434e8e9495436a60789f2b588a04a6a24a3d1661) | 1,107 | 524 | 5.91% | 498 ms |
+| [React](https://github.com/facebook/react) | [v19.3.0](https://github.com/facebook/react/tree/1d34f91dfde6bba84d08b683aaba164c7194dacb) | 7,962 | 10,812 | 17.38% | 3.11 s |
+| [Vue](https://github.com/vuejs/core) | [v3.5.43](https://github.com/vuejs/core/tree/5be58b4c475c1d14b4abacbfeda610394a0ee4e5) | 598 | 805 | 6.71% | 451 ms |
+| [Svelte](https://github.com/sveltejs/svelte) | [svelte@5.57.0](https://github.com/sveltejs/svelte/tree/7bc0a70fe64dbb3fa3848b741963f31d1e10a8dc) | 4,499 | 1,102 | 8.27% | 1.25 s |
+| [Express](https://github.com/expressjs/express) | [v5.2.1](https://github.com/expressjs/express/tree/dbac741a49a5a64336b70c06e85c2e2706e36336) | 183 | 274 | 11.19% | 142 ms |
+| [Prettier](https://github.com/prettier/prettier) | [3.9.8](https://github.com/prettier/prettier/tree/4f2ab6765d7cb29408a2abdac75d023d64d44107) | 3,320 | 976 | 4.88% | 1.16 s |
 
-React and Svelte returned the public fail-open message
-`jscpd produced an invalid structured report; no result was used.` The default
-report bound is 16 MiB. A raw analyzer CLI can still print totals on those trees;
-`pi-jscpd` does not use an oversized or malformed report. Pi continued, stderr
-stayed empty, and no report directories remained.
+Every row returned findings. Notifies stayed at 47 lines (presentation cap).
+React and Svelte keep jscpd’s full totals; the session retains at most 1,000
+path-resolved pairs and does not keep source fragments or the raw JSON.
 
-Successful notifies were 47 lines (presentation cap). Prettier counts were
-976, then 981, then 981; the table keeps the repeating 981 / 4.89% snapshot.
+Prettier clone counts were 976 / 982 / 976. The table keeps the repeating
+976 / 4.88% snapshot.
 
 Sample `/jscpd scan` times (ms):
 
 | Project | First | Later | Median |
 | --- | ---: | ---: | ---: |
-| Vite | 600 | 520, 467 | 520 |
-| React (fail-open) | 3,200 | 2,678, 2,569 | 2,678 |
-| Vue | 405 | 417, 430 | 417 |
-| Svelte (fail-open) | 819 | 763, 808 | 808 |
-| Express | 153 | 152, 151 | 152 |
-| Prettier | 1,257 | 1,232, 1,144 | 1,232 |
+| Vite | 560 | 470, 498 | 498 |
+| React | 3,107 | 3,210, 2,974 | 3,107 |
+| Vue | 399 | 459, 451 | 451 |
+| Svelte | 1,292 | 1,251, 1,241 | 1,251 |
+| Express | 142 | 141, 145 | 142 |
+| Prettier | 1,163 | 1,112, 1,177 | 1,163 |
 
 ## How to read this
 
 - This is the extension’s explicit project scan, not `jscpd` invoked by hand
   and not a TUI overlay run.
 - **Sources** and **duplicate blocks** come from the public notify summary after
-  decoding. Fail-open rows have no used result.
+  decoding. They are jscpd totals, even when extra pairs are omitted from the
+  listed findings.
 - **Median scan** is not a SLA. It includes analyzer work plus `pi-jscpd`
   decoding and presentation.
 - A higher percentage is not “worse code.” Scaffolding and tests duplicate on
   purpose.
-- Fail-open is success for the product invariant: a huge report must not break
-  Pi.
 
 Scheduled refresh is tracked in
 [issue #111](https://github.com/revazi/pi-jscpd/issues/111).

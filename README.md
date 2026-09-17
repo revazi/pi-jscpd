@@ -101,16 +101,16 @@ Pi 0.85.1 `/jscpd scan` through this extension (packaged jscpd `5.1.2` still
 detects). Full-tree snapshots, not session findings and not a quality ranking.
 Median of three fresh host processes on macOS arm64 / Node 24.12.0, 2026-09-17.
 
-| | Project | Version | Outcome | Blocks | Dup. lines | `/jscpd scan` |
-| --- | --- | --- | --- | ---: | ---: | ---: |
-| ⚡ | [Vite](https://github.com/vitejs/vite) | [v8.3.0](https://github.com/vitejs/vite/tree/434e8e9495436a60789f2b588a04a6a24a3d1661) | Findings | 524 | 5.91% | 520 ms |
-| 🛟 | [React](https://github.com/facebook/react) | [v19.3.0](https://github.com/facebook/react/tree/1d34f91dfde6bba84d08b683aaba164c7194dacb) | Fail-open | — | — | 2.68 s |
-| ⚡ | [Vue](https://github.com/vuejs/core) | [v3.5.43](https://github.com/vuejs/core/tree/5be58b4c475c1d14b4abacbfeda610394a0ee4e5) | Findings | 805 | 6.71% | 417 ms |
-| 🛟 | [Svelte](https://github.com/sveltejs/svelte) | [svelte@5.57.0](https://github.com/sveltejs/svelte/tree/7bc0a70fe64dbb3fa3848b741963f31d1e10a8dc) | Fail-open | — | — | 808 ms |
-| ⚡ | [Express](https://github.com/expressjs/express) | [v5.2.1](https://github.com/expressjs/express/tree/dbac741a49a5a64336b70c06e85c2e2706e36336) | Findings | 274 | 11.19% | 152 ms |
-| ⏱️ | [Prettier](https://github.com/prettier/prettier) | [3.9.8](https://github.com/prettier/prettier/tree/4f2ab6765d7cb29408a2abdac75d023d64d44107) | Findings | 981 | 4.89% | 1.23 s |
+| | Project | Version | Blocks | Dup. lines | `/jscpd scan` |
+| --- | --- | --- | ---: | ---: | ---: |
+| ⚡ | [Vite](https://github.com/vitejs/vite) | [v8.3.0](https://github.com/vitejs/vite/tree/434e8e9495436a60789f2b588a04a6a24a3d1661) | 524 | 5.91% | 498 ms |
+| ⏱️ | [React](https://github.com/facebook/react) | [v19.3.0](https://github.com/facebook/react/tree/1d34f91dfde6bba84d08b683aaba164c7194dacb) | 10,812 | 17.38% | 3.11 s |
+| ⚡ | [Vue](https://github.com/vuejs/core) | [v3.5.43](https://github.com/vuejs/core/tree/5be58b4c475c1d14b4abacbfeda610394a0ee4e5) | 805 | 6.71% | 451 ms |
+| ⏱️ | [Svelte](https://github.com/sveltejs/svelte) | [svelte@5.57.0](https://github.com/sveltejs/svelte/tree/7bc0a70fe64dbb3fa3848b741963f31d1e10a8dc) | 1,102 | 8.27% | 1.25 s |
+| ⚡ | [Express](https://github.com/expressjs/express) | [v5.2.1](https://github.com/expressjs/express/tree/dbac741a49a5a64336b70c06e85c2e2706e36336) | 274 | 11.19% | 142 ms |
+| ⏱️ | [Prettier](https://github.com/prettier/prettier) | [3.9.8](https://github.com/prettier/prettier/tree/4f2ab6765d7cb29408a2abdac75d023d64d44107) | 976 | 4.88% | 1.16 s |
 
-⚡ under 1 s · ⏱️ about 1 s · 🛟 fail-open (invalid report, Pi kept running).
+⚡ under 1 s · ⏱️ 1 s or more. Totals are jscpd’s; the session lists a bounded subset.
 Version links open the exact scanned commit. Method and sample times:
 [pi-jscpd benchmark method](docs/benchmarks.md). Scheduled refresh:
 [#111](https://github.com/revazi/pi-jscpd/issues/111).

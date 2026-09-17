@@ -11,10 +11,12 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 - Added an explicit **pi-jscpd** benchmarks table and `docs/benchmarks.md` for
   isolated `/jscpd scan` runs on pinned public Vite, React, Vue, Svelte,
-  Express, and Prettier trees, including fail-open invalid-report outcomes.
+  Express, and Prettier trees.
 
 ### Changed
 
+- Refresh the pi-jscpd benchmark snapshot so React and Svelte report bounded
+  findings and jscpd totals instead of fail-open invalid-report rows.
 - Keep jscpd summary statistics when a structured report lists more clone pairs
   than the session may retain, and present bounded findings instead of failing
   the whole scan as an invalid report.

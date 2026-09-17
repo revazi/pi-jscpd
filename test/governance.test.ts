@@ -190,7 +190,8 @@ describe("public repository safeguards", () => {
     expect(benchmarks).toContain("not a raw `jscpd` CLI");
     expect(benchmarks).toContain("not a code-quality ranking");
     expect(benchmarks).toContain("pi-jscpd");
-    expect(benchmarks).toContain("invalid structured report");
+    expect(benchmarks).toContain("10,812");
+    expect(benchmarks).toContain("1,102");
     expect(benchmarks).toContain("5.1.2");
     for (const repo of repos) {
       expect(readme).toContain(`https://github.com/${repo}`);
