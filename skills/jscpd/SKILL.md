@@ -8,7 +8,7 @@ metadata:
   version: 1.0.0
 ---
 
-# jscpd duplication guardrail
+# 🛡️ jscpd duplication guardrail
 
 Use `pi-jscpd` for deterministic duplicate-code analysis across jscpd-supported
 languages and embedded formats. jscpd remains authoritative for tokenization,

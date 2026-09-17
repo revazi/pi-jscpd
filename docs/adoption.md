@@ -1,10 +1,10 @@
-# First scans and safe finding review
+# ✨ First scans and safe finding review
 
 [Install and run your first scan](../README.md#install), then choose the smallest
 useful scope below. These examples describe expected workflows, not transcripts
 or claims about your repository. All scans are read-only and advisory.
 
-## Clean scan: start with one scope
+## ✦ Clean scan: start with one scope
 
 ```text
 /jscpd scan src
@@ -27,7 +27,7 @@ Replace the targets with existing in-project paths. Quote a path containing spac
 for example `/jscpd scan "sample app"`. Scoped scans compare only their targets;
 `/jscpd changed` instead compares the full project and filters by tracked Pi edits.
 
-## New in this session: distinguish new work from existing debt
+## 🔄 New in this session: distinguish new work from existing debt
 
 Suppose `src/orders.py` already contains a block when a fresh Pi session begins.
 Later, Pi's built-in `write` or `edit` adds matching code in `src/summary.py`.
@@ -55,7 +55,7 @@ tracked as Pi-owned changes; use an explicit `scan` for those changes.
 See [session checks](../README.md#how-session-checks-work) for the lifecycle and
 [Fallow coexistence](fallow-coexistence.md) when automatic checks are on demand.
 
-## Intentional duplication: use normal jscpd policy
+## 📌 Intentional duplication: use normal jscpd policy
 
 A duplicate test fixture may deliberately preserve an independent example or a
 protocol boundary. Inspect both locations and ask whether they should evolve
@@ -83,7 +83,7 @@ not that source duplication was removed. Start a fresh Pi session (rather than
 resuming previously tracked edits) before a session-delta comparison under changed
 detection policy so its baseline uses the same policy.
 
-## Review without automatic refactoring
+## 🔍 Review without automatic refactoring
 
 1. Open `/jscpd`, choose a scan action, then press Enter on a finding to expand
    both locations. Opening the overview itself does not scan.
@@ -102,7 +102,7 @@ routine guidance to every model turn. `/jscpd off` disables both explicit and
 automatic scans for this session; `/jscpd on` restores scanning. Neither edits
 configuration, enforces a threshold on Pi writes, or refactors code.
 
-## Visual provenance
+## 📷 Visual provenance
 
 The [README image](images/jscpd-findings.png) comes from the unmodified source
 extension at `fa7872d`, loaded by real Pi 0.85.1 with Node 24.12.0 and bundled

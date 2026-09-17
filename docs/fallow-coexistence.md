@@ -1,4 +1,4 @@
-# Fallow coexistence policy
+# 🤝 Fallow coexistence policy
 
 Status: implemented with Effect-owned policy evaluation
 

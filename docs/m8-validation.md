@@ -1,4 +1,4 @@
-# M8 real-project validation
+# 📋 M8 real-project validation
 
 Status: **complete for the local milestone decision** — [issue #99](https://github.com/revazi/pi-jscpd/issues/99).
 These observations do not activate feature candidates #103–#106. Residual limits

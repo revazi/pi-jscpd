@@ -1,4 +1,4 @@
-# Contributing to pi-jscpd
+# 👋 Contributing to pi-jscpd
 
 Thanks for helping improve `pi-jscpd`. Changes should preserve the extension's
 quiet, advisory, read-only, bounded, and fail-open behavior. jscpd remains the

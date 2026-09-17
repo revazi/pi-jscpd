@@ -7,6 +7,12 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Added a README benchmarks table and `docs/benchmarks.md` snapshot for pinned
+  public Vite, React, Vue, Svelte, Express, and Prettier trees, with links to
+  each repository and scanned commit.
+
 ### Changed
 
 - Concentrated the approved public version in one reviewed source so release

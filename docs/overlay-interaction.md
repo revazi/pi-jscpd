@@ -1,4 +1,4 @@
-# `/jscpd` overlay interaction contract
+# 🖥️ `/jscpd` overlay interaction contract
 
 Status: **implemented with managed-runtime action execution**
 
