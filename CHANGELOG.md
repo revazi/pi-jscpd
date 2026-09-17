@@ -7,6 +7,8 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-18
+
 ### Added
 
 - Added an explicit **pi-jscpd** benchmarks table and `docs/benchmarks.md` for
@@ -15,18 +17,16 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- Refresh the pi-jscpd benchmark snapshot so React and Svelte report bounded
-  findings and jscpd totals instead of fail-open invalid-report rows.
 - Keep jscpd summary statistics when a structured report lists more clone pairs
   than the session may retain, and present bounded findings instead of failing
   the whole scan as an invalid report.
-- Concentrated the approved public version in one reviewed source so release
-  preparation no longer repeats the same version literal across publication
-  guards.
 - Certified Pi 0.85.1 across both supported Node fixtures and widened the Pi
   peer range through the 0.85 line after API review, packed-artifact checks,
   compact/expanded transcript probes, narrow real-TUI smoke tests, and active
   scan cancellation/cleanup verification.
+- Concentrated the approved public version in one reviewed source so release
+  preparation no longer repeats the same version literal across publication
+  guards.
 
 ## [0.2.1] - 2026-09-06
 
@@ -144,7 +144,8 @@ published releases use [Semantic Versioning](https://semver.org/).
 - Project paths, child output, reports, temporary directories, cancellation,
   configuration trust, and lifecycle cleanup are bounded and fail open.
 
-[Unreleased]: https://github.com/revazi/pi-jscpd/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/revazi/pi-jscpd/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/revazi/pi-jscpd/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/revazi/pi-jscpd/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/revazi/pi-jscpd/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/revazi/pi-jscpd/compare/v0.1.0...v0.1.1

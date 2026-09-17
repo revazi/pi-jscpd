@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 /** Reviewed public version. Changing this does not authorize a tag or publish. */
-export const APPROVED_RELEASE_VERSION = "0.2.1";
+export const APPROVED_RELEASE_VERSION = "0.2.2";
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
