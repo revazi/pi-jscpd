@@ -9,6 +9,9 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Concentrated the approved public version in one reviewed source so release
+  preparation no longer repeats the same version literal across publication
+  guards.
 - Certified Pi 0.85.1 across both supported Node fixtures and widened the Pi
   peer range through the 0.85 line after API review, packed-artifact checks,
   compact/expanded transcript probes, narrow real-TUI smoke tests, and active

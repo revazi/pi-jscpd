@@ -43,6 +43,8 @@ jobs:
         run: |
           set -euo pipefail
           PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          APPROVED_VERSION="$(node scripts/approved-release-version.mjs)"
+          test "$PACKAGE_VERSION" = "$APPROVED_VERSION"
           test "$GITHUB_REF_TYPE" = "tag"
           test "$GITHUB_REF_NAME" = "v$PACKAGE_VERSION"
           test "$(git cat-file -t "$GITHUB_REF")" = "tag"

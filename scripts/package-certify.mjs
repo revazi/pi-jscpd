@@ -18,6 +18,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { RpcClient } from "@earendil-works/pi-coding-agent";
+import {
+  APPROVED_RELEASE_VERSION,
+  assertApprovedReleaseVersion,
+} from "./approved-release-version.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const npmExecutable = process.platform === "win32" ? "npm.cmd" : "npm";
@@ -119,9 +123,9 @@ function packPackage(destination) {
   assert.equal(results.length, 1, "npm pack must produce exactly one artifact.");
   const packed = results[0];
   assert.equal(packed.name, "pi-jscpd");
-  assert.equal(packed.version, "0.2.1");
-  assert.equal(packed.id, "pi-jscpd@0.2.1");
-  assert.match(packed.filename, /^pi-jscpd-0\.2\.1\.tgz$/);
+  assertApprovedReleaseVersion(packed.version, "packed version");
+  assert.equal(packed.id, `pi-jscpd@${APPROVED_RELEASE_VERSION}`);
+  assert.equal(packed.filename, `pi-jscpd-${APPROVED_RELEASE_VERSION}.tgz`);
   assert.ok(Array.isArray(packed.files), "npm pack did not report its file list.");
   assert.ok(existsSync(join(destination, packed.filename)), "npm pack did not create its tarball.");
   return packed;
@@ -192,7 +196,7 @@ function validateInstalledPackage(projectDirectory) {
   const packageRoot = join(projectDirectory, "node_modules", "pi-jscpd");
   const manifest = readJson(join(packageRoot, "package.json"));
   assert.equal(manifest.name, "pi-jscpd");
-  assert.equal(manifest.version, "0.2.1");
+  assertApprovedReleaseVersion(manifest.version, "installed package version");
   assert.equal(manifest.private, undefined, "Certified public package retained the private guard.");
   assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
   assert.deepEqual(manifest.pi?.extensions, ["./src/index.ts"]);

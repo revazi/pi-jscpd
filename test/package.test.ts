@@ -44,6 +44,14 @@ async function readManifest(): Promise<PackageManifest> {
   return JSON.parse(await readFile(manifestPath, "utf8")) as PackageManifest;
 }
 
+async function approvedReleaseVersion(): Promise<string> {
+  // @ts-expect-error The approved-version script intentionally has no published type surface.
+  const module = (await import("../scripts/approved-release-version.mjs")) as {
+    APPROVED_RELEASE_VERSION: string;
+  };
+  return module.APPROVED_RELEASE_VERSION;
+}
+
 describe("Pi package manifest", () => {
   it("declares one explicit extension entrypoint and one on-demand skill", async () => {
     const manifest = await readManifest();
@@ -55,7 +63,7 @@ describe("Pi package manifest", () => {
 
   it("is configured for the approved public release", async () => {
     const manifest = await readManifest();
-    expect(manifest.version).toBe("0.2.1");
+    expect(manifest.version).toBe(await approvedReleaseVersion());
     expect(manifest.private).toBeUndefined();
   });
 
@@ -100,7 +108,7 @@ describe("Pi package manifest", () => {
     const manifest = await readManifest();
 
     expect(manifest.name).toBe("pi-jscpd");
-    expect(manifest.version).toBe("0.2.1");
+    expect(manifest.version).toBe(await approvedReleaseVersion());
     expect(manifest.license).toBe("MIT");
     expect(manifest.author).toEqual({
       name: "Revaz Zakalashvili",

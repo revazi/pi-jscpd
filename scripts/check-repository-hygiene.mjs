@@ -2,6 +2,10 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+  APPROVED_RELEASE_VERSION,
+  assertApprovedReleaseVersion,
+} from "./approved-release-version.mjs";
 
 const root = resolve(import.meta.dirname, "..");
 const manifest = readJson("package.json");
@@ -79,7 +83,15 @@ for (const pattern of requiredIgnores) {
 }
 
 assert.equal(manifest.name, "pi-jscpd");
-assert.equal(manifest.version, "0.2.1", "Package version differs from the approved release.");
+assertApprovedReleaseVersion(manifest.version, "Package version");
+const lockfile = readJson("package-lock.json");
+assertApprovedReleaseVersion(lockfile.version, "package-lock version");
+assertApprovedReleaseVersion(lockfile.packages?.[""]?.version, "package-lock root version");
+assert.match(
+  readText("CHANGELOG.md"),
+  new RegExp(`^## \\[${APPROVED_RELEASE_VERSION.replaceAll(".", "\\.")}] `, "m"),
+  "CHANGELOG.md is missing the approved release heading.",
+);
 assert.equal(manifest.private, undefined, "Public package must not retain the private guard.");
 assert.deepEqual(manifest.publishConfig, { access: "public", provenance: true });
 assert.deepEqual(manifest.files, [
