@@ -136,6 +136,25 @@ describe("bounded scan presentation", () => {
     expect(presented.message).not.toContain("src/first-10.ts");
   });
 
+  it("omits from jscpd totals when decoded pairs are a bounded subset", () => {
+    const clonePairs = Array.from({ length: 10 }, (_, index) => clonePair(index, "src"));
+    const report: JscpdScanReport = {
+      clonePairs,
+      statistics: {
+        formats: [{ format: "typescript", ...statisticsRow(10_812) }],
+        total: statisticsRow(10_812),
+      },
+    };
+
+    const presented = presentJscpdScan(report, 10, 100);
+
+    expect(presented.findings).toHaveLength(10);
+    expect(presented.omittedFindings).toBe(10_802);
+    expect(presented.overlayCache?.omittedFindings).toBe(10_712);
+    expect(presented.message).toContain("10812 duplicate blocks");
+    expect(presented.message).toContain("10802 additional duplicate blocks omitted");
+  });
+
   it("renders stable ordered and empty consumer-facing snapshots without source fragments", () => {
     const report: JscpdScanReport = {
       clonePairs: [clonePair(1, "src")],

@@ -15,6 +15,9 @@ published releases use [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- Keep jscpd summary statistics when a structured report lists more clone pairs
+  than the session may retain, and present bounded findings instead of failing
+  the whole scan as an invalid report.
 - Concentrated the approved public version in one reviewed source so release
   preparation no longer repeats the same version literal across publication
   guards.

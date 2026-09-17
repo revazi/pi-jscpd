@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   consumeJscpdV5JsonReportEffect,
+  JSCPD_MAX_DECODED_CLONE_PAIRS,
   JSCPD_STRUCTURED_REPORT_FILE_NAME,
   JSCPD_STRUCTURED_REPORTER,
 } from "../src/jscpd-report.js";
@@ -416,14 +417,31 @@ describe("jscpd v5 JSON report normalization", () => {
     }
   });
 
-  it("rejects excessive clone and format collections before resolving occurrence paths", async () => {
+  it("keeps jscpd totals and a bounded pair list when the report has too many clones", async () => {
+    await materialize(["lib/b.ts", "src/a.ts"]);
     const fixture = await fixtureObject();
     const oneDuplicate = duplicate(fixture);
-    fixture.duplicates = Array.from({ length: 1_001 }, () => structuredClone(oneDuplicate));
-    totalStatistics(fixture).clones = 1_001;
-    formatStatistics(fixture).clones = 1_001;
-    await rejected(encode(fixture), "limit-exceeded");
+    const reportedClones = JSCPD_MAX_DECODED_CLONE_PAIRS + 1;
+    fixture.duplicates = Array.from({ length: reportedClones }, (_, index) => {
+      const copy = structuredClone(oneDuplicate);
+      const line = index + 1;
+      for (const name of ["firstFile", "secondFile"] as const) {
+        const file = asObject(copy[name]);
+        file.start = line;
+        file.end = line + 10;
+        asObject(file.startLoc).line = line;
+        asObject(file.endLoc).line = line + 10;
+      }
+      return copy;
+    });
+    totalStatistics(fixture).clones = reportedClones;
+    formatStatistics(fixture).clones = reportedClones;
+    const report = await accepted(encode(fixture));
+    expect(report.statistics.total.clones).toBe(reportedClones);
+    expect(report.clonePairs).toHaveLength(JSCPD_MAX_DECODED_CLONE_PAIRS);
+  });
 
+  it("rejects excessive format collections before resolving occurrence paths", async () => {
     const tooManyFormats = await fixtureObject("clean.json");
     const emptyRow: JsonObject = {
       lines: 0,
