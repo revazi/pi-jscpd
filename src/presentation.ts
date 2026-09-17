@@ -28,11 +28,11 @@ export function presentJscpdScan(
     .slice(0, Math.max(maxFindings, overlayLimit ?? 0))
     .map(presentFinding);
   const findings = Object.freeze(retained.slice(0, maxFindings));
-  const omittedFindings = Math.max(0, report.clonePairs.length - findings.length);
+  const omittedFindings = Math.max(0, summary.clones - findings.length);
   const overlayCache = overlayLimit
     ? Object.freeze({
         findings: Object.freeze(retained.slice(0, overlayLimit)),
-        omittedFindings: Math.max(0, report.clonePairs.length - overlayLimit),
+        omittedFindings: Math.max(0, summary.clones - overlayLimit),
       })
     : undefined;
   const outcome = findings.length === 0 ? "clean" : "findings";

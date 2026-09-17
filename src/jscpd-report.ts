@@ -24,14 +24,17 @@ export const JSCPD_STRUCTURED_REPORTER = "json";
 export const JSCPD_STRUCTURED_REPORT_FILE_NAME = "jscpd-report.json";
 
 const MAX_REPORT_BYTES = 16 * 1_024 * 1_024;
-const MAX_CLONE_PAIRS = 1_000;
+/** Retained, path-resolved pairs kept in session memory. jscpd totals may be larger. */
+export const JSCPD_MAX_DECODED_CLONE_PAIRS = 1_000;
+const MAX_CLONE_PAIRS = JSCPD_MAX_DECODED_CLONE_PAIRS;
 const MAX_FORMATS = 256;
 const MAX_PATH_BYTES = 4_096;
 const MAX_FORMAT_BYTES = 128;
 const MAX_DATE_BYTES = 128;
 const MAX_U32 = 0xffff_ffff;
 const MAX_JSON_DEPTH = 64;
-const MAX_JSON_KEYS = 100_000;
+/** Secondary to the 16 MiB report cap; large trees have many small JSON keys. */
+const MAX_JSON_KEYS = 1_000_000;
 const MAX_JSON_KEYS_PER_OBJECT = 2_048;
 const PATH_RESOLUTION_CONCURRENCY = 16;
 
@@ -151,13 +154,14 @@ function parseReportBytes(bytes: Uint8Array): ParsedReport {
     requiredProperty(topLevel, "duplicates", "invalid-top-level"),
     "invalid-duplicates",
   );
-  if (duplicates.length > MAX_CLONE_PAIRS) {
-    fail("limit-exceeded");
-  }
-
-  const clonePairs = duplicates.map(parseClonePair);
   const statistics = parseStatistics(requiredProperty(topLevel, "statistics", "invalid-top-level"));
-  validateCloneStatistics(clonePairs, statistics);
+  if (statistics.total.clones !== duplicates.length) {
+    fail("invalid-statistics");
+  }
+  const truncated = duplicates.length > MAX_CLONE_PAIRS;
+  const retained = truncated ? duplicates.slice(0, MAX_CLONE_PAIRS) : duplicates;
+  const clonePairs = retained.map(parseClonePair);
+  validateCloneStatistics(clonePairs, statistics, truncated);
   return { statistics, clonePairs };
 }
 
@@ -402,7 +406,14 @@ function parseStatisticsRow(value: unknown): JscpdStatisticsRow {
 function validateCloneStatistics(
   clonePairs: readonly UnresolvedClonePair[],
   statistics: JscpdScanStatistics,
+  truncated: boolean,
 ): void {
+  if (truncated) {
+    if (clonePairs.length !== MAX_CLONE_PAIRS || statistics.total.clones < clonePairs.length) {
+      fail("invalid-statistics");
+    }
+    return;
+  }
   if (statistics.total.clones !== clonePairs.length) {
     fail("invalid-statistics");
   }
