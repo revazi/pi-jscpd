@@ -1,16 +1,18 @@
 # M8 real-project validation
 
-Status: **partial** — [issue #99](https://github.com/revazi/pi-jscpd/issues/99)
-remains open. These observations do not activate feature candidates #103–#106.
+Status: **complete for the local milestone decision** — [issue #99](https://github.com/revazi/pi-jscpd/issues/99).
+These observations do not activate feature candidates #103–#106. Residual limits
+are recorded below and do not change the decision.
 
 ## Scope and privacy
 
 Measurements used the Pi 0.85.1 / Node 24.12.0 / jscpd 5.1.2 development
 fixtures on macOS arm64. Project B is a user-approved working tree with an active
 refactor; its private paths, source, branch name, and raw reports are not retained
-here. Both measured repositories fall in the 100–999 analyzed-source bucket.
-Project B is in the 10,000–49,999 analyzed-line bucket, not a large-repository
-stress test. It includes JavaScript, Python, and Bash according to the analyzer.
+here. Projects A and B fall in the 100–999 analyzed-source bucket. Project B is in
+the 10,000–49,999 analyzed-line bucket. Public project C fills the 1,000–9,999
+source and 100,000–499,999 line buckets. Project B includes JavaScript, Python,
+and Bash according to the analyzer.
 
 No original source or configuration was changed. Pi runs used isolated home,
 agent, and temporary directories, offline mode, no session persistence, no
@@ -256,6 +258,31 @@ separate positive-signal fixture above remains the evidence for suppression.
 All three sessions had zero extension errors, stderr output, provider turns, or
 remaining report directories. The original working-tree contents were unchanged.
 
+### Large public repository: project C (`vitejs/vite`)
+
+Public TypeScript monorepo `vitejs/vite` at `bd3a3a9`, cloned read-only into an
+owned temporary directory. No project-local jscpd policy. Same host, Node 24.12.0,
+Pi 0.85.1 fixture, and pinned jscpd 5.1.2 as above. Analyzer-reported size: 1,107
+sources and 172,464 lines (1,000–9,999 source bucket; 100,000–499,999 line bucket).
+Counts were stable across three CLI samples per scope. Every report directory was
+removed.
+
+| Scope | First / later runs (ms) | Clone pairs per run |
+| --- | --- | --- |
+| Project | 362 / 210 / 249 | 524 |
+| `packages` | 117 / 114 / 111 | 247 |
+| `docs` | 60 / 59 / 61 | 66 |
+
+Three fresh isolated Pi 0.85.1 RPC sessions loaded only the source extension,
+offline, with discovery and built-in tools disabled. Explicit `/jscpd scan`
+returned the same 524-pair summary in 447, 382, and 391 ms. Each notify was 47
+lines and 2,809 characters. A `/jscpd scan packages` run returned 247 pairs in
+259 ms. No extension stderr and no leftover report directories.
+
+This is real-host slash-command evidence on a public 1,000+ source tree, not a
+TUI overlay run against 524 findings and not a session-delta usefulness review.
+Sub-second full scans do not activate persistent or incremental transport.
+
 ## Reproduction procedure
 
 1. Use an explicitly approved target; reuse its existing authorization while
@@ -328,32 +355,35 @@ remaining report directories. The original working-tree contents were unchanged.
     implementation, clean JavaScript, and report-selected Bash scopes in three
     fresh processes. Keep trust unchanged and distinguish ambiguous from positive
     policy evidence.
+11. For the public large-repository sample, clone `vitejs/vite` at `bd3a3a9` into
+    an owned temporary directory. Use the pinned analyzer without `--config`.
+    Repeat project, `packages`, and `docs` CLI scopes three times with a 120-second
+    bound. Then load the source extension into three isolated Pi 0.85.1 RPC hosts
+    and time `/jscpd scan` until the notify summary arrives. Record only timings,
+    pair counts, notify line/character bounds, and cleanup. Delete the clone.
+    Do not retain template paths from the notify body.
 
 ## Remaining acceptance and decision
 
-- The approved repository's measured size is a documented coverage limit. No
-  larger-repository latency claim is made; do not substitute a synthetic expansion
-  or repeatedly request another target as a prerequisite for this scoped report.
-- Cancellation, observed process-group cleanup, controlled timeout/failure,
-  live compact/expanded transcripts, fullscreen UI, and selection/handoff now
-  have real-host observations against project B.
-- Positive coexistence and mutation/clean-checkpoint behavior now have controlled
-  real-host observations, but still need representative project-policy/workflow
-  acceptance. No child project trust approval or second analyzer was exercised.
-- Usefulness now has a bounded triage: four production inspection candidates,
-  26 likely expected test repetitions, and 30 uncertain pairs in the current
-  60-pair snapshot. Safe extraction and maintainer intent remain unproven; do not
-  convert these review priorities into automatic fixes or a false-positive rate.
+- Small and large source-count buckets now have real analyzer evidence: projects A
+  and B (100–999 sources) plus public project C (1,107 sources / 172,464 lines).
+  Full scans stayed well under one second. This does not claim a 10,000-source
+  result and does not activate persistent or incremental transport.
+- Cancellation, observed process-group cleanup, controlled timeout/failure, live
+  compact/expanded transcripts, fullscreen UI, and selection/handoff have real-host
+  observations against project B. Project C adds RPC slash-command scan timings,
+  not a 524-finding TUI overlay rerun.
+- Positive coexistence and mutation/clean-checkpoint behavior have controlled
+  real-host observations. Representative trusted-project Fallow duplication policy
+  was not accepted on project B; the synthetic positive-signal fixture remains the
+  suppression evidence. That gap does not activate team-policy work.
+- Usefulness has a bounded triage on project B: four production inspection
+  candidates, 26 likely expected test repetitions, and 30 uncertain pairs in the
+  60-pair snapshot. Safe extraction and maintainer intent remain unproven.
 
-**Scoped conclusion: no demonstrated product problem should drive a new feature
-milestone.** Existing explicit scope controls already isolate useful implementation
-leads from test-heavy historical debt. The full-project test/test share (38/60)
-is not evidence that automatic session-delta warnings are noisy. Keep advisory,
-quiet defaults and current thresholds; do not start a performance, navigation,
-team-policy, or noise feature on this evidence. Adoption/feedback work can use
-this report without waiting for another target.
+**Decision: no demonstrated product problem should drive a new feature milestone.**
+Keep advisory, quiet defaults and current thresholds. Do not start a performance,
+navigation, team-policy, or noise feature on this evidence. Candidates #103–#106
+stay deferred until new evidence appears.
 
 No extension defect was established, so no speculative defect issue was filed.
-The requested review of the approved repository is recorded. Keep #99 open for
-its formally incomplete representative-size and real positive-policy matrix;
-that limitation does not invalidate the completed local observations.

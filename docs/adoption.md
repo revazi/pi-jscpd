@@ -127,5 +127,5 @@ session persistence, no project trust approval, no resource discovery, and no
 provider or built-in tool calls. Pi quit normally; no analyzer reports remained.
 Only the cropped sanitized PNG and this aggregate provenance are retained—not
 raw terminal output, source fixtures, reports, host/account data, or private paths.
-This adoption visual is separate from the incomplete [#99 validation
-matrix](m8-validation.md); it makes no additional performance or usability claim.
+This adoption visual is separate from the [#99 validation
+evidence](m8-validation.md); it makes no additional performance or usability claim.
