@@ -184,7 +184,10 @@ describe("public repository safeguards", () => {
     ];
 
     expect(readme).toContain("## 📊 Benchmarks");
+    expect(readme).toContain("`/jscpd scan`");
     expect(benchmarks).toContain("not a code-quality ranking");
+    expect(benchmarks).toContain("pi-jscpd");
+    expect(benchmarks).toContain("invalid structured report");
     expect(benchmarks).toContain("5.1.2");
     for (const repo of repos) {
       expect(readme).toContain(`https://github.com/${repo}`);
